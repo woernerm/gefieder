@@ -1,0 +1,14 @@
+Build:
+```bash
+podman build -t gefieder .
+```
+
+Run
+```bash
+podman run -d -e POSTGRES_PASSWORD=duckdb --name pgduckdb --network=host gefieder
+```
+
+Connect:
+```bash
+psql -h localhost -U postgres
+```
