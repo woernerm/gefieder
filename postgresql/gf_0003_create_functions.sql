@@ -162,3 +162,89 @@ BEGIN
     RAISE NOTICE 'Tenant % and all associated data deleted', tenant_name;
 END;
 $$;
+
+-- Set resource limits for a tenant
+CREATE OR REPLACE FUNCTION set_tenant_limits(
+    tenant_name text,
+    connection_limit int DEFAULT 5,
+    statement_timeout text DEFAULT '5min',
+    work_mem text DEFAULT '256MB',
+    temp_file_limit text DEFAULT '1GB'
+)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    --------------------------------------------------------------------
+    -- Input validation
+    --------------------------------------------------------------------
+    -- Check tenant_name is not empty and valid
+    IF tenant_name IS NULL OR tenant_name = '' THEN
+        RAISE EXCEPTION 'tenant_name cannot be empty';
+    END IF;
+
+    IF tenant_name !~ '^[a-zA-Z0-9_]+$' THEN
+        RAISE EXCEPTION 'tenant_name can only contain letters, numbers, and underscores';
+    END IF;
+
+    -- Check role exists
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = tenant_name) THEN
+        RAISE EXCEPTION 'Tenant role % does not exist', tenant_name;
+    END IF;
+
+    -- Validate connection_limit
+    IF connection_limit < -1 THEN
+        RAISE EXCEPTION 'connection_limit must be >= -1 (unlimited)';
+    END IF;
+
+    -- Validate timeout and memory values (basic check)
+    IF statement_timeout !~ '^\d+[smh]$' AND statement_timeout !~ '^\d+$' THEN
+        RAISE EXCEPTION 'statement_timeout must be in format like 5min, 10s, 1h';
+    END IF;
+
+    IF work_mem !~ '^\d+[kMG]B?$' THEN
+        RAISE EXCEPTION 'work_mem must be in format like 256MB, 1GB';
+    END IF;
+
+    IF temp_file_limit !~ '^\d+[kMG]B?$' THEN
+        RAISE EXCEPTION 'temp_file_limit must be in format like 1GB';
+    END IF;
+
+    --------------------------------------------------------------------
+    -- Apply connection limit
+    --------------------------------------------------------------------
+    EXECUTE format(
+        'ALTER ROLE %I CONNECTION LIMIT %s',
+        tenant_name,
+        connection_limit
+    );
+
+    --------------------------------------------------------------------
+    -- Apply resource limits
+    --------------------------------------------------------------------
+    EXECUTE format(
+        'ALTER ROLE %I SET statement_timeout = %L',
+        tenant_name,
+        statement_timeout
+    );
+
+    EXECUTE format(
+        'ALTER ROLE %I SET work_mem = %L',
+        tenant_name,
+        work_mem
+    );
+
+    EXECUTE format(
+        'ALTER ROLE %I SET temp_file_limit = %L',
+        tenant_name,
+        temp_file_limit
+    );
+
+    RAISE NOTICE 'Resource limits set for tenant %: connections=%, timeout=%, work_mem=%, temp_file_limit=%',
+        tenant_name,
+        CASE WHEN connection_limit = -1 THEN 'unlimited' ELSE connection_limit::text END,
+        statement_timeout,
+        work_mem,
+        temp_file_limit;
+END;
+$$;
