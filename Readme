@@ -5,7 +5,7 @@ podman build -t gefieder .
 
 Run
 ```bash
-podman run -d -e POSTGRES_PASSWORD=duckdb --name pgduckdb --network=host gefieder
+podman run -d -e POSTGRES_PASSWORD=duckdb --name pgduckdb --replace --network=host gefieder
 ```
 
 Connect:

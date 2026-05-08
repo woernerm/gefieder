@@ -1,6 +1,4 @@
-SET duckdb.allow_community_extensions = true;
-SET duckdb.allow_unsigned_extensions = true;
-
+--- Install the desired extensions.
 SELECT duckdb.install_extension('duckpgq', 'community');
 SELECT duckdb.install_extension('dash', 'community');
 SELECT duckdb.install_extension('flock', 'community');

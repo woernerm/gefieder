@@ -1,5 +1,6 @@
 FROM pgduckdb/pgduckdb:17-main
 
-COPY --chown=postgres:postgres setup_01.sh /docker-entrypoint-initdb.d/
-COPY --chown=postgres:postgres setup_02.sql /docker-entrypoint-initdb.d/
+# Setup PostgreSQL using the /docker-entrypoint-initdb.d/ entry point. PostgreSQL will 
+# run the scripts when the container starts.
+COPY --chown=postgres:postgres postgresql/ /docker-entrypoint-initdb.d/
 
