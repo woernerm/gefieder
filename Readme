@@ -1,14 +1,41 @@
-Build:
+# Introduction
+The Gefieder image is multi-tenant / team data analytics platform built on top of 
+PostgreSQL, DuckDB, SQLMesh and Django (with Unfold admin interface).
+
+
+## Instructions
+
+Build the image from the repository root:
+
 ```bash
 podman build -t gefieder .
 ```
 
-Run
+Run the container with the application and PostgreSQL exposed:
+
 ```bash
-podman run -d -e POSTGRES_PASSWORD=duckdb --name pgduckdb --replace --network=host gefieder
+podman run -d \
+  --name gefieder \
+  --replace \
+  -p 8000:8000 \
+  -p 5432:5432 \
+  -e POSTGRES_PASSWORD=duckdb \
+  gefieder
 ```
 
-Connect:
+If the container is already using the same ports, stop or remove the old one first:
+
 ```bash
-psql -h localhost -U postgres
+podman rm -f gefieder
 ```
+
+Connect to the running services:
+
+- Open the Django application at http://localhost:8000/
+- Connect to PostgreSQL with:
+
+```bash
+psql -h localhost -p 5432 -U postgres -d postgres
+```
+
+When prompted for a password, use the same value that was passed as POSTGRES_PASSWORD (for example, `duckdb`).
