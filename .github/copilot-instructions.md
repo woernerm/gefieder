@@ -66,6 +66,8 @@
   as well as the SQLMesh analytics engine. The container is built using Podman.
 - Python packages are only installed using uv.
 - Always explain briefly the main changes you have done and why they were necessary.
+- Simplifying or making the code more concise means removing code, 
+  not removing comments, newlines or whitespace.
 
 ## Container Image
 - The container image is built using Podman. 

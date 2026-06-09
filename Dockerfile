@@ -43,6 +43,7 @@ COPY --chown=postgres:postgres postgresql/ /docker-entrypoint-initdb.d/
 
 USER postgres
 
+# Document the main application port.
 EXPOSE 8000
 
 # Start the application with Gunicorn.
