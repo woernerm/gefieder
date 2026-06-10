@@ -8,6 +8,10 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # This is useful for Docker logs and makes errors appear in real time.
 ENV PYTHONUNBUFFERED=1
 
+# The base PostgreSQL image reads POSTGRES_PASSWORD_FILE to load the password from
+# the mounted Podman secret file at runtime.
+ENV POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
+
 # Install uv for package management.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
@@ -41,11 +45,18 @@ RUN chown -R postgres:postgres /crudman /home/postgres
 # run the scripts when the container starts.
 COPY --chown=postgres:postgres postgresql/ /docker-entrypoint-initdb.d/
 
+# Startup wrapper to keep PostgreSQL and the Django application running in the same
+# container.
+COPY --chown=postgres:postgres start.sh /usr/local/bin/start-gefieder.sh
+RUN chmod +x /usr/local/bin/start-gefieder.sh
+
 USER postgres
 
 # Document the main application port.
 EXPOSE 8000
 
-# Start the application with Gunicorn.
-CMD ["uv", "run", "--project", "/crudman", "gunicorn", "-b", "0.0.0.0:8000", "crudman.wsgi:application"]
+ENTRYPOINT ["/usr/local/bin/start-gefieder.sh"]
+
+# No separate CMD is needed because the startup script starts the application.
+CMD []
 

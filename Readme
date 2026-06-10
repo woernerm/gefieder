@@ -5,11 +5,32 @@ PostgreSQL, DuckDB, SQLMesh and Django (with Unfold admin interface).
 
 ## Instructions
 
+Compute a django secret key for django (the last dash is not a typo, it tells podman to 
+read the secret from stdin):
+```bash
+openssl rand -hex 265 | podman secret create django_secret_key -
+```
+You may receive a warning like `"/" is not a shared mount`. This is expected and can be 
+ignored. The key will remain immutable. You cannot overwrite it using the same command 
+again. You have to call `podman secret rm django_secret_key` first and then use the above 
+command again to create a new one.
+
+Create a managed secret for the PostgreSQL password as well. With the version below,
+you will be prompted to enter the password interactively without showing it on
+screen.
+```bash
+read -s PW && printf "%s" "$PW" | podman secret create postgres_password -
+```
+If the secret already exists, remove it first with `podman secret rm postgres_password`.
+
+
 Build the image from the repository root:
 
 ```bash
 podman build -t gefieder .
 ```
+
+
 
 Run the container with the application and PostgreSQL exposed:
 
@@ -17,9 +38,10 @@ Run the container with the application and PostgreSQL exposed:
 podman run -d \
   --name gefieder \
   --replace \
+  --secret django_secret_key \
+  --secret postgres_password \
   -p 8000:8000 \
   -p 5432:5432 \
-  -e POSTGRES_PASSWORD=duckdb \
   gefieder
 ```
 
@@ -38,4 +60,4 @@ Connect to the running services:
 psql -h localhost -p 5432 -U postgres -d postgres
 ```
 
-When prompted for a password, use the same value that was passed as POSTGRES_PASSWORD (for example, `duckdb`).
+When prompted for a password, use the same value that was stored in the `postgres_password` secret (for example, `duckdb`).
