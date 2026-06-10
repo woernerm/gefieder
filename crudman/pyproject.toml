@@ -3,4 +3,10 @@ name = "crudman"
 version = "0.1.0"
 description = "Crudman is an administration panel for Gefieder."
 requires-python = ">=3.13"
-dependencies = ["Django", "django-unfold", "gunicorn", "whitenoise"]
+dependencies = [
+    "Django",
+    "django-unfold",
+    "gunicorn",
+    "psycopg[binary]",
+    "whitenoise",
+]
