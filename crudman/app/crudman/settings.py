@@ -14,6 +14,8 @@ import os
 import secrets
 from pathlib import Path
 
+APP_NAME = os.environ.get("APP_NAME", "gefieder").capitalize()
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -91,11 +93,12 @@ WSGI_APPLICATION = 'crudman.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-POSTGRES_PASSWORD_FILE = Path(os.environ.get('POSTGRES_PASSWORD_FILE', '/run/secrets/crudman_password'))
-POSTGRES_PASSWORD = (
-    POSTGRES_PASSWORD_FILE.read_text(encoding='utf-8').strip()
-    if POSTGRES_PASSWORD_FILE.exists()
-    else os.environ.get('POSTGRES_PASSWORD', '')
+PG_PASSWORD_FILE = Path("/run/secrets/crudman_password")
+
+PG_PASSWORD = (
+    PG_PASSWORD_FILE.read_text().strip()
+    if PG_PASSWORD_FILE.exists()
+    else secrets.token_hex(100)
 )
 
 DATABASES = {
@@ -103,7 +106,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': os.environ.get('POSTGRES_DB', 'postgres'),
         'USER': os.environ.get('POSTGRES_USER', 'crudman'),
-        'PASSWORD': POSTGRES_PASSWORD,
+        'PASSWORD': PG_PASSWORD,
         'HOST': os.environ.get('POSTGRES_HOST', 'postgresql'),
         'PORT': os.environ.get('POSTGRES_PORT', '5432'),
         'OPTIONS': {
@@ -149,6 +152,7 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+
 STORAGES = {
     'default': {
         'BACKEND': 'django.core.files.storage.FileSystemStorage',
@@ -156,4 +160,14 @@ STORAGES = {
     'staticfiles': {
         'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
     },
+}
+
+
+UNFOLD = {
+    # Browser tab title
+    "SITE_TITLE": f"{APP_NAME} Administration",
+    
+    # Header text in the admin
+    "SITE_HEADER": APP_NAME,
+
 }

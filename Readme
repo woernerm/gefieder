@@ -15,13 +15,20 @@ ignored. The key will remain immutable. You cannot overwrite it using the same c
 again. You have to call `podman secret rm django_secret_key` first and then use the above 
 command again to create a new one.
 
-Create a managed secret for the PostgreSQL password as well. With the version below,
-you will be prompted to enter the password interactively without showing it on
-screen.
+Create a managed secret for the superuser password as well. It is used both for the
+PostgreSQL superuser and the Django admin superuser, whose name is set by
+`SUPERUSER_NAME` in `.env` (default `admin`). With the version below, you will be
+prompted to enter the password interactively without showing it on screen.
 ```bash
-read -s PW && printf "%s" "$PW" | podman secret create postgres_password -
+read -s PW && printf "%s" "$PW" | podman secret create superuser_password -
 ```
-If the secret already exists, remove it first with `podman secret rm postgres_password`.
+If the secret already exists, remove it first with `podman secret rm superuser_password`.
+
+Create a managed secret for the password of the `crudman` database user the Django
+application connects with:
+```bash
+read -s PW && printf "%s" "$PW" | podman secret create crudman_password -
+```
 
 
 Build the image from the repository root:
@@ -39,7 +46,8 @@ podman run -d \
   --name gefieder \
   --replace \
   --secret django_secret_key \
-  --secret postgres_password \
+  --secret superuser_password \
+  --secret crudman_password \
   -p 8000:8000 \
   -p 5432:5432 \
   gefieder
@@ -57,7 +65,7 @@ Connect to the running services:
 - Connect to PostgreSQL with:
 
 ```bash
-psql -h localhost -p 5432 -U postgres -d postgres
+psql -h localhost -p 5432 -U admin -d postgres
 ```
 
-When prompted for a password, use the same value that was stored in the `postgres_password` secret (for example, `duckdb`).
+When prompted for a password, use the same value that was stored in the `superuser_password` secret.

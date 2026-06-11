@@ -19,11 +19,11 @@ RUN uv sync --project /crudman --no-dev
 # Copy the Django application into the image.
 COPY crudman/app/ /crudman/app/
 
-# Generate the static files used by Django admin and Unfold at build time.
-RUN uv run --project /crudman python /crudman/app/manage.py collectstatic --noinput
+# Copy the startup script that applies migrations before starting the server.
+COPY --chmod=755 crudman/entrypoint.sh /crudman/entrypoint.sh
 
 # Document the main application port.
 EXPOSE 8000
 
-CMD ["uv", "run", "--project", "/crudman", "gunicorn", "-b", "0.0.0.0:8000", "crudman.wsgi:application"]
+CMD ["/crudman/entrypoint.sh"]
 
