@@ -1,71 +1,113 @@
 # Introduction
-The Gefieder image is multi-tenant / team data analytics platform built on top of 
+The Gefieder image is multi-tenant / team data analytics platform built on top of
 PostgreSQL, DuckDB, SQLMesh and Django (with Unfold admin interface).
 
+It runs as a small container system managed by podman compose, consisting of three
+containers:
 
-## Instructions
+- `postgresql`: the PostgreSQL database holding the engineering and application data
+- `crudman`: the Django administration panel, served at port 8000
+- `sqlmesh`: the SQLMesh analytics engine, executing models on their cron schedules
 
-Compute a django secret key for django (the last dash is not a typo, it tells podman to 
-read the secret from stdin):
+
+## Configuration
+
+### Settings
+The compose project reads its settings from the `.env` file in the repository root.
+It is distributed with the repository and contains the following defaults, which you
+can adjust to your liking:
+
 ```bash
-openssl rand -hex 265 | podman secret create django_secret_key -
+APP_NAME=gefieder
+SUPERUSER_NAME=admin
+SUPERUSER_EMAIL=admin@nowhere.com
 ```
-You may receive a warning like `"/" is not a shared mount`. This is expected and can be 
-ignored. The key will remain immutable. You cannot overwrite it using the same command 
-again. You have to call `podman secret rm django_secret_key` first and then use the above 
-command again to create a new one.
 
-Create a managed secret for the superuser password as well. It is used both for the
-PostgreSQL superuser and the Django admin superuser, whose name is set by
-`SUPERUSER_NAME` in `.env` (default `admin`). With the version below, you will be
-prompted to enter the password interactively without showing it on screen.
+- `APP_NAME`: the name of the compose project
+- `SUPERUSER_NAME`: the name of both the PostgreSQL and the Django superuser
+- `SUPERUSER_EMAIL`: the email address of the Django superuser
+
+### Secrets
+All passwords and keys are stored as managed podman secrets, so they never appear in
+the compose file or the images. A secret cannot be overwritten; to replace one, remove
+it first with `podman secret rm <name>` and create it again. When creating a secret you
+may see a warning like `"/" is not a shared mount`, which is expected and can be
+ignored. The trailing dash in the commands below is not a typo, it tells podman to read
+the secret from stdin.
+
+Create the Django secret key:
+```bash
+openssl rand -hex 64 | podman secret create django_secret_key -
+```
+
+Create the superuser password. It is used both for the PostgreSQL superuser and the
+Django admin superuser. With the command below, you will be prompted to enter the
+password interactively without showing it on screen:
 ```bash
 read -s PW && printf "%s" "$PW" | podman secret create superuser_password -
 ```
-If the secret already exists, remove it first with `podman secret rm superuser_password`.
 
-Create a managed secret for the password of the `crudman` database user the Django
-application connects with:
+Create the password of the `crudman` database user the Django application connects
+with:
 ```bash
-read -s PW && printf "%s" "$PW" | podman secret create crudman_password -
+openssl rand -hex 32 | podman secret create crudman_password -
+```
+
+Create the password of the `sqlmesh` database user the SQLMesh engine connects with:
+```bash
+openssl rand -hex 32 | podman secret create sqlmesh_password -
 ```
 
 
-Build the image from the repository root:
+## Build and run
+Start the container system from the repository root. The images are built
+automatically on the first start:
 
 ```bash
-podman build -t gefieder .
+podman compose up -d
 ```
 
-
-
-Run the container with the application and PostgreSQL exposed:
+To force a rebuild after changing a Dockerfile, the application code or the SQLMesh
+project, add the `--build` flag:
 
 ```bash
-podman run -d \
-  --name gefieder \
-  --replace \
-  --secret django_secret_key \
-  --secret superuser_password \
-  --secret crudman_password \
-  -p 8000:8000 \
-  -p 5432:5432 \
-  gefieder
+podman compose up -d --build
 ```
 
-If the container is already using the same ports, stop or remove the old one first:
+If a rebuild picks up stale layers, rebuild without the cache:
 
 ```bash
-podman rm -f gefieder
+podman compose build --no-cache && podman compose up -d
 ```
 
-Connect to the running services:
+Stop the container system without losing data:
 
-- Open the Django application at http://localhost:8000/
-- Connect to PostgreSQL with:
+```bash
+podman compose stop
+```
+
+Stop and remove the containers:
+
+```bash
+podman compose down
+```
+
+Note: the database is stored inside the `postgresql` container. `podman compose down`
+removes the containers and with them all database contents, while `podman compose
+stop` keeps them.
+
+
+## Connect
+- Open the Django administration panel at http://localhost:8000/ and log in with
+  `SUPERUSER_NAME` and the password stored in the `superuser_password` secret.
+- Connect to PostgreSQL with the same password:
 
 ```bash
 psql -h localhost -p 5432 -U admin -d postgres
 ```
 
-When prompted for a password, use the same value that was stored in the `superuser_password` secret.
+- Follow the SQLMesh engine logs with:
+
+```bash
+podman compose logs -f sqlmesh
+```

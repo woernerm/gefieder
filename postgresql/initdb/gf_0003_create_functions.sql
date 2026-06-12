@@ -119,6 +119,23 @@ BEGIN
         tenant_name
     );
 
+    --------------------------------------------------------------------
+    -- Allow the sqlmesh user to read and write the bronze schema and to
+    -- create (and drop) its own tables, views and materialized views in
+    -- it. The default privileges are set FOR ROLE tenant because the
+    -- tenant creates the tables.
+    --------------------------------------------------------------------
+    EXECUTE format('GRANT USAGE, CREATE ON SCHEMA %I TO sqlmesh', schema_name);
+    EXECUTE format(
+        'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO sqlmesh',
+        schema_name
+    );
+    EXECUTE format(
+        'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sqlmesh',
+        tenant_name,
+        schema_name
+    );
+
     RAISE NOTICE 'Tenant % created with schema %', tenant_name, schema_name;
 END;
 $$;

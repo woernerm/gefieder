@@ -6,11 +6,16 @@ gateways:
       # https://sqlmesh.readthedocs.io/en/stable/reference/configuration/#connection
       # https://sqlmesh.readthedocs.io/en/stable/integrations/engines/postgres/#connection-options
       type: postgres
-      host: 
-      user: 
-      password: 
-      port: 
-      database: 
+      # The variables below are set by the environment section of the sqlmesh service
+      # in compose.yaml. The defaults allow running SQLMesh from the host as well.
+      host: {{ env_var('POSTGRES_HOST', 'localhost') }}
+      user: sqlmesh
+      # The password of the "sqlmesh" database user, i.e. the value stored in the
+      # sqlmesh_password podman secret. It is exported by entrypoint.sh from the
+      # secret mounted into the container.
+      password: {{ env_var('SQLMESH_PASSWORD') }}
+      port: {{ env_var('POSTGRES_PORT', '5432') }}
+      database: {{ env_var('POSTGRES_DB', 'postgres') }}
       # concurrent_tasks: 4
       # register_comments: True
       # pre_ping: True
