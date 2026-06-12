@@ -2,12 +2,14 @@
 The Gefieder image is multi-tenant / team data analytics platform built on top of
 PostgreSQL, DuckDB, SQLMesh and Django (with Unfold admin interface).
 
-It runs as a small container system managed by podman compose, consisting of three
+It runs as a small container system managed by podman-compose, consisting of four
 containers:
 
 - `postgresql`: the PostgreSQL database holding the engineering and application data
-- `crudman`: the Django administration panel, served at port 8000
+- `crudman`: the Django administration panel, reachable through the proxy
 - `sqlmesh`: the SQLMesh analytics engine, executing models on their cron schedules
+- `proxy`: an nginx reverse proxy serving the administration panel at
+  https://SERVER_NAME/crudman/ (plain HTTP in development, see `DEBUG`)
 
 
 ## Configuration
@@ -21,11 +23,22 @@ can adjust to your liking:
 APP_NAME=gefieder
 SUPERUSER_NAME=admin
 SUPERUSER_EMAIL=admin@nowhere.com
+SERVER_NAME=localhost
 ```
 
 - `APP_NAME`: the name of the compose project
 - `SUPERUSER_NAME`: the name of both the PostgreSQL and the Django superuser
 - `SUPERUSER_EMAIL`: the email address of the Django superuser
+- `SERVER_NAME`: the public host name of the server, e.g. `myserver.mycompany.com`.
+  The administration panel accepts requests for this host name and for localhost.
+
+### Certificates
+In production mode (the default), the proxy needs a TLS certificate for `SERVER_NAME`.
+Place it in PEM format in the `proxy/certs/` directory, which is excluded from
+version control:
+
+- `proxy/certs/fullchain.pem`: the certificate including intermediates
+- `proxy/certs/privkey.pem`: the private key
 
 ### Secrets
 All passwords and keys are stored as managed podman secrets, so they never appear in
@@ -61,45 +74,147 @@ openssl rand -hex 32 | podman secret create sqlmesh_password -
 
 ## Build and run
 Start the container system from the repository root. The images are built
-automatically on the first start:
+automatically on the first start. Without further options it runs in production
+mode: HTTPS only (see Certificates above), HTTP requests are redirected to HTTPS:
 
 ```bash
-podman compose up -d
+podman-compose up -d
 ```
+
+On a development machine, enable debug mode instead. The proxy then serves plain
+HTTP without certificates and Django shows debug pages:
+
+```bash
+DEBUG=true podman-compose up -d
+```
+
+Switching between the modes requires recreating the containers, e.g. with
+`podman-compose up -d --force-recreate`.
 
 To force a rebuild after changing a Dockerfile, the application code or the SQLMesh
 project, add the `--build` flag:
 
 ```bash
-podman compose up -d --build
+podman-compose up -d --build
 ```
 
 If a rebuild picks up stale layers, rebuild without the cache:
 
 ```bash
-podman compose build --no-cache && podman compose up -d
+podman-compose build --no-cache && podman-compose up -d
 ```
 
 Stop the container system without losing data:
 
 ```bash
-podman compose stop
+podman-compose stop
 ```
 
 Stop and remove the containers:
 
 ```bash
-podman compose down
+podman-compose down
 ```
 
-Note: the database is stored inside the `postgresql` container. `podman compose down`
-removes the containers and with them all database contents, while `podman compose
+Note: the database is stored inside the `postgresql` container. `podman-compose down`
+removes the containers and with them all database contents, while `podman-compose
 stop` keeps them.
+
+Note: the proxy publishes the ports 80 and 443, which rootless podman is not allowed
+to bind by default. Either allow it once on the host:
+
+```bash
+sudo sysctl net.ipv4.ip_unprivileged_port_start=80
+```
+
+or publish different ports by setting `HTTP_PORT` and `HTTPS_PORT`, e.g.
+`HTTP_PORT=8080 HTTPS_PORT=8443 podman-compose up -d`.
+
+
+## Deployment
+The following steps deploy the container system on a server:
+
+1. Install `podman` and `podman-compose`. On Ubuntu:
+
+   ```bash
+   sudo apt install podman podman-compose
+   ```
+
+   On RHEL, `podman-compose` comes from the EPEL repository (or from `pip`):
+
+   ```bash
+   sudo dnf install podman
+   sudo dnf install epel-release && sudo dnf install podman-compose
+   ```
+
+2. Clone this repository and change into it:
+
+   ```bash
+   git clone <repository-url> && cd gefieder
+   ```
+
+3. Create the four secrets. You will be prompted for the superuser password, the
+   other three are generated:
+
+   ```bash
+   openssl rand -hex 64 | podman secret create django_secret_key -
+   read -s PW && printf "%s" "$PW" | podman secret create superuser_password -
+   openssl rand -hex 32 | podman secret create crudman_password -
+   openssl rand -hex 32 | podman secret create sqlmesh_password -
+   ```
+
+4. Set `SERVER_NAME` in the `.env` file to the public host name of the server, e.g.
+   `SERVER_NAME=myserver.mycompany.com`.
+
+5. Place the TLS certificate for that host name in PEM format in `proxy/certs/`:
+   the certificate including intermediates as `fullchain.pem` and the private key
+   as `privkey.pem`.
+
+6. Allow rootless podman to bind the ports 80 and 443, persistent across reboots:
+
+   ```bash
+   echo net.ipv4.ip_unprivileged_port_start=80 | sudo tee /etc/sysctl.d/99-gefieder.conf
+   sudo sysctl --system
+   ```
+
+7. Open both ports in the firewall. On Ubuntu:
+
+   ```bash
+   sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
+   ```
+
+   On RHEL:
+
+   ```bash
+   sudo firewall-cmd --permanent --add-service=http --add-service=https
+   sudo firewall-cmd --reload
+   ```
+
+8. Start the system from the repository root:
+
+   ```bash
+   podman-compose up -d
+   ```
+
+9. Verify the deployment by opening https://SERVER_NAME/crudman/ in a browser and
+   checking that a plain http:// request is redirected to https://.
+
+With rootless podman (the default), the containers belong to your user account and
+are stopped when your last login session ends. Allow them to keep running without an
+open session:
+
+```bash
+loginctl enable-linger $USER
+```
+
+After a server reboot, the containers do not start automatically; either run
+`podman-compose up -d` again or create a systemd user unit that does so at boot.
 
 
 ## Connect
-- Open the Django administration panel at http://localhost:8000/ and log in with
-  `SUPERUSER_NAME` and the password stored in the `superuser_password` secret.
+- Open the Django administration panel at http://localhost/crudman/ in development
+  or https://SERVER_NAME/crudman/ in production and log in with `SUPERUSER_NAME`
+  and the password stored in the `superuser_password` secret.
 - Connect to PostgreSQL with the same password:
 
 ```bash
@@ -109,5 +224,5 @@ psql -h localhost -p 5432 -U admin -d postgres
 - Follow the SQLMesh engine logs with:
 
 ```bash
-podman compose logs -f sqlmesh
+podman-compose logs -f sqlmesh
 ```

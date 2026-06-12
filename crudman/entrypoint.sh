@@ -14,6 +14,10 @@ done
 uv run --project /crudman python manage.py makemigrations --noinput
 uv run --project /crudman python manage.py migrate --noinput
 
+# Collect the static files for whitenoise. With DEBUG disabled, the manifest static
+# files storage requires this to have run before the first request is served.
+uv run --project /crudman python manage.py collectstatic --noinput
+
 # Create or update the Django superuser with the password from the mounted secret.
 # This is used instead of "manage.py createsuperuser" because createsuperuser fails
 # if the user already exists, i.e. on every container restart. Updating the existing

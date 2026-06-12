@@ -8,7 +8,7 @@ services:
       context: .
       dockerfile: ./crudman/Dockerfile
     healthcheck:
-      test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/').read()\"" ]
+      test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/crudman/').read()\"" ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -16,8 +16,6 @@ services:
     depends_on:
       postgresql:
         condition: service_healthy
-    ports:
-      - "8000:8000"
     environment:
       APP_NAME: ${APP_NAME}
       POSTGRES_HOST: postgresql
@@ -26,10 +24,28 @@ services:
       POSTGRES_USER: crudman
       SUPERUSER_NAME: ${SUPERUSER_NAME:-admin}
       SUPERUSER_EMAIL: ${SUPERUSER_EMAIL:-}
+      SERVER_NAME: ${SERVER_NAME:-localhost}
+      DEBUG: ${DEBUG:-false}
     secrets:
       - django_secret_key
       - crudman_password
       - superuser_password
+
+  proxy:
+    container_name: proxy
+    restart: unless-stopped
+    image: docker.io/library/nginx:alpine
+    depends_on:
+      crudman:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    environment:
+      DEBUG: ${DEBUG:-false}
+    volumes:
+      - ./proxy:/etc/nginx/proxy:ro,z
+    command: [ "sh", "/etc/nginx/proxy/entrypoint.sh" ]
 
   sqlmesh:
     container_name: sqlmesh

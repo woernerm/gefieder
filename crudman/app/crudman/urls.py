@@ -18,6 +18,8 @@ from django.contrib import admin
 from django.urls import path
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
+    # The administration panel lives under /crudman so that the reverse proxy can
+    # forward the path unchanged and direct access on port 8000 uses the same URLs.
+    path("crudman/", admin.site.urls),
     # Other URL paths
 ]

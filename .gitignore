@@ -43,3 +43,7 @@ Thumbs.db
 
 # Django
 staticfiles/
+
+# TLS certificates for the proxy
+proxy/certs/*
+!proxy/certs/.gitkeep

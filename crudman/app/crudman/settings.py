@@ -33,9 +33,22 @@ SECRET_KEY = (
 )
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get("DEBUG", "false").strip().lower() == "true"
 
-ALLOWED_HOSTS = []
+# The public host name of the server, set via the .env file in the repository root.
+SERVER_NAME = os.environ.get("SERVER_NAME", "localhost")
+
+ALLOWED_HOSTS = ["localhost", "127.0.0.1", SERVER_NAME]
+
+CSRF_TRUSTED_ORIGINS = [f"http://{SERVER_NAME}", f"https://{SERVER_NAME}"]
+
+# In production the TLS-terminating reverse proxy is the only way in, so cookies are
+# restricted to HTTPS and the forwarded protocol header is trusted. In development
+# (DEBUG=true) the proxy serves plain HTTP instead.
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
 
 
 # Application definition
@@ -150,7 +163,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
-STATIC_URL = '/static/'
+STATIC_URL = '/crudman/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 STORAGES = {
