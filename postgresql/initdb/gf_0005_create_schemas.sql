@@ -45,6 +45,13 @@ CREATE EVENT TRIGGER grafana_read_on_create_schema
     WHEN TAG IN ('CREATE SCHEMA')
     EXECUTE FUNCTION grant_grafana_read();
 
+-- The standardized silver schema and the materialized gold schema are owned by
+-- sqlmesh, which writes its models there. They are created after the event trigger
+-- above so that grafana automatically receives read access to them and to every
+-- table and view sqlmesh adds to them later.
+CREATE SCHEMA IF NOT EXISTS silver AUTHORIZATION sqlmesh;
+CREATE SCHEMA IF NOT EXISTS gold AUTHORIZATION sqlmesh;
+
 -- Grafana may also read the crudman model tables, but not the Django-internal tables
 -- (user, session, migration, ... tables, recognisable by their auth_/django_ prefix)
 -- which hold credentials and framework state. The crudman schema already exists, so

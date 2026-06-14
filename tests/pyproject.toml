@@ -1,0 +1,16 @@
+[project]
+name = "gefieder-tests"
+version = "0.1.0"
+description = "Integration tests for the Gefieder container system."
+requires-python = ">=3.13"
+dependencies = [
+    "pytest",
+    "httpx",
+    "psycopg2-binary",
+]
+
+[tool.pytest.ini_options]
+# Markers are declared so that "pytest --strict-markers" does not complain.
+markers = [
+    "production: assertions that only hold in the production profile (HTTPS).",
+]

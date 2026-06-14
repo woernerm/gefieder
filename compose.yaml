@@ -91,6 +91,7 @@ services:
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro,z
+      - grafana:/var/lib/grafana
     secrets:
       # superuser_password for the admin login, grafana_password for the data source.
       - superuser_password
@@ -109,11 +110,13 @@ services:
       retries: 10
       start_period: 10s
     ports:
-      - "5432:5432"
+      - "${PG_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: ${SUPERUSER_NAME:-admin}
       POSTGRES_DB: postgres
       POSTGRES_PASSWORD_FILE: /run/secrets/superuser_password
+    volumes:
+      - postgresql:/var/lib/postgresql/data
     secrets:
       - superuser_password
       - crudman_password
@@ -131,3 +134,11 @@ secrets:
     external: true
   grafana_password:
     external: true
+
+# Named volumes for persistent per-service storage. podman-compose prefixes them with
+# the project name (APP_NAME), so they become e.g. gefieder_postgresql and group
+# together (podman volume ls). They survive "podman-compose down", which only removes
+# the containers; use "podman-compose down -v" to delete them too.
+volumes:
+  postgresql:
+  grafana:

@@ -48,6 +48,18 @@ version control:
 - `proxy/certs/fullchain.pem`: the certificate including intermediates
 - `proxy/certs/privkey.pem`: the private key
 
+### Storage
+Persistent data lives in two named volumes which podman-compose creates automatically
+on the first `podman-compose up`, so no manual step is needed:
+
+- `gefieder_postgresql`: the PostgreSQL data directory (all engineering, analytics and
+  application data)
+- `gefieder_grafana`: the Grafana dashboards, users and settings
+
+The volumes carry the compose project name (`APP_NAME`) as a prefix. They survive
+`podman-compose down`; see the Build and run section for how to inspect or remove
+them.
+
 ### Secrets
 All passwords and keys are stored as managed podman secrets, so they never appear in
 the compose file or the images. A secret cannot be overwritten; to replace one, remove
@@ -130,9 +142,18 @@ Stop and remove the containers:
 podman-compose down
 ```
 
-Note: the database is stored inside the `postgresql` container. `podman-compose down`
-removes the containers and with them all database contents, while `podman-compose
-stop` keeps them.
+The persistent data is kept in named volumes (see Storage above), so neither
+`podman-compose stop` nor `podman-compose down` loses it. List the volumes with:
+
+```bash
+podman volume ls
+```
+
+To remove the containers *and* delete all persistent data, add `-v`:
+
+```bash
+podman-compose down -v
+```
 
 Note: the proxy publishes the ports 80 and 443, which rootless podman is not allowed
 to bind by default. Either allow it once on the host:
@@ -143,6 +164,23 @@ sudo sysctl net.ipv4.ip_unprivileged_port_start=80
 
 or publish different ports by setting `HTTP_PORT` and `HTTPS_PORT`, e.g.
 `HTTP_PORT=8080 HTTPS_PORT=8443 podman-compose up -d`.
+
+
+## Test
+Before deploying, run the integration test suite. It builds fresh images, starts a
+throwaway stack on isolated ports, asserts that the system works (containers start
+cleanly, the apps are reachable through the proxy, static files load, the schemas
+exist and the read-only `grafana` role has exactly the access it should) and tears
+the stack down again afterwards. It is meant to run in isolation, away from any
+production system, because the stack it starts is discarded.
+
+The secrets must already exist (see the Secrets section). Run it from the repository
+root:
+
+```bash
+./run-tests.sh             # dev profile: plain HTTP
+./run-tests.sh production  # production profile: HTTPS with a self-signed certificate
+```
 
 
 ## Deployment
@@ -205,7 +243,8 @@ The following steps deploy the container system on a server:
    sudo firewall-cmd --reload
    ```
 
-8. Start the system from the repository root:
+8. Start the system from the repository root. This also creates the named volumes
+   for persistent storage (see Storage above):
 
    ```bash
    podman-compose up -d
@@ -224,6 +263,51 @@ loginctl enable-linger $USER
 
 After a server reboot, the containers do not start automatically; either run
 `podman-compose up -d` again or create a systemd user unit that does so at boot.
+
+
+## Automated deployment
+After the first manual deployment above, further deployments can be triggered from
+GitHub with the **Deploy to server** workflow (`.github/workflows/deploy.yml`). It is
+manually triggered (`workflow_dispatch`) and takes the git ref to deploy as input,
+plus a `dry_run` checkbox that runs only the test stage and skips the deployment
+(useful for validating the workflow without a server). It runs in two stages:
+
+The **test** job runs the full test suite (`run-tests.sh`) on the GitHub runner, which
+has no production stack, so the throwaway test containers never collide with the live
+ones. If it fails, the deploy job does not run and production is never touched.
+
+The **deploy** job then SSHes into the server and runs `deploy/deploy.sh`, which:
+
+1. **Backup**: dumps the database with `pg_dumpall` and tags the current container
+   images as `:previous`.
+2. **Deploy**: rebuilds and restarts the production stack.
+3. **Smoke test**: runs read-only checks against the now-running production system
+   (`deploy/smoke-test.sh`): containers healthy, the database reachable, HTTP redirects
+   to HTTPS, and both apps answer over HTTPS.
+4. **Rollback**: if a smoke test fails, restores the `:previous` images and reloads the
+   database dump, leaving the previous version running.
+
+The workflow needs these repository secrets (Settings -> Secrets and variables ->
+Actions):
+
+- `DEPLOY_HOST`: the server host name or IP
+- `DEPLOY_USER`: the SSH user the stack runs as
+- `DEPLOY_SSH_KEY`: a private SSH key whose public key is in that user's
+  `~/.ssh/authorized_keys` on the server
+- `SUPERUSER_PASSWORD`: the superuser password, so the test job can create the same
+  podman secret the suite connects with
+
+Generate the key pair locally and install the public half on the server:
+
+```bash
+ssh-keygen -t ed25519 -f gefieder_deploy -N ""
+ssh-copy-id -i gefieder_deploy.pub DEPLOY_USER@DEPLOY_HOST
+```
+
+Then paste the contents of the private key file `gefieder_deploy` into the
+`DEPLOY_SSH_KEY` secret. The server is expected to have the repository checked out at
+`~/gefieder` (override with the `DEPLOY_DIR` environment variable) with the podman
+secrets already created.
 
 
 ## Connect
