@@ -2,12 +2,14 @@
 The Gefieder image is multi-tenant / team data analytics platform built on top of
 PostgreSQL, DuckDB, SQLMesh and Django (with Unfold admin interface).
 
-It runs as a small container system managed by podman-compose, consisting of four
+It runs as a small container system managed by podman-compose, consisting of five
 containers:
 
 - `postgresql`: the PostgreSQL database holding the engineering and application data
 - `crudman`: the Django administration panel, reachable through the proxy
 - `sqlmesh`: the SQLMesh analytics engine, executing models on their cron schedules
+- `grafana`: the Grafana dashboards, with the PostgreSQL database pre-configured as a
+  read-only data source, served through the proxy at https://SERVER_NAME/GRAFANA_PATH/
 - `proxy`: an nginx reverse proxy serving the administration panel at
   https://SERVER_NAME/CRUDMAN_PATH/ (plain HTTP in development, see `DEBUG`)
 
@@ -25,6 +27,7 @@ SUPERUSER_NAME=admin
 SUPERUSER_EMAIL=admin@nowhere.com
 SERVER_NAME=localhost
 CRUDMAN_PATH=crudman
+GRAFANA_PATH=grafana
 ```
 
 - `APP_NAME`: the name of the compose project
@@ -34,6 +37,8 @@ CRUDMAN_PATH=crudman
   The administration panel accepts requests for this host name and for localhost.
 - `CRUDMAN_PATH`: the base path under which the administration panel is served, e.g.
   `crudman` makes it available at `https://SERVER_NAME/crudman/`.
+- `GRAFANA_PATH`: the base path under which Grafana is served, e.g. `grafana` makes
+  it available at `https://SERVER_NAME/grafana/`.
 
 ### Certificates
 In production mode (the default), the proxy needs a TLS certificate for `SERVER_NAME`.
@@ -72,6 +77,12 @@ openssl rand -hex 32 | podman secret create crudman_password -
 Create the password of the `sqlmesh` database user the SQLMesh engine connects with:
 ```bash
 openssl rand -hex 32 | podman secret create sqlmesh_password -
+```
+
+Create the password of the read-only `grafana` PostgreSQL data source user (the
+Grafana admin login uses the `superuser_password` secret instead):
+```bash
+openssl rand -hex 32 | podman secret create grafana_password -
 ```
 
 
@@ -156,14 +167,15 @@ The following steps deploy the container system on a server:
    git clone <repository-url> && cd gefieder
    ```
 
-3. Create the four secrets. You will be prompted for the superuser password, the
-   other three are generated:
+3. Create the five secrets. You will be prompted for the superuser password, the
+   others are generated:
 
    ```bash
    openssl rand -hex 64 | podman secret create django_secret_key -
    read -s PW && printf "%s" "$PW" | podman secret create superuser_password -
    openssl rand -hex 32 | podman secret create crudman_password -
    openssl rand -hex 32 | podman secret create sqlmesh_password -
+   openssl rand -hex 32 | podman secret create grafana_password -
    ```
 
 4. Set `SERVER_NAME` in the `.env` file to the public host name of the server, e.g.
@@ -224,6 +236,10 @@ After a server reboot, the containers do not start automatically; either run
 psql -h localhost -p 5432 -U admin -d postgres
 ```
 
+- Open the Grafana dashboards at http://localhost/grafana/ in development or
+  https://SERVER_NAME/grafana/ in production and log in with `SUPERUSER_NAME` and the
+  password stored in the `superuser_password` secret. The PostgreSQL database is
+  already configured as a read-only data source.
 - Follow the SQLMesh engine logs with:
 
 ```bash

@@ -1,0 +1,20 @@
+# Provisions the Gefieder PostgreSQL database as a read-only Grafana data source.
+# The password is read from the grafana_password secret mounted into the container.
+apiVersion: 1
+
+datasources:
+  # The name is interpolated from the APP_NAME environment variable set on the
+  # grafana service.
+  - name: ${APP_NAME}
+    type: postgres
+    uid: gefieder-postgresql
+    access: proxy
+    url: postgresql:5432
+    user: grafana
+    isDefault: true
+    jsonData:
+      database: postgres
+      sslmode: disable
+      postgresVersion: 1600
+    secureJsonData:
+      password: $__file{/run/secrets/grafana_password}

@@ -21,6 +21,7 @@ SQL
 
 create_user crudman
 create_user sqlmesh
+create_user grafana
 
 # SQLMesh creates and owns its own schemas (state schema as well as the physical and
 # view schemas of its models), so it only needs the CREATE privilege on the database.

@@ -20,6 +20,15 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # Grafana is configured to serve from /${GRAFANA_PATH} (see GF_SERVER_*), so the
+    # path is forwarded unchanged.
+    location /${GRAFANA_PATH}/ {
+        proxy_pass http://grafana:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     # Convenience redirect to the administration panel.
     location = / {
         return 302 /${CRUDMAN_PATH}/;

@@ -39,12 +39,15 @@ services:
     depends_on:
       crudman:
         condition: service_healthy
+      grafana:
+        condition: service_started
     ports:
       - "${HTTP_PORT:-80}:80"
       - "${HTTPS_PORT:-443}:443"
     environment:
       DEBUG: ${DEBUG:-false}
       CRUDMAN_PATH: ${CRUDMAN_PATH:-crudman}
+      GRAFANA_PATH: ${GRAFANA_PATH:-grafana}
     volumes:
       - ./proxy:/etc/nginx/proxy:ro,z
     command: [ "sh", "/etc/nginx/proxy/entrypoint.sh" ]
@@ -65,6 +68,33 @@ services:
       SQLMESH_RUN_INTERVAL: "10"
     secrets:
       - sqlmesh_password
+
+  grafana:
+    container_name: grafana
+    restart: unless-stopped
+    image: docker.io/grafana/grafana:latest
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      # Used as the name of the provisioned data source.
+      APP_NAME: ${APP_NAME}
+      # The admin user logs in with the superuser name and password, the same
+      # credentials as the PostgreSQL and Django superuser.
+      GF_SECURITY_ADMIN_USER: ${SUPERUSER_NAME:-admin}
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/superuser_password
+      # Serve Grafana from the /GRAFANA_PATH subpath behind the proxy, so that its
+      # internal links and assets resolve correctly.
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/${GRAFANA_PATH:-grafana}/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro,z
+    secrets:
+      # superuser_password for the admin login, grafana_password for the data source.
+      - superuser_password
+      - grafana_password
 
   postgresql:
     container_name: postgresql
@@ -88,6 +118,7 @@ services:
       - superuser_password
       - crudman_password
       - sqlmesh_password
+      - grafana_password
 
 secrets:
   django_secret_key:
@@ -97,4 +128,6 @@ secrets:
   crudman_password:
     external: true
   sqlmesh_password:
+    external: true
+  grafana_password:
     external: true
