@@ -1,331 +1,280 @@
-# Introduction
-The Gefieder image is multi-tenant / team data analytics platform built on top of
-PostgreSQL, DuckDB, SQLMesh and Django (with Unfold admin interface).
+# Gefieder
 
-It runs as a small container system managed by podman-compose, consisting of five
-containers:
+Gefieder is a multi-tenant data analytics platform for engineering teams, built on
+PostgreSQL, DuckDB, SQLMesh and Django (with the Unfold admin interface).
 
-- `postgresql`: the PostgreSQL database holding the engineering and application data
-- `crudman`: the Django administration panel, reachable through the proxy
-- `sqlmesh`: the SQLMesh analytics engine, executing models on their cron schedules
-- `grafana`: the Grafana dashboards, with the PostgreSQL database pre-configured as a
-  read-only data source, served through the proxy at https://SERVER_NAME/GRAFANA_PATH/
-- `proxy`: an nginx reverse proxy serving the administration panel at
-  https://SERVER_NAME/CRUDMAN_PATH/ (plain HTTP in development, see `DEBUG`)
+It runs as a small set of containers managed by `podman-compose`. Once it is up you
+get two web interfaces:
+
+- an **administration panel** (Django) for entering and editing organizational data
+- **Grafana dashboards** with the database already wired up as a read-only data source
+
+This README walks you from nothing to a running system: first locally on your own
+machine, then deployed on a server. The [Reference](#reference) section at the end
+explains every setting and command in detail.
 
 
-## Configuration
+## What you need
 
-### Settings
-The compose project reads its settings from the `.env` file in the repository root.
-It is distributed with the repository and contains the following defaults, which you
-can adjust to your liking:
+[Podman](https://podman.io/) and `podman-compose`. On Ubuntu:
 
 ```bash
-APP_NAME=gefieder
-SUPERUSER_NAME=admin
-SUPERUSER_EMAIL=admin@nowhere.com
-SERVER_NAME=localhost
-CRUDMAN_PATH=crudman
-GRAFANA_PATH=grafana
+sudo apt install podman podman-compose
 ```
 
-- `APP_NAME`: the name of the compose project
-- `SUPERUSER_NAME`: the name of both the PostgreSQL and the Django superuser
-- `SUPERUSER_EMAIL`: the email address of the Django superuser
-- `SERVER_NAME`: the public host name of the server, e.g. `myserver.mycompany.com`.
-  The administration panel accepts requests for this host name and for localhost.
-- `CRUDMAN_PATH`: the base path under which the administration panel is served, e.g.
-  `crudman` makes it available at `https://SERVER_NAME/crudman/`.
-- `GRAFANA_PATH`: the base path under which Grafana is served, e.g. `grafana` makes
-  it available at `https://SERVER_NAME/grafana/`.
+On RHEL, `podman-compose` comes from the EPEL repository (or from `pip`):
 
-### Certificates
-In production mode (the default), the proxy needs a TLS certificate for `SERVER_NAME`.
-Place it in PEM format in the `proxy/certs/` directory, which is excluded from
-version control:
+```bash
+sudo dnf install podman
+sudo dnf install epel-release && sudo dnf install podman-compose
+```
 
-- `proxy/certs/fullchain.pem`: the certificate including intermediates
-- `proxy/certs/privkey.pem`: the private key
+All commands are run from the repository root and work the same on Linux and on WSL.
 
-### Storage
-Persistent data lives in two named volumes which podman-compose creates automatically
-on the first `podman-compose up`, so no manual step is needed:
 
-- `gefieder_postgresql`: the PostgreSQL data directory (all engineering, analytics and
-  application data)
-- `gefieder_grafana`: the Grafana dashboards, users and settings
+## Run it locally
 
-The volumes carry the compose project name (`APP_NAME`) as a prefix. They survive
-`podman-compose down`; see the Build and run section for how to inspect or remove
-them.
+This gets a full system running on your machine in development mode (plain HTTP, no
+certificates needed) so you can try it out.
 
-### Secrets
-All passwords and keys are stored as managed podman secrets, so they never appear in
-the compose file or the images. A secret cannot be overwritten; to replace one, remove
-it first with `podman secret rm <name>` and create it again. When creating a secret you
-may see a warning like `"/" is not a shared mount`, which is expected and can be
-ignored. The trailing dash in the commands below is not a typo, it tells podman to read
-the secret from stdin.
+**1. Create the secrets.** All passwords are stored as podman secrets, never in files.
+Run these once; you will be prompted for the superuser password, the rest are
+generated:
 
-Create the Django secret key:
 ```bash
 openssl rand -hex 64 | podman secret create django_secret_key -
-```
-
-Create the superuser password. It is used both for the PostgreSQL superuser and the
-Django admin superuser. With the command below, you will be prompted to enter the
-password interactively without showing it on screen:
-```bash
+openssl rand -hex 32 | podman secret create crudman_password -
+openssl rand -hex 32 | podman secret create sqlmesh_password -
+openssl rand -hex 32 | podman secret create grafana_password -
 read -s PW && printf "%s" "$PW" | podman secret create superuser_password -
 ```
 
-Create the password of the `crudman` database user the Django application connects
-with:
-```bash
-openssl rand -hex 32 | podman secret create crudman_password -
-```
+(If a secret already exists, remove it first with `podman secret rm <name>`. A
+`"/" is not a shared mount` warning is harmless.)
 
-Create the password of the `sqlmesh` database user the SQLMesh engine connects with:
-```bash
-openssl rand -hex 32 | podman secret create sqlmesh_password -
-```
-
-Create the password of the read-only `grafana` PostgreSQL data source user (the
-Grafana admin login uses the `superuser_password` secret instead):
-```bash
-openssl rand -hex 32 | podman secret create grafana_password -
-```
-
-
-## Build and run
-Start the container system from the repository root. The images are built
-automatically on the first start. Without further options it runs in production
-mode: HTTPS only (see Certificates above), HTTP requests are redirected to HTTPS:
-
-```bash
-podman-compose up -d
-```
-
-On a development machine, enable debug mode instead. The proxy then serves plain
-HTTP without certificates and Django shows debug pages:
+**2. Start the system** in development mode:
 
 ```bash
 DEBUG=true podman-compose up -d
 ```
 
-Switching between the modes requires recreating the containers, e.g. with
-`podman-compose up -d --force-recreate`.
+The images are built automatically on the first start, so this takes a few minutes.
 
-To force a rebuild after changing a Dockerfile, the application code or the SQLMesh
-project, add the `--build` flag:
+**3. Open the interfaces** (log in with `admin` and the superuser password you chose):
 
-```bash
-podman-compose up -d --build
-```
+- Administration panel: <http://localhost/crudman/>
+- Grafana dashboards: <http://localhost/grafana/>
 
-If a rebuild picks up stale layers, rebuild without the cache:
-
-```bash
-podman-compose build --no-cache && podman-compose up -d
-```
-
-Stop the container system without losing data:
-
-```bash
-podman-compose stop
-```
-
-Stop and remove the containers:
+That's it — you have a running system. To stop it again:
 
 ```bash
 podman-compose down
 ```
 
-The persistent data is kept in named volumes (see Storage above), so neither
-`podman-compose stop` nor `podman-compose down` loses it. List the volumes with:
+Your data is kept in named volumes and survives this; see [Storage](#storage).
+
+
+## Deploy it on a server
+
+Deploying is the same as running locally, plus a public host name, a TLS certificate
+and a few host settings so it is reachable securely over HTTPS.
+
+**1. Install podman and clone the repository** (see [What you need](#what-you-need)):
 
 ```bash
-podman volume ls
+git clone <repository-url> && cd gefieder
 ```
 
-To remove the containers *and* delete all persistent data, add `-v`:
+**2. Create the five secrets**, exactly as in [Run it locally](#run-it-locally) step 1.
+
+**3. Set the server's host name** in the `.env` file:
 
 ```bash
-podman-compose down -v
+SERVER_NAME=mysite.com
 ```
 
-Note: the proxy publishes the ports 80 and 443, which rootless podman is not allowed
-to bind by default. Either allow it once on the host:
+**4. Add the TLS certificate** for that host name in PEM format to `proxy/certs/`:
+
+- `proxy/certs/fullchain.pem` — the certificate including intermediates
+- `proxy/certs/privkey.pem` — the private key
+
+**5. Allow the ports.** Let rootless podman bind ports 80 and 443, and open them in
+the firewall:
 
 ```bash
-sudo sysctl net.ipv4.ip_unprivileged_port_start=80
+echo net.ipv4.ip_unprivileged_port_start=80 | sudo tee /etc/sysctl.d/99-gefieder.conf
+sudo sysctl --system
+
+# Ubuntu:
+sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
+# RHEL:
+sudo firewall-cmd --permanent --add-service=http --add-service=https && sudo firewall-cmd --reload
 ```
 
-or publish different ports by setting `HTTP_PORT` and `HTTPS_PORT`, e.g.
-`HTTP_PORT=8080 HTTPS_PORT=8443 podman-compose up -d`.
-
-
-## Test
-Before deploying, run the integration test suite. It builds fresh images, starts a
-throwaway stack on isolated ports, asserts that the system works (containers start
-cleanly, the apps are reachable through the proxy, static files load, the schemas
-exist and the read-only `grafana` role has exactly the access it should) and tears
-the stack down again afterwards. It is meant to run in isolation, away from any
-production system, because the stack it starts is discarded.
-
-The secrets must already exist (see the Secrets section). Run it from the repository
-root:
+**6. Start the system** in production mode (HTTPS only; plain HTTP is redirected to
+HTTPS). This is the default, so no `DEBUG` is needed:
 
 ```bash
-./run-tests.sh             # dev profile: plain HTTP
-./run-tests.sh production  # production profile: HTTPS with a self-signed certificate
+podman-compose up -d
 ```
 
+**7. Verify** by opening `https://SERVER_NAME/crudman/` in a browser and confirming a
+plain `http://` request is redirected to `https://`.
 
-## Deployment
-The following steps deploy the container system on a server:
-
-1. Install `podman` and `podman-compose`. On Ubuntu:
-
-   ```bash
-   sudo apt install podman podman-compose
-   ```
-
-   On RHEL, `podman-compose` comes from the EPEL repository (or from `pip`):
-
-   ```bash
-   sudo dnf install podman
-   sudo dnf install epel-release && sudo dnf install podman-compose
-   ```
-
-2. Clone this repository and change into it:
-
-   ```bash
-   git clone <repository-url> && cd gefieder
-   ```
-
-3. Create the five secrets. You will be prompted for the superuser password, the
-   others are generated:
-
-   ```bash
-   openssl rand -hex 64 | podman secret create django_secret_key -
-   read -s PW && printf "%s" "$PW" | podman secret create superuser_password -
-   openssl rand -hex 32 | podman secret create crudman_password -
-   openssl rand -hex 32 | podman secret create sqlmesh_password -
-   openssl rand -hex 32 | podman secret create grafana_password -
-   ```
-
-4. Set `SERVER_NAME` in the `.env` file to the public host name of the server, e.g.
-   `SERVER_NAME=myserver.mycompany.com`.
-
-5. Place the TLS certificate for that host name in PEM format in `proxy/certs/`:
-   the certificate including intermediates as `fullchain.pem` and the private key
-   as `privkey.pem`.
-
-6. Allow rootless podman to bind the ports 80 and 443, persistent across reboots:
-
-   ```bash
-   echo net.ipv4.ip_unprivileged_port_start=80 | sudo tee /etc/sysctl.d/99-gefieder.conf
-   sudo sysctl --system
-   ```
-
-7. Open both ports in the firewall. On Ubuntu:
-
-   ```bash
-   sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
-   ```
-
-   On RHEL:
-
-   ```bash
-   sudo firewall-cmd --permanent --add-service=http --add-service=https
-   sudo firewall-cmd --reload
-   ```
-
-8. Start the system from the repository root. This also creates the named volumes
-   for persistent storage (see Storage above):
-
-   ```bash
-   podman-compose up -d
-   ```
-
-9. Verify the deployment by opening https://SERVER_NAME/crudman/ in a browser and
-   checking that a plain http:// request is redirected to https://.
-
-With rootless podman (the default), the containers belong to your user account and
-are stopped when your last login session ends. Allow them to keep running without an
-open session:
+**Keep it running.** With rootless podman the containers stop when your login session
+ends, so enable lingering:
 
 ```bash
 loginctl enable-linger $USER
 ```
 
-After a server reboot, the containers do not start automatically; either run
-`podman-compose up -d` again or create a systemd user unit that does so at boot.
+After a reboot the containers do not start on their own; run `podman-compose up -d`
+again or create a systemd user unit that does so at boot.
 
 
-## Automated deployment
-After the first manual deployment above, further deployments can be triggered from
-GitHub with the **Deploy to server** workflow (`.github/workflows/deploy.yml`). It is
-manually triggered (`workflow_dispatch`) and takes the git ref to deploy as input,
-plus a `dry_run` checkbox that runs only the test stage and skips the deployment
-(useful for validating the workflow without a server). It runs in two stages:
+## Automate deployments
 
-The **test** job runs the full test suite (`run-tests.sh`) on the GitHub runner, which
-has no production stack, so the throwaway test containers never collide with the live
-ones. If it fails, the deploy job does not run and production is never touched.
+Once the server runs the system once, you can redeploy from GitHub with the
+**Deploy to server** workflow (`.github/workflows/deploy.yml`). Trigger it manually,
+give it the git ref to deploy, and it:
 
-The **deploy** job then SSHes into the server and runs `deploy/deploy.sh`, which:
+1. runs the full [test suite](#testing) on the GitHub runner — if it fails, the server
+   is never touched;
+2. SSHes into the server and, step by step, **backs up** the database and images,
+   **deploys** the new version, **smoke-tests** the running system, and **rolls back**
+   to the previous version if a smoke test fails.
 
-1. **Backup**: dumps the database with `pg_dumpall` and tags the current container
-   images as `:previous`.
-2. **Deploy**: rebuilds and restarts the production stack.
-3. **Smoke test**: runs read-only checks against the now-running production system
-   (`deploy/smoke-test.sh`): containers healthy, the database reachable, HTTP redirects
-   to HTTPS, and both apps answer over HTTPS.
-4. **Rollback**: if a smoke test fails, restores the `:previous` images and reloads the
-   database dump, leaving the previous version running.
+A `dry_run` checkbox runs only the test stage, which is handy for validating the
+workflow before you have a server wired up.
 
-The workflow needs these repository secrets (Settings -> Secrets and variables ->
-Actions):
+It needs these repository secrets (*Settings → Secrets and variables → Actions*):
 
-- `DEPLOY_HOST`: the server host name or IP
-- `DEPLOY_USER`: the SSH user the stack runs as
-- `DEPLOY_SSH_KEY`: a private SSH key whose public key is in that user's
-  `~/.ssh/authorized_keys` on the server
-- `SUPERUSER_PASSWORD`: the superuser password, so the test job can create the same
-  podman secret the suite connects with
+| Secret | Purpose |
+| --- | --- |
+| `DEPLOY_HOST` | server host name or IP |
+| `DEPLOY_USER` | SSH user the stack runs as |
+| `DEPLOY_SSH_KEY` | private SSH key whose public half is in the server user's `~/.ssh/authorized_keys` |
+| `SUPERUSER_PASSWORD` | so the test job can recreate the superuser secret |
 
-Generate the key pair locally and install the public half on the server:
+Generate the key pair and install the public half on the server:
 
 ```bash
 ssh-keygen -t ed25519 -f gefieder_deploy -N ""
 ssh-copy-id -i gefieder_deploy.pub DEPLOY_USER@DEPLOY_HOST
 ```
 
-Then paste the contents of the private key file `gefieder_deploy` into the
-`DEPLOY_SSH_KEY` secret. The server is expected to have the repository checked out at
-`~/gefieder` (override with the `DEPLOY_DIR` environment variable) with the podman
-secrets already created.
+Then paste the private key file `gefieder_deploy` into the `DEPLOY_SSH_KEY` secret. The
+server is expected to have the repository at `~/gefieder` (override with `DEPLOY_DIR`)
+and the podman secrets already created.
 
 
-## Connect
-- Open the Django administration panel at http://localhost/crudman/ in development
-  or https://SERVER_NAME/crudman/ in production and log in with `SUPERUSER_NAME`
-  and the password stored in the `superuser_password` secret.
-- Connect to PostgreSQL with the same password:
+---
 
+# Reference
+
+## The containers
+The system consists of five containers:
+
+- `postgresql` — the database holding the engineering, analytics and application data
+- `crudman` — the Django administration panel, reachable through the proxy
+- `sqlmesh` — the SQLMesh analytics engine, running models on their cron schedules
+- `grafana` — the Grafana dashboards, with the database pre-configured as a read-only
+  data source
+- `proxy` — an nginx reverse proxy that serves the admin panel and Grafana under
+  `SERVER_NAME`
+
+## Settings
+The compose project reads its settings from the `.env` file in the repository root. It
+is committed with these defaults, which you can adjust:
+
+| Setting | Meaning |
+| --- | --- |
+| `APP_NAME` | the name of the compose project (and the prefix of the volumes) |
+| `SUPERUSER_NAME` | the name of the PostgreSQL, Django and Grafana superuser |
+| `SUPERUSER_EMAIL` | the email address of the Django superuser |
+| `SERVER_NAME` | the public host name, e.g. `mysite.com`; the admin panel also accepts `localhost` |
+| `CRUDMAN_PATH` | the base path of the admin panel, e.g. `crudman` → `https://SERVER_NAME/crudman/` |
+| `GRAFANA_PATH` | the base path of Grafana, e.g. `grafana` → `https://SERVER_NAME/grafana/` |
+
+## Development vs. production mode
+The `DEBUG` setting decides how the system runs:
+
+- `DEBUG=true` — development mode: the proxy serves plain HTTP without certificates and
+  Django shows debug pages.
+- unset / `DEBUG=false` — production mode (the default): the proxy serves HTTPS only,
+  redirects HTTP to HTTPS, and needs a certificate (see below).
+
+Switching modes requires recreating the containers, e.g. with
+`podman-compose up -d --force-recreate`.
+
+## Secrets
+All passwords and keys are managed podman secrets, so they never appear in the compose
+file or the images. A secret cannot be overwritten; to replace one, `podman secret rm
+<name>` it and create it again. The trailing `-` in the create commands tells podman to
+read the secret from stdin.
+
+| Secret | Used for |
+| --- | --- |
+| `django_secret_key` | Django's cryptographic signing key |
+| `superuser_password` | the PostgreSQL, Django and Grafana admin login |
+| `crudman_password` | the `crudman` database user the Django app connects with |
+| `sqlmesh_password` | the `sqlmesh` database user the analytics engine connects with |
+| `grafana_password` | the read-only `grafana` database user for the Grafana data source |
+
+## Certificates
+In production mode the proxy needs a TLS certificate for `SERVER_NAME`, placed in the
+`proxy/certs/` directory (which is excluded from version control):
+
+- `proxy/certs/fullchain.pem` — the certificate including intermediates
+- `proxy/certs/privkey.pem` — the private key
+
+## Storage
+Persistent data lives in two named volumes that podman-compose creates automatically on
+the first start, so there is no manual step:
+
+- `gefieder_postgresql` — the database (all engineering, analytics and application data)
+- `gefieder_grafana` — the Grafana dashboards, users and settings
+
+They carry `APP_NAME` as a prefix and survive `podman-compose down`. Inspect them with
+`podman volume ls`. To remove the containers *and* delete the data, use
+`podman-compose down -v`.
+
+## Everyday commands
 ```bash
-psql -h localhost -p 5432 -U admin -d postgres
+podman-compose up -d                  # start (production mode)
+DEBUG=true podman-compose up -d        # start (development mode)
+podman-compose up -d --build           # rebuild images after code changes
+podman-compose build --no-cache && podman-compose up -d   # rebuild ignoring the cache
+podman-compose stop                    # stop, keep containers and data
+podman-compose down                    # remove containers, keep data
+podman-compose down -v                 # remove containers and delete data
+podman-compose logs -f sqlmesh         # follow a service's logs
 ```
 
-- Open the Grafana dashboards at http://localhost/grafana/ in development or
-  https://SERVER_NAME/grafana/ in production and log in with `SUPERUSER_NAME` and the
-  password stored in the `superuser_password` secret. The PostgreSQL database is
-  already configured as a read-only data source.
-- Follow the SQLMesh engine logs with:
+## Connecting directly
+- **Admin panel / Grafana**: log in with `SUPERUSER_NAME` and the `superuser_password`.
+- **PostgreSQL** (with the same password):
+
+  ```bash
+  psql -h localhost -p 5432 -U admin -d postgres
+  ```
+
+## Using custom ports
+The proxy publishes ports 80 and 443. Instead of allowing rootless podman to bind them
+(the sysctl step above), you can publish different ports:
 
 ```bash
-podman-compose logs -f sqlmesh
+HTTP_PORT=8080 HTTPS_PORT=8443 podman-compose up -d
+```
+
+## Testing
+The integration test suite builds fresh images, starts a throwaway stack on isolated
+ports, checks that the system works (containers start cleanly, the apps are reachable,
+static files load, the schemas exist and the `grafana` role has exactly the access it
+should) and tears the stack down again. It runs in isolation, away from any production
+system, because the stack it creates is discarded. The secrets must already exist.
+
+```bash
+./run-tests.sh             # development profile: plain HTTP
+./run-tests.sh production  # production profile: HTTPS with a self-signed certificate
 ```
