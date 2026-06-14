@@ -8,7 +8,7 @@ services:
       context: .
       dockerfile: ./crudman/Dockerfile
     healthcheck:
-      test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/crudman/').read()\"" ]
+      test: [ "CMD-SHELL", "python -c \"import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/' + os.environ['CRUDMAN_PATH'] + '/').read()\"" ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -26,6 +26,7 @@ services:
       SUPERUSER_EMAIL: ${SUPERUSER_EMAIL:-}
       SERVER_NAME: ${SERVER_NAME:-localhost}
       DEBUG: ${DEBUG:-false}
+      CRUDMAN_PATH: ${CRUDMAN_PATH:-crudman}
     secrets:
       - django_secret_key
       - crudman_password
@@ -43,6 +44,7 @@ services:
       - "${HTTPS_PORT:-443}:443"
     environment:
       DEBUG: ${DEBUG:-false}
+      CRUDMAN_PATH: ${CRUDMAN_PATH:-crudman}
     volumes:
       - ./proxy:/etc/nginx/proxy:ro,z
     command: [ "sh", "/etc/nginx/proxy/entrypoint.sh" ]

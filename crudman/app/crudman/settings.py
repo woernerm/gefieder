@@ -38,6 +38,11 @@ DEBUG = os.environ.get("DEBUG", "false").strip().lower() == "true"
 # The public host name of the server, set via the .env file in the repository root.
 SERVER_NAME = os.environ.get("SERVER_NAME", "localhost")
 
+# The base path under which the administration panel is served, set via the .env file
+# in the repository root. It must match CRUDMAN_PATH of the proxy service and the URL
+# configuration in crudman/urls.py.
+CRUDMAN_PATH = os.environ.get("CRUDMAN_PATH", "crudman")
+
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", SERVER_NAME]
 
 CSRF_TRUSTED_ORIGINS = [f"http://{SERVER_NAME}", f"https://{SERVER_NAME}"]
@@ -163,7 +168,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
-STATIC_URL = '/crudman/static/'
+STATIC_URL = f'/{CRUDMAN_PATH}/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 STORAGES = {

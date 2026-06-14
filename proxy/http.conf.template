@@ -2,9 +2,9 @@
 server {
     listen 80;
 
-    # The Django application serves its URLs under /crudman itself, so the path is
-    # forwarded unchanged.
-    location /crudman/ {
+    # The Django application serves its URLs under /${CRUDMAN_PATH} itself, so the
+    # path is forwarded unchanged.
+    location /${CRUDMAN_PATH}/ {
         proxy_pass http://crudman:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -13,6 +13,6 @@ server {
 
     # Convenience redirect to the administration panel.
     location = / {
-        return 302 /crudman/;
+        return 302 /${CRUDMAN_PATH}/;
     }
 }
