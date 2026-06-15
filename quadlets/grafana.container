@@ -1,0 +1,35 @@
+# The Grafana dashboards, with the database pre-configured as a read-only data source.
+# The provisioning is baked into the custom image, so it auto-updates like the others.
+[Unit]
+Description=Gefieder Grafana dashboards
+After=postgresql.service
+
+[Container]
+ContainerName=grafana
+Pod=${APP_NAME}.pod
+Image=${REGISTRY}/grafana:${IMAGE_TAG}
+AutoUpdate=registry
+# APP_NAME names the provisioned data source. The admin user logs in with the superuser
+# name and password, the same credentials as the PostgreSQL and Django superuser.
+Environment=APP_NAME=${APP_NAME}
+Environment=GF_SECURITY_ADMIN_USER=${SUPERUSER_NAME}
+Environment=GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/superuser_password
+# Serve Grafana from the /GRAFANA_PATH subpath behind the proxy so its internal links
+# and assets resolve correctly.
+Environment=GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/${GRAFANA_PATH}/
+Environment=GF_SERVER_SERVE_FROM_SUB_PATH=true
+Volume=${APP_NAME}-grafana.volume:/var/lib/grafana
+# superuser_password for the admin login, grafana_password for the data source.
+Secret=superuser_password
+Secret=grafana_password
+HealthCmd=wget -qO /dev/null http://localhost:3000/${GRAFANA_PATH}/api/health
+HealthInterval=10s
+HealthTimeout=5s
+HealthRetries=10
+HealthStartPeriod=20s
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

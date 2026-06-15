@@ -1,0 +1,34 @@
+# The PostgreSQL database holding the engineering, analytics and application data.
+#
+# The image is pulled from the configured registry (REGISTRY/IMAGE_TAG in .env) and
+# kept current by "podman auto-update": AutoUpdate=registry makes the timer pull a new
+# image and restart this service. Notify=healthy ties the restart to the healthcheck,
+# so if a new image fails to become healthy podman rolls back to the previous one.
+[Unit]
+Description=Gefieder PostgreSQL database
+
+[Container]
+ContainerName=postgresql
+Pod=${APP_NAME}.pod
+Image=${REGISTRY}/postgresql:${IMAGE_TAG}
+AutoUpdate=registry
+Notify=healthy
+Environment=POSTGRES_DB=postgres
+Environment=POSTGRES_USER=${SUPERUSER_NAME}
+Environment=POSTGRES_PASSWORD_FILE=/run/secrets/superuser_password
+Volume=${APP_NAME}-postgresql.volume:/var/lib/postgresql/data
+Secret=superuser_password
+Secret=crudman_password
+Secret=sqlmesh_password
+Secret=grafana_password
+HealthCmd=pg_isready -U ${SUPERUSER_NAME} -d postgres
+HealthInterval=5s
+HealthTimeout=5s
+HealthRetries=10
+HealthStartPeriod=10s
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

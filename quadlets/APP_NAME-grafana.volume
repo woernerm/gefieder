@@ -1,0 +1,4 @@
+# The Grafana volume holding dashboards, users and settings. Named "gefieder-grafana"
+# so it groups with the project and survives stopping the stack.
+[Volume]
+VolumeName=${APP_NAME}-grafana

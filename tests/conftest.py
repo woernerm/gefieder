@@ -141,7 +141,12 @@ def grafana_db(connect):
 
 @pytest.fixture(scope="session", autouse=True)
 def wait_for_stack():
-    """Block until both apps respond, failing loudly if the stack never comes up."""
+    """Block until both apps respond and sqlmesh has created its schema.
+
+    The apps are gated on their HTTP endpoints. The sqlmesh schema is created by the
+    engine's first `sqlmesh plan` at runtime (not by database init), so the schema and
+    access-control tests would race a slow first plan; wait for it here too.
+    """
     deadline = time.time() + 180
     targets = [CRUDMAN_LOGIN, GRAFANA_LOGIN]
     with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS,
@@ -156,3 +161,18 @@ def wait_for_stack():
                 if time.time() > deadline:
                     pytest.fail(f"stack did not become ready: {target} unreachable")
                 time.sleep(2)
+
+    while True:
+        try:
+            conn = _connect(SUPERUSER_NAME)
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM pg_namespace WHERE nspname = 'sqlmesh'")
+                ready = cur.fetchone() is not None
+            conn.close()
+            if ready:
+                break
+        except psycopg2.Error:
+            pass
+        if time.time() > deadline:
+            pytest.fail("stack did not become ready: sqlmesh schema not created")
+        time.sleep(2)

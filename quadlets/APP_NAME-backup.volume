@@ -1,0 +1,5 @@
+# Holds the scheduled database dumps written by gefieder-backup.container. Auto-update
+# rolls back container images but never volume data, so these dumps are the only way to
+# recover from a bad migration; keep them on a separate volume from the live database.
+[Volume]
+VolumeName=${APP_NAME}-backup

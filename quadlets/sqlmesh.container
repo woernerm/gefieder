@@ -1,0 +1,34 @@
+# The SQLMesh analytics engine, running models on their cron schedules.
+#
+# Pulled from the configured registry and auto-updated like the other custom images.
+# The entrypoint waits for the database itself. A simple "running" healthcheck lets
+# auto-update detect a new image that crashes on startup and roll it back.
+[Unit]
+Description=Gefieder SQLMesh analytics engine
+After=postgresql.service
+
+[Container]
+ContainerName=sqlmesh
+Pod=${APP_NAME}.pod
+Image=${REGISTRY}/sqlmesh:${IMAGE_TAG}
+AutoUpdate=registry
+Notify=healthy
+Environment=POSTGRES_HOST=localhost
+Environment=POSTGRES_PORT=5432
+Environment=POSTGRES_DB=postgres
+Environment=SQLMESH_RUN_INTERVAL=10
+Secret=sqlmesh_password
+# The slim image has no pgrep and psycopg2 lives in the uv venv, not the system python,
+# so check liveness with a stdlib-only TCP connect to the database the engine needs.
+# Single-quoted to avoid the HealthCmd quote-mangling of a double-quoted -c argument.
+HealthCmd=python -c 'import socket; socket.create_connection(("localhost",5432),3).close()'
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=60s
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

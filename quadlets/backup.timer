@@ -1,0 +1,11 @@
+# Runs the database backup daily. This is an ordinary systemd timer (quadlets generate
+# the backup.service it triggers); install it alongside the .container file.
+[Unit]
+Description=Daily Gefieder database backup
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target

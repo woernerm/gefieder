@@ -1,0 +1,13 @@
+# The pod groups all five containers into a single shared network namespace, so they
+# reach each other on localhost (replacing the implicit shared network compose gave us).
+# The proxy is the only service that publishes ports, and it does so here at the pod
+# level. Quadlet does not expand shell-style variables in PublishPort, so the host
+# ports are literal; to serve on different ports, edit the two lines below (the test
+# suite rewrites them for its isolated stack).
+[Pod]
+PodName=${APP_NAME}
+PublishPort=80:80
+PublishPort=443:443
+
+[Install]
+WantedBy=default.target

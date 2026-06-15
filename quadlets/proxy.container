@@ -1,0 +1,28 @@
+# The nginx reverse proxy that serves the admin panel and Grafana under SERVER_NAME.
+# The config is baked into the image; the entrypoint picks plain HTTP (DEBUG=true) or
+# HTTPS based on the DEBUG value rendered below (empty = production). The certificate is
+# the only host-local piece, bind-mounted from ~/.config/gefieder/certs.
+[Unit]
+Description=Gefieder nginx reverse proxy
+After=crudman.service grafana.service
+
+[Container]
+ContainerName=proxy
+Pod=${APP_NAME}.pod
+Image=${REGISTRY}/proxy:${IMAGE_TAG}
+AutoUpdate=registry
+Environment=DEBUG=${DEBUG}
+Environment=CRUDMAN_PATH=${CRUDMAN_PATH}
+Environment=GRAFANA_PATH=${GRAFANA_PATH}
+Volume=%h/.config/gefieder/certs:/etc/nginx/proxy/certs:ro,z
+HealthCmd=pgrep -x nginx
+HealthInterval=10s
+HealthTimeout=5s
+HealthRetries=10
+HealthStartPeriod=10s
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

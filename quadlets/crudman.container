@@ -1,0 +1,42 @@
+# The Django administration panel, reachable through the proxy.
+#
+# Pulled from the configured registry and auto-updated like the other custom images.
+# The entrypoint waits for the database itself, so ordering after postgresql is a hint
+# rather than a hard requirement. Notify=healthy gates auto-update rollback on the
+# healthcheck below.
+[Unit]
+Description=Gefieder crudman (Django admin panel)
+After=postgresql.service
+
+[Container]
+ContainerName=crudman
+Pod=${APP_NAME}.pod
+Image=${REGISTRY}/crudman:${IMAGE_TAG}
+AutoUpdate=registry
+Notify=healthy
+Environment=APP_NAME=${APP_NAME}
+Environment=SERVER_NAME=${SERVER_NAME}
+Environment=SUPERUSER_NAME=${SUPERUSER_NAME}
+Environment=SUPERUSER_EMAIL=${SUPERUSER_EMAIL}
+Environment=CRUDMAN_PATH=${CRUDMAN_PATH}
+Environment=DEBUG=${DEBUG}
+Environment=POSTGRES_HOST=localhost
+Environment=POSTGRES_PORT=5432
+Environment=POSTGRES_DB=postgres
+Environment=POSTGRES_USER=crudman
+Secret=django_secret_key
+Secret=crudman_password
+Secret=superuser_password
+# Single-quoted -c argument: quadlet mangles the closing quote of a double-quoted
+# HealthCmd, so the inner strings use "..." and the whole argument is single-quoted.
+HealthCmd=python -c 'import os,urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/"+os.environ["CRUDMAN_PATH"]+"/").read()'
+HealthInterval=10s
+HealthTimeout=5s
+HealthRetries=10
+HealthStartPeriod=20s
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

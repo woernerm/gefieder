@@ -1,0 +1,94 @@
+name: Build and publish
+
+# Manual trigger only. Builds the custom images and pushes them to the registry; the
+# server's podman-auto-update.timer pulls and applies them on its own, rolling back if
+# a new image fails its healthcheck. There is no SSH into the server.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref (branch, tag or commit) to build"
+        required: true
+        default: main
+      dry_run:
+        description: "Run the test suite only, do not push images"
+        type: boolean
+        default: false
+
+jobs:
+  # Pre-gate: run the full throwaway test suite on the ephemeral runner, which has no
+  # production stack, so there is no collision with a live deployment. If this fails the
+  # publish job never runs and no image is pushed.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref }}
+
+      - name: Install a recent podman and uv
+        run: |
+          # The quadlet pod support needs podman >= 5.0, newer than Ubuntu ships, so
+          # take it from the openSUSE OBS build for the runner's Ubuntu release.
+          . /etc/os-release
+          BASE="https://download.opensuse.org/repositories/devel:kubic:libcontainers:unstable/xUbuntu_${VERSION_ID}"
+          sudo install -d -m 0755 /etc/apt/keyrings
+          curl -fsSL "${BASE}/Release.key" | gpg --dearmor | sudo tee /etc/apt/keyrings/podman.gpg >/dev/null
+          echo "deb [signed-by=/etc/apt/keyrings/podman.gpg] ${BASE}/ /" | sudo tee /etc/apt/sources.list.d/podman.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y podman
+          podman --version
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Create the podman secrets
+        run: |
+          openssl rand -hex 64 | podman secret create django_secret_key -
+          printf '%s' '${{ secrets.SUPERUSER_PASSWORD }}' | podman secret create superuser_password -
+          openssl rand -hex 32 | podman secret create crudman_password -
+          openssl rand -hex 32 | podman secret create sqlmesh_password -
+          openssl rand -hex 32 | podman secret create grafana_password -
+
+      - name: Run the test suite
+        run: ./run-tests.sh production
+
+  # Build the custom images and push them to the registry. Only runs if the test job
+  # passed and this is not a dry run. The server pulls them on its own schedule.
+  publish:
+    needs: test
+    if: ${{ github.event.inputs.dry_run != 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      # Allow pushing to the GitHub Container Registry with the built-in token.
+      packages: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref }}
+
+      - name: Install a recent podman
+        run: |
+          # podman >= 5.0 for the `podman artifact` commands the build uses.
+          . /etc/os-release
+          BASE="https://download.opensuse.org/repositories/devel:kubic:libcontainers:unstable/xUbuntu_${VERSION_ID}"
+          sudo install -d -m 0755 /etc/apt/keyrings
+          curl -fsSL "${BASE}/Release.key" | gpg --dearmor | sudo tee /etc/apt/keyrings/podman.gpg >/dev/null
+          echo "deb [signed-by=/etc/apt/keyrings/podman.gpg] ${BASE}/ /" | sudo tee /etc/apt/sources.list.d/podman.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y podman
+          podman --version
+
+      - name: Load the configured registry
+        run: grep -E '^(REGISTRY|IMAGE_TAG)=' .env >> "$GITHUB_ENV"
+
+      - name: Log in to the registry
+        # ghcr.io accepts the built-in GITHUB_TOKEN; for another registry (e.g.
+        # Artifactory) set REGISTRY_USERNAME/REGISTRY_PASSWORD repository secrets.
+        run: |
+          REGISTRY_HOST="${REGISTRY%%/*}"
+          echo "${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}" | \
+            podman login "$REGISTRY_HOST" \
+              -u "${{ secrets.REGISTRY_USERNAME || github.actor }}" --password-stdin
+
+      - name: Build and push the images
+        run: ./build.sh push
