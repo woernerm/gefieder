@@ -1,17 +1,19 @@
 # Gefieder
 
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 Gefieder is a multi-tenant data analytics platform for engineering teams, built on
 PostgreSQL, DuckDB, SQLMesh and Django (with the Unfold admin interface).
 
-It runs as a small **pod** of containers managed by **podman quadlets** (systemd unit
-files). Once it is up you get two web interfaces:
+It runs as a small pod of containers managed by podman. Once it is up you get two web
+interfaces:
 
 - an **administration panel** (Django) for entering and editing organizational data
 - **Grafana dashboards** with the database already wired up as a read-only data source
 
 This README walks you from nothing to a running system: first locally on your own
-machine, then deployed on a server. The [Reference](#reference) section at the end
-explains every setting and command in detail.
+machine, then deployed on a server, followed by reference sections for the settings,
+scripts and commands.
 
 
 ## What you need
@@ -47,17 +49,16 @@ Then log in as `admin` with that password:
 - Grafana dashboards: <http://localhost/grafana/>
 
 Stop it with `./run-dev.sh down`; your data is kept in named volumes (see
-[Storage](#storage)). The units read settings from this repository's `.env`, so keep
-the checkout at `~/gefieder` (the path they reference).
+[Storage](#storage)). The dev stack reads its settings from this repository's `.env`, so
+run the script from the checkout; the checkout itself can live anywhere.
 
 
 ## Deploy it on a server
 
-The server needs **no checkout and no `.env`**. Everything is published to the
-registry: the five images, and the quadlet units as an OCI artifact (all config baked
-in at build time). The only host-local pieces are the podman secrets and the TLS
-certificate. First publish a build (see [Automate deployments](#automate-deployments)
-or run `./build.sh push` from a checkout).
+The server needs **no checkout and no `.env`** — everything is pulled from the registry.
+The only host-local pieces are the podman secrets and the TLS certificate. First publish
+a build (see [Automate deployments](#automate-deployments) or run `./build.sh push` from
+a checkout).
 
 **1. Add the TLS certificate** for your host to `~/.config/gefieder/certs/`:
 `fullchain.pem` (certificate incl. intermediates) and `privkey.pem` (private key).
@@ -88,28 +89,19 @@ that `http://` is redirected to `https://`.
 
 ## Automate deployments
 
-Pushing new versions is decoupled from the server: CI builds and publishes the images,
-the server's `podman-auto-update.timer` picks them up on its own. The **Build and
-publish** workflow (`.github/workflows/publish.yml`) does the publishing. Trigger it
-manually, give it the git ref to build, and it:
+The **Build and publish** workflow (`.github/workflows/publish.yml`) builds and pushes
+new versions; the server picks them up on its own. Trigger it manually, give it the git
+ref to build, and it runs the [test suite](#testing) and then publishes if the tests
+pass. A `dry_run` checkbox runs only the tests.
 
-1. runs the full [test suite](#testing) on the GitHub runner — if it fails, nothing is
-   published;
-2. builds the five custom images and **pushes** them, plus the rendered quadlet units
-   as an OCI artifact, to `REGISTRY`.
+For ghcr.io the built-in `GITHUB_TOKEN` is used; for another registry set
+`REGISTRY_USERNAME` / `REGISTRY_PASSWORD` repository secrets (*Settings → Secrets and
+variables → Actions*). `SUPERUSER_PASSWORD` is needed so the test job can create the
+superuser secret.
 
-A `dry_run` checkbox runs only the test stage. For ghcr.io the built-in `GITHUB_TOKEN`
-is used; for another registry set `REGISTRY_USERNAME` / `REGISTRY_PASSWORD` repository
-secrets (*Settings → Secrets and variables → Actions*). `SUPERUSER_PASSWORD` is needed
-so the test job can create the superuser secret.
+On the server there is nothing to trigger: the new images are pulled and applied within
+a day. To apply immediately, run `podman auto-update` by hand.
 
-On the server there is nothing to trigger: within a day (the timer's schedule) the new
-images are pulled and applied. To apply immediately, run `podman auto-update` by hand.
-
-
----
-
-# Reference
 
 ## The containers
 The system is a single pod (named after `APP_NAME`, `gefieder` by default) of five
@@ -121,18 +113,14 @@ containers:
 - `grafana` — the Grafana dashboards, with the database pre-configured as a read-only
   data source
 - `proxy` — an nginx reverse proxy that serves the admin panel and Grafana under
-  `SERVER_NAME`; being in the pod, it reaches the others on `localhost` and publishes
-  the pod's ports 80/443
+  `SERVER_NAME` and publishes the pod's ports 80/443
 
-The quadlet unit files live in `quadlets/` as templates; `install.sh` renders them from
-`.env` into `~/.config/containers/systemd/` (a deployment instead extracts the
-pre-rendered artifact there). All config except the TLS certificate is baked into the
-images and the rendered units, so the server needs neither a checkout nor `.env`.
+The unit files live in `quadlets/`. Locally, `install.sh` renders them from `.env` into
+`~/.config/containers/systemd/`; a server deployment pulls them ready-made instead.
 
 ## Settings
 The build and the local dev stack read their settings from the `.env` file in the
-repository root; the values are baked into the images and the rendered quadlets at build
-time. It is committed with these defaults, which you can adjust:
+repository root. It is committed with these defaults, which you can adjust:
 
 | Setting | Meaning |
 | --- | --- |
@@ -158,10 +146,9 @@ Changing the mode requires recreating the containers, e.g. with
 `systemctl --user restart proxy.service` after editing `.env`.
 
 ## Secrets
-All passwords and keys are managed podman secrets, so they never appear in the quadlets
-or the images. A secret cannot be overwritten; to replace one, `podman secret rm
-<name>` it and create it again. The trailing `-` in the create commands tells podman to
-read the secret from stdin.
+All passwords and keys are podman secrets, so they never appear in the quadlets or the
+images. A secret cannot be overwritten; to replace one, `podman secret rm <name>` it and
+create it again.
 
 | Secret | Used for |
 | --- | --- |
@@ -192,10 +179,8 @@ They survive stopping the stack. Inspect them with `podman volume ls`. To delete
 data, remove the volume explicitly, e.g. `podman volume rm gefieder-postgresql`.
 
 ## Auto-update and rollback
-All five custom images carry `AutoUpdate=registry`. `podman-auto-update.timer`
-periodically pulls the registry, and when an image changed it restarts the service.
-Each service signals readiness through its healthcheck (`Notify=healthy`), so if a new
-image fails to become healthy, podman **rolls back** to the previously running image
+The server pulls new images on a daily timer and restarts the affected services. If a
+new image fails its healthcheck, podman **rolls back** to the previous one
 automatically. Check or force it with:
 
 ```bash
@@ -204,16 +189,20 @@ podman auto-update             # pull, restart, and roll back on failure
 ```
 
 ## Backups
-Auto-update rolls back container **images**, never volume **data** — a migration that
-corrupts the database is not undone by a rollback. The `backup.timer` therefore
-runs `pg_dumpall` daily into the `gefieder-backup` volume. Restore the latest dump with:
+A daily timer runs `pg_dumpall` into the `gefieder-backup` volume. Rollback only covers
+images, not data, so these dumps are your safeguard against a bad migration. They are
+not pruned or copied off the host, so rotate them and replicate them elsewhere if you
+rely on them.
+
+Find the dumps on the host and restore one by piping it into the `postgresql` container:
 
 ```bash
-ls $(podman volume inspect gefieder-backup -f '{{.Mountpoint}}')      # list the dumps
-podman run --rm -i --pod gefieder -v gefieder-backup:/backup \
-  "${REGISTRY}/postgresql:${IMAGE_TAG}" \
-  sh -c 'PGPASSWORD=$(cat /run/secrets/superuser_password) \
-         psql -h localhost -U '"$SUPERUSER_NAME"' -d postgres < /backup/<file>.sql'
+ls "$(podman volume inspect gefieder-backup -f '{{.Mountpoint}}')"
+
+DUMP="$(podman volume inspect gefieder-backup -f '{{.Mountpoint}}')/<file>.sql"
+podman exec -i postgresql sh -c \
+  'PGPASSWORD=$(cat /run/secrets/superuser_password) psql -h localhost -U "$POSTGRES_USER" -d postgres' \
+  < "$DUMP"
 ```
 
 ## Scripts
@@ -238,7 +227,8 @@ podman auto-update                                 # pull and apply new images n
 ## Connecting directly
 - **Admin panel / Grafana**: log in with `SUPERUSER_NAME` and the `superuser_password`.
 - **PostgreSQL** (with the same password): the database port is not published in
-  production; add `PublishPort=5432:5432` to `quadlets/gefieder.pod` if you need it, or
+  production; add `PublishPort=5432:5432` to the pod file
+  (`~/.config/containers/systemd/gefieder.pod`, then `daemon-reload`) if you need it, or
   connect from inside the pod:
 
   ```bash
@@ -246,22 +236,41 @@ podman auto-update                                 # pull and apply new images n
   ```
 
 ## Using custom ports
-The pod publishes ports 80 and 443. Instead of allowing rootless podman to bind them
-(the sysctl step above), override them for the pod via the environment before starting:
+The pod publishes ports 80 and 443. To serve on different ports (and skip the sysctl
+step above), edit the two `PublishPort` lines in the rendered pod file and reload:
 
 ```bash
-HTTP_PORT=8080 HTTPS_PORT=8443 systemctl --user start proxy.service
+sed -i 's/^PublishPort=80:80/PublishPort=8080:80/; s/^PublishPort=443:443/PublishPort=8443:443/' \
+  ~/.config/containers/systemd/gefieder.pod
+systemctl --user daemon-reload
+systemctl --user restart proxy.service
 ```
 
 ## Testing
-The integration test suite builds fresh images, starts a throwaway pod on isolated
-ports under a separate systemd user config, checks that the system works (containers
-start cleanly, the apps are reachable, static files load, the schemas exist and the
-`grafana` role has exactly the access it should) and tears the pod down again. It runs
-in isolation, away from any production system, because the stack it creates is
-discarded. The secrets must already exist.
+The integration test suite spins up a throwaway stack, checks that the system works
+(containers start, the apps are reachable, static files load, the schemas exist and the
+`grafana` role has the access it should) and tears it down again. Run it away from any
+production system; the secrets must already exist.
 
 ```bash
 ./run-tests.sh             # development profile: plain HTTP
 ./run-tests.sh production  # production profile: HTTPS with a self-signed certificate
 ```
+
+## Licensing
+The code in this repo (the Dockerfiles, scripts, quadlets, Django app and SQL) is
+Apache-2.0 — use it freely, no warranty. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+The software it builds on keeps its own license. Two cases to be aware of:
+
+- **Grafana is AGPL-3.0.** This is a copyleft license: if you run a modified Grafana as
+  a network service, you have to make your modified source available to its users.
+  Shipping the stock image as-is is fine; just don't patch Grafana and keep the changes
+  private. This says nothing about the rest of the project, which stays Apache-2.0.
+- **The DuckDB extensions** in `postgresql/initdb/` are just examples, pulled from the
+  community repo at runtime. Licenses and quality vary, so trim the list to what you
+  actually use before going to production.
+
+Everything else — the base images (PostgreSQL/pgduckdb, nginx, Python) and the Python
+dependencies (Django, gunicorn, SQLMesh, ...) — is permissively licensed; check the
+individual projects if you need the details.

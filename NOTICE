@@ -1,0 +1,12 @@
+Gefieder
+Copyright 2026 Marcus Wörner
+
+This product is licensed under the Apache License, Version 2.0 (see the LICENSE file).
+
+This product bundles and orchestrates third-party software that is distributed under
+its own license. In particular, the container image built from grafana/Dockerfile is
+based on Grafana (https://github.com/grafana/grafana), which is licensed under the GNU
+Affero General Public License v3.0 (AGPL-3.0). Distributing or operating that image
+carries the obligations of the AGPL-3.0, including its network-use clause; its terms
+apply to Grafana independently of the Apache-2.0 license of this project. See the
+Licensing section of the README for details.

@@ -67,7 +67,7 @@
 - Each service directory has a Dockerfile; images are built with Podman and deployed via 
   the quadlets in the `quadlets/` directory.
 - The postgresql service is based on https://hub.docker.com/r/pgduckdb/pgduckdb.
-- The build, run and connect instructions are described in the Readme file in the root of 
-  the repository and shall be updated if necessary.
+- The build, run and connect instructions are described in the README.md file in the 
+  root of the repository and shall be updated if necessary.
 - These instructions shall be compatible with running both in WSL on Windows as well as 
   on a linux host machine.

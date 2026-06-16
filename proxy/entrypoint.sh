@@ -9,7 +9,7 @@ export GRAFANA_PATH="${GRAFANA_PATH:-grafana}"
 
 # Select the proxy configuration: plain HTTP for development (DEBUG=true), HTTPS with
 # an HTTP-to-HTTPS redirect for production. The certificate files are expected in
-# proxy/certs/, see the Readme.
+# proxy/certs/, see the README.
 if [ "$DEBUG" = "true" ]; then
   template=/etc/nginx/proxy/http.conf.template
 else
