@@ -3,6 +3,9 @@ CREATE OR REPLACE FUNCTION use_duckdb(enable boolean)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
+-- Pin the search_path so a caller cannot shadow objects this definer-owned function
+-- resolves; standard hardening for SECURITY DEFINER functions.
+SET search_path = pg_catalog
 AS $$
 BEGIN
     IF enable THEN

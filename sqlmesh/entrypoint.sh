@@ -6,11 +6,10 @@ set -e
 SQLMESH_PASSWORD="$(cat /run/secrets/sqlmesh_password)"
 export SQLMESH_PASSWORD
 
-# Wait until PostgreSQL accepts connections. podman-compose does not honor the
-# "condition: service_healthy" dependency in compose.yaml, so on a fresh boot this
-# container can start while the database is still initializing. The connection is
-# tested with psycopg2 directly because "sqlmesh info" exits with code 0 even when
-# the data warehouse connection fails.
+# Wait until PostgreSQL accepts connections, because the containers in the pod start
+# without ordering and this one can come up while the database is still initializing.
+# The connection is tested with psycopg2 directly because "sqlmesh info" exits with
+# code 0 even when the data warehouse connection fails.
 until uv run --project /sqlmesh python -c "
 import os, psycopg2
 psycopg2.connect(

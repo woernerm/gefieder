@@ -6,8 +6,8 @@ gateways:
       # https://sqlmesh.readthedocs.io/en/stable/reference/configuration/#connection
       # https://sqlmesh.readthedocs.io/en/stable/integrations/engines/postgres/#connection-options
       type: postgres
-      # The variables below are set by the environment section of the sqlmesh service
-      # in compose.yaml. The defaults allow running SQLMesh from the host as well.
+      # The variables below are set on the sqlmesh service in its quadlet (sqlmesh.container).
+      # The defaults allow running SQLMesh from the host as well.
       host: {{ env_var('POSTGRES_HOST', 'localhost') }}
       user: sqlmesh
       # The password of the "sqlmesh" database user, i.e. the value stored in the

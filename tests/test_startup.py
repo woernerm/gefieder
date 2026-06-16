@@ -36,8 +36,10 @@ class TestStartup:
 
     @pytest.mark.parametrize("container", ["postgresql", "crudman"])
     def test_all_containers_shall_pass_their_healthchecks(self, container):
-        # Only these two declare a healthcheck in compose.yaml. A container may still be
-        # within its start_period when the apps already answer, so poll until it settles.
+        # These two gate the rest of the pod (the others depend on the database and the
+        # app being healthy), so the suite checks their healthchecks. A container may
+        # still be within its start_period when the apps already answer, so poll until
+        # it settles.
         deadline = time.time() + 60
         while True:
             health = _inspect(container)["State"].get("Health", {}).get("Status")

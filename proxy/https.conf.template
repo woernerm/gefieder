@@ -11,6 +11,12 @@ server {
     ssl_certificate /etc/nginx/proxy/certs/fullchain.pem;
     ssl_certificate_key /etc/nginx/proxy/certs/privkey.pem;
 
+    # Security headers for all responses (including errors, hence "always"). HSTS tells
+    # browsers to use HTTPS only; the others harden against MIME sniffing and clickjacking.
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+
     # The Django application serves its URLs under /${CRUDMAN_PATH} itself, so the
     # path is forwarded unchanged.
     location /${CRUDMAN_PATH}/ {

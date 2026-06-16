@@ -1,17 +1,17 @@
 #!/bin/sh
 set -e
 
-# Wait until PostgreSQL accepts connections. podman-compose does not honor the
-# "condition: service_healthy" dependency in compose.yaml, so on a fresh boot this
-# container can start while the database is still initializing.
+# Wait until PostgreSQL accepts connections, because the containers in the pod start
+# without ordering and this one can come up while the database is still initializing.
 until uv run --project /crudman python manage.py shell -c \
   "from django.db import connection; connection.ensure_connection()" >/dev/null 2>&1; do
   echo "Waiting for the database to become available..."
   sleep 2
 done
 
-# Create and apply database migrations before starting the application server.
-uv run --project /crudman python manage.py makemigrations --noinput
+# Apply the committed database migrations before starting the application server.
+# Migrations are generated and committed during development, not authored here against
+# live data, so only "migrate" runs.
 uv run --project /crudman python manage.py migrate --noinput
 
 # Collect the static files for whitenoise. With DEBUG disabled, the manifest static
