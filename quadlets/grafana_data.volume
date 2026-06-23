@@ -1,0 +1,4 @@
+# The Grafana volume holding dashboards, users and settings. It survives stopping the
+# stack; remove it explicitly to delete the data.
+[Volume]
+VolumeName=grafana_data

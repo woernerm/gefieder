@@ -10,6 +10,13 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /crudman/app
 
+# Company proxy for the dependency install below, passed as --build-arg by CI so the
+# build works from behind a corporate proxy. Scoped to this stage and not persisted in
+# the image. Empty by default, i.e. a direct connection.
+ARG http_proxy
+ARG https_proxy
+ARG no_proxy
+
 # Copy dependency metadata first so Docker can cache dependency installation.
 COPY crudman/pyproject.toml /crudman/pyproject.toml
 
@@ -19,8 +26,9 @@ RUN uv sync --project /crudman --no-dev
 # Copy the Django application into the image.
 COPY crudman/app/ /crudman/app/
 
-# Copy the startup script that applies migrations before starting the server.
-COPY --chmod=755 crudman/entrypoint.sh /crudman/entrypoint.sh
+# Copy the startup script that applies migrations before starting the server. It is
+# committed executable, so a plain COPY (no BuildKit --chmod) preserves the mode.
+COPY crudman/entrypoint.sh /crudman/entrypoint.sh
 
 # Document the main application port.
 EXPOSE 8000

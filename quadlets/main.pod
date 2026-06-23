@@ -2,8 +2,11 @@
 # reach each other on localhost (replacing the implicit shared network compose gave us).
 # The proxy is the only service that publishes ports, and it does so here at the pod
 # level. Quadlet does not expand shell-style variables in PublishPort, so the host
-# ports are literal; to serve on different ports, edit the two lines below (the test
-# suite rewrites them for its isolated stack).
+# ports are literal; to serve on different ports, edit the two lines below.
+#
+# The file is named main.pod (so the generated unit is main-pod.service and the
+# containers link to it with Pod=main.pod), but PodName below sets the name podman
+# actually shows for the pod and its containers, images, etc. — ${APP_NAME}.
 [Pod]
 PodName=${APP_NAME}
 PublishPort=80:80

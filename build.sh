@@ -1,34 +1,27 @@
 #!/bin/sh
-# Build the five custom images and tag them into the configured registry namespace
-# (REGISTRY/IMAGE_TAG from .env). With "push" as the first argument, also push them and
-# the quadlet OCI artifact, which is how the server gets its units without a checkout.
+# Build the five service images with docker, the same way CI does, so a local build and
+# the release build stay identical. The CI workflow calls this script too.
 #
-#   ./build.sh        build and tag locally
-#   ./build.sh push   build, tag and push the images and the quadlet artifact
+#   ./build.sh
+#
+# Settings come from buildtime.env: REGISTRY/IMAGE_TAG name the images
+# (REGISTRY/<svc>:IMAGE_TAG, matching the Image= lines in the quadlets) and the
+# HTTP(S)_PROXY/NO_PROXY values are passed as --build-arg so package installs work from
+# behind a company proxy.
 set -e
 
 cd "$(dirname "$0")"
 set -a
-. ./.env
+. ./buildtime.env
 set +a
 
-# postgresql/crudman/sqlmesh are app images; proxy and grafana bake in the config that
-# used to be bind-mounted, so the server needs no checkout for it.
+# The entrypoints are committed executable and the Dockerfiles use plain COPY, so the
+# build needs no BuildKit-only features and works on any docker (classic or BuildKit).
 for svc in postgresql crudman sqlmesh proxy grafana; do
-  podman build -t "${REGISTRY}/${svc}:${IMAGE_TAG}" -f "./${svc}/Dockerfile" .
-  if [ "$1" = "push" ]; then
-    podman push "${REGISTRY}/${svc}:${IMAGE_TAG}"
-  fi
+  docker build \
+    --build-arg "http_proxy=${HTTP_PROXY}" \
+    --build-arg "https_proxy=${HTTPS_PROXY}" \
+    --build-arg "no_proxy=${NO_PROXY}" \
+    -t "${REGISTRY}/${svc}:${IMAGE_TAG}" \
+    -f "${svc}/Dockerfile" .
 done
-
-# Package the quadlets, rendered from .env, as an OCI artifact and push it. The server
-# pulls and extracts this into its systemd dir, so it needs neither a clone nor .env.
-if [ "$1" = "push" ]; then
-  STAGE="$(mktemp -d)"
-  ./install.sh "$STAGE" >/dev/null
-  ART="${REGISTRY}/quadlets:${IMAGE_TAG}"
-  podman artifact rm "$ART" >/dev/null 2>&1 || true
-  podman artifact add "$ART" "$STAGE"/*
-  podman artifact push "$ART"
-  rm -rf "$STAGE"
-fi

@@ -4,12 +4,39 @@ The tests run against a throwaway stack that run-tests.sh has already started. T
 stack is reached over the published ports; which ports and protocol depend on the
 profile (dev = plain HTTP, production = HTTPS), passed in via environment variables.
 """
+import json
 import os
+import subprocess
 import time
 
 import httpx
 import psycopg2
 import pytest
+
+
+def podman(*args):
+    """Run a podman command and return its stdout, raising on a non-zero exit."""
+    return subprocess.run(
+        ["podman", *args], capture_output=True, text=True, check=True,
+    ).stdout
+
+
+def inspect(target):
+    """Return the parsed `podman inspect` object for a container or other resource."""
+    return json.loads(podman("inspect", target))[0]
+
+
+def volume_mountpoint(volume):
+    """Return the host filesystem path backing a named podman volume."""
+    return podman("volume", "inspect", volume, "-f", "{{.Mountpoint}}").strip()
+
+
+def mount_in_container(container, volume):
+    """Return the destination path the named volume is mounted at inside the container."""
+    for m in inspect(container).get("Mounts", []):
+        if m.get("Name") == volume:
+            return m["Destination"]
+    raise AssertionError(f"{volume} is not mounted in {container}")
 
 
 def allowed(conn, sql):
@@ -46,6 +73,31 @@ GRAFANA_LOGIN = f"/{GRAFANA_PATH}/login"
 
 # The names of the containers that make up the stack.
 CONTAINERS = ["postgresql", "crudman", "sqlmesh", "grafana", "proxy"]
+
+# The systemd unit that owns the pod (the quadlet file is named main.pod).
+POD_SERVICE = "main-pod.service"
+
+# The named data volumes the quadlets declare, one per service.
+DATA_VOLUMES = [
+    "postgresql_data", "grafana_data", "crudman_data", "sqlmesh_data", "proxy_data",
+]
+
+# Where each service writes its persistent log, as (container, volume, path-in-volume).
+# crudman/sqlmesh/proxy tee their entrypoint output to a file the rootless user owns;
+# postgresql and grafana are configured to log into a subdir of their data volume.
+PERSISTENT_LOGS = [
+    ("crudman", "crudman_data", "crudman.log"),
+    ("sqlmesh", "sqlmesh_data", "sqlmesh.log"),
+    ("proxy", "proxy_data", "proxy.log"),
+    ("postgresql", "postgresql_data", "log"),   # directory of dated log files
+    ("grafana", "grafana_data", "log/grafana.log"),
+]
+
+# The services whose entrypoint tees the log as the rootless user (uid 0 in-container,
+# mapped to the host user), so the log file is owned by that user without `podman
+# unshare`. postgresql/grafana run as a non-root in-container user, so their files land
+# on a mapped subuid instead and are excluded from the ownership assertion.
+USER_OWNED_LOGS = ["crudman", "sqlmesh", "proxy"]
 
 # In the production profile the proxy serves a self-signed certificate, so TLS
 # verification is disabled for the test run.

@@ -1,0 +1,5 @@
+# The crudman data volume. It currently holds only the log the entrypoint tees here (so a
+# crash leaves a log on disk), but it is a general data volume for the service. It
+# survives stopping the stack; remove it explicitly to discard the data.
+[Volume]
+VolumeName=crudman_data

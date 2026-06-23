@@ -1,22 +1,24 @@
 # The SQLMesh analytics engine, running models on their cron schedules.
 #
-# Pulled from the configured registry and auto-updated like the other custom images.
-# The entrypoint waits for the database itself. A simple "running" healthcheck lets
-# auto-update detect a new image that crashes on startup and roll it back.
+# The image is the one install.sh loaded from the release. The entrypoint waits for the
+# database itself. The "running" healthcheck below gates Notify=healthy so systemd marks
+# the service started only once it is up.
 [Unit]
 Description=Gefieder SQLMesh analytics engine
 After=postgresql.service
 
 [Container]
 ContainerName=sqlmesh
-Pod=${APP_NAME}.pod
+Pod=main.pod
 Image=${REGISTRY}/sqlmesh:${IMAGE_TAG}
-AutoUpdate=registry
 Notify=healthy
 Environment=POSTGRES_HOST=localhost
 Environment=POSTGRES_PORT=5432
 Environment=POSTGRES_DB=postgres
 Environment=SQLMESH_RUN_INTERVAL=10
+# Data volume; the entrypoint tees its output to /var/log/gefieder here so a crash
+# leaves a log on disk rather than only in the container's stdout.
+Volume=sqlmesh_data.volume:/var/log/gefieder
 Secret=sqlmesh_password
 # The slim image has no pgrep and psycopg2 lives in the uv venv, not the system python,
 # so check liveness with a stdlib-only TCP connect to the database the engine needs.

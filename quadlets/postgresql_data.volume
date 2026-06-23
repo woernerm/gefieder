@@ -1,0 +1,4 @@
+# The database volume holding the engineering, analytics and application data. It
+# survives stopping the stack; remove it explicitly to delete the data.
+[Volume]
+VolumeName=postgresql_data

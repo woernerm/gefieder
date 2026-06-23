@@ -1,13 +1,13 @@
-# Provisions the Gefieder PostgreSQL database as a read-only Grafana data source.
+# Provisions the project's PostgreSQL database as a read-only Grafana data source.
 # The password is read from the grafana_password secret mounted into the container.
 apiVersion: 1
 
 datasources:
-  # The name is interpolated from the APP_NAME environment variable set on the
-  # grafana service.
+  # The name and uid are interpolated from the APP_NAME environment variable set on
+  # the grafana service, so they track the project name from buildtime.env.
   - name: ${APP_NAME}
     type: postgres
-    uid: gefieder-postgresql
+    uid: ${APP_NAME}-postgresql
     access: proxy
     url: postgresql:5432
     user: grafana

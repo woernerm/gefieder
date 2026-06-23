@@ -1,18 +1,16 @@
 # The Django administration panel, reachable through the proxy.
 #
-# Pulled from the configured registry and auto-updated like the other custom images.
-# The entrypoint waits for the database itself, so ordering after postgresql is a hint
-# rather than a hard requirement. Notify=healthy gates auto-update rollback on the
-# healthcheck below.
+# The image is the one install.sh loaded from the release. The entrypoint waits for the
+# database itself, so ordering after postgresql is a hint rather than a hard requirement.
+# Notify=healthy marks the service started only once the healthcheck below passes.
 [Unit]
 Description=Gefieder crudman (Django admin panel)
 After=postgresql.service
 
 [Container]
 ContainerName=crudman
-Pod=${APP_NAME}.pod
+Pod=main.pod
 Image=${REGISTRY}/crudman:${IMAGE_TAG}
-AutoUpdate=registry
 Notify=healthy
 Environment=APP_NAME=${APP_NAME}
 Environment=SERVER_NAME=${SERVER_NAME}
@@ -24,6 +22,9 @@ Environment=POSTGRES_HOST=localhost
 Environment=POSTGRES_PORT=5432
 Environment=POSTGRES_DB=postgres
 Environment=POSTGRES_USER=crudman
+# Data volume; the entrypoint tees its output to /var/log/gefieder here so a crash
+# leaves a log on disk rather than only in the container's stdout.
+Volume=crudman_data.volume:/var/log/gefieder
 Secret=django_secret_key
 Secret=crudman_password
 Secret=superuser_password

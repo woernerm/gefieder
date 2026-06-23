@@ -9,6 +9,7 @@ venv/
 ENV/
 env/
 .python-version
+.claude/
 
 # Testing and tooling
 .pytest_cache/

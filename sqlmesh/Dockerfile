@@ -10,6 +10,13 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /sqlmesh/app
 
+# Company proxy for the dependency install below, passed as --build-arg by CI so the
+# build works from behind a corporate proxy. Scoped to this stage and not persisted in
+# the image. Empty by default, i.e. a direct connection.
+ARG http_proxy
+ARG https_proxy
+ARG no_proxy
+
 # Copy dependency metadata first so Docker can cache dependency installation.
 COPY sqlmesh/pyproject.toml /sqlmesh/pyproject.toml
 
@@ -19,7 +26,8 @@ RUN uv sync --project /sqlmesh --no-dev
 # Copy the SQLMesh project into the image.
 COPY sqlmesh/ /sqlmesh/app/
 
-# Copy the startup script that applies the plan and runs the scheduling loop.
-COPY --chmod=755 sqlmesh/entrypoint.sh /sqlmesh/entrypoint.sh
+# Copy the startup script that applies the plan and runs the scheduling loop. It is
+# committed executable, so a plain COPY (no BuildKit --chmod) preserves the mode.
+COPY sqlmesh/entrypoint.sh /sqlmesh/entrypoint.sh
 
 CMD ["/sqlmesh/entrypoint.sh"]

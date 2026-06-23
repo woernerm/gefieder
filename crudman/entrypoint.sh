@@ -1,6 +1,24 @@
 #!/bin/sh
 set -e
 
+# Persist everything this script and the server print into the mounted log volume while
+# still echoing to stdout, so "podman logs"/journald keep working and a crash also leaves
+# its cause on disk. Process substitution is a bashism unavailable in this dash /bin/sh,
+# so on first entry the script re-runs itself with stdout+stderr piped through tee -a
+# (which appends, so logs survive restarts); GEFIEDER_LOGGING guards against looping. A
+# pipeline cannot be exec'd and its status would be tee's, so the real exit status is
+# captured via a status file and re-raised, keeping the container's exit code (and thus
+# Restart=) honest on a crash. The volume is owned by the rootless podman user already.
+LOG_DIR=/var/log/gefieder
+if [ -z "$GEFIEDER_LOGGING" ]; then
+  mkdir -p "$LOG_DIR"
+  export GEFIEDER_LOGGING=1
+  STATUS_FILE="$(mktemp)"
+  { "$0" "$@"; echo $? > "$STATUS_FILE"; } 2>&1 | tee -a "$LOG_DIR/crudman.log" || true
+  status="$(cat "$STATUS_FILE" 2>/dev/null || echo 1)"; rm -f "$STATUS_FILE"
+  exit "$status"
+fi
+
 # Wait until PostgreSQL accepts connections, because the containers in the pod start
 # without ordering and this one can come up while the database is still initializing.
 until uv run --project /crudman python manage.py shell -c \

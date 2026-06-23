@@ -4,21 +4,11 @@ Startup health is asserted positively (containers reach running/healthy, no rest
 rather than by grepping logs for the word "error", which the database, Grafana and
 Django all emit harmlessly at startup.
 """
-import json
-import subprocess
 import time
 
 import pytest
 
-from conftest import CONTAINERS
-
-
-def _inspect(container):
-    out = subprocess.run(
-        ["podman", "inspect", container],
-        capture_output=True, text=True, check=True,
-    ).stdout
-    return json.loads(out)[0]
+from conftest import CONTAINERS, inspect as _inspect
 
 
 class TestStartup:

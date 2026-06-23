@@ -1,4 +1,4 @@
-# Copilot Instructions for Gefieder
+# Instructions for Gefieder
 
 ## Purpose
 - The repository is named "Gefieder".
@@ -16,7 +16,7 @@
 - The application is a multi-tenant data analytics application. A tenant can refer to a 
   real person or a project that shall be kept separate from other projects. 
 - The application is deployed as podman quadlets to a linux server.
-- It supports at least Ubuntu and RHEL. 
+- It supports at least Ubuntu and Red Hat. 
 - There is a django service `crudman` for administration and data entry (CRUD).
 - There is a PostgreSQL service for storing the analytics and django application data.
 - There is a SQLMesh analytics engine for running queries and generating reports.
@@ -40,9 +40,8 @@
 - `crudman` mainly uses Django's "free" admin feature, styled with the Unfold package.
 - It is used to add contextual/organizational data to the database, such as knowledge of 
   teams, projects, users, metadata or institutional knowledge that has not been 
-  documented and may vary from project to project. If this data was adequately 
-  documented, it would be extracted by another tool and stored in the database like the 
-  engineering data. 
+  documented otherwise and may vary from project to project. If this data was adequately 
+  documented, it would be extracted by another tool and stored in the database.
 - Data is added by filling out custom forms or by importing it from files.
 - It is exposed to non-admin users as well, so data entry can be shared rather than 
   relying solely on admin users.
@@ -61,14 +60,16 @@
   uploaded as github release.
 - The system shall be installable from a github release using a curl command similar to 
   this: `curl -fsSL https://github.com/woernerm/gefieder/releases/latest/install.sh | bash`
+- The system shall use the entrypoint.sh scripts to write persistent logs to the volume
+  (e.g. using `tee`). The logs shall be owned by the rootless podman user.
 
 ## Configuration
-- There shall be a buildtime.env configuration file for all variables that need to be
+- There shall be a `buildtime.env` configuration file for all variables that need to be
   known before the images are build.
-- There shall be a runtime.env configuration file for all variables that need to be 
+- There shall be a `runtime.env` configuration file for all variables that need to be 
   known before the images are run. These shall be made available as environment 
   variables in the images requiring them (not every variable in every image).
-- The buildtime.env configuration file shall have entries for company proxy settings.
+- The `buildtime.env` configuration file shall have entries for company proxy settings.
 
 ## Build
 - Each service directory shall have a Dockerfile; 
@@ -79,6 +80,8 @@
   even when building from behind a company proxy.
 - The github release shall consist of separate files: One file for each quadlet file.
   One file for each docker image. 
+- The build script shall use full commit hashs for actions.
+- The build script shall be triggered by a commit to the main branch.
 
 ## Install Script
 - The install script shall test whether subuid and subgid mappings are available for the 
@@ -98,6 +101,7 @@
     - The path of each volume (so that the user can cd into the respective directories).
     - Control command for opening the runtime.env configuration file with the host
       system's default editor (or nano if there is no default).
+    - A `cat` command for viewing the persistent logs of each software component.
 - The install script shall store a helpfile in the rootless podman user's home 
   directory.
 

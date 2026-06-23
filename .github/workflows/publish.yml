@@ -1,94 +1,79 @@
-name: Build and publish
+name: Build and release
 
-# Manual trigger only. Builds the custom images and pushes them to the registry; the
-# server's podman-auto-update.timer pulls and applies them on its own, rolling back if
-# a new image fails its healthcheck. There is no SSH into the server.
+# Build the five custom images with docker, render the quadlets, and publish everything
+# as a GitHub release: one tarball per image, one file per quadlet, plus install.sh.
+# A server then installs it without a checkout via the curl one-liner in install.sh.
+#
+# Triggered by every commit to main; also runnable manually with an explicit tag.
 on:
+  push:
+    branches: ["main"]
   workflow_dispatch:
     inputs:
-      ref:
-        description: "Git ref (branch, tag or commit) to build"
+      tag:
+        description: "Release tag to create (e.g. v1.2.0)"
         required: true
-        default: main
-      dry_run:
-        description: "Run the test suite only, do not push images"
-        type: boolean
-        default: false
+
+permissions:
+  contents: write   # create the release and upload its assets
 
 jobs:
-  # Pre-gate: run the full throwaway test suite on the ephemeral runner, which has no
-  # production stack, so there is no collision with a live deployment. If this fails the
-  # publish job never runs and no image is pushed.
-  test:
+  release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.ref }}
+      # Pinned to a full commit SHA (v4.2.2) so a moved tag cannot change what runs.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
-      - name: Install a recent podman and uv
+      # The release tag: the explicit one from a manual run, otherwise a unique tag
+      # derived from the date and short commit SHA for the main-branch push.
+      - name: Resolve the release tag
         run: |
-          # The quadlet pod support needs podman >= 5.0, newer than Ubuntu ships, so
-          # take it from the openSUSE OBS build for the runner's Ubuntu release.
-          . /etc/os-release
-          BASE="https://download.opensuse.org/repositories/devel:kubic:libcontainers:unstable/xUbuntu_${VERSION_ID}"
-          sudo install -d -m 0755 /etc/apt/keyrings
-          curl -fsSL "${BASE}/Release.key" | gpg --dearmor | sudo tee /etc/apt/keyrings/podman.gpg >/dev/null
-          echo "deb [signed-by=/etc/apt/keyrings/podman.gpg] ${BASE}/ /" | sudo tee /etc/apt/sources.list.d/podman.list >/dev/null
-          sudo apt-get update
-          sudo apt-get install -y podman
-          podman --version
-          curl -LsSf https://astral.sh/uv/install.sh | sh
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "TAG=${{ github.event.inputs.tag }}" >> "$GITHUB_ENV"
+          else
+            echo "TAG=v$(date +%Y.%m.%d)-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          fi
 
-      - name: Create the podman secrets
+      # Load the build-time settings so the build args and the rendered quadlets use the
+      # same values. envsubst (gettext) renders the quadlet templates below.
+      - name: Load buildtime.env
         run: |
-          openssl rand -hex 64 | podman secret create django_secret_key -
-          printf '%s' '${{ secrets.SUPERUSER_PASSWORD }}' | podman secret create superuser_password -
-          openssl rand -hex 32 | podman secret create crudman_password -
-          openssl rand -hex 32 | podman secret create sqlmesh_password -
-          openssl rand -hex 32 | podman secret create grafana_password -
+          cat buildtime.env >> "$GITHUB_ENV"
+          sudo apt-get update && sudo apt-get install -y gettext-base
 
-      - name: Run the test suite
-        run: ./run-tests.sh production
+      # The same script used for local builds, so CI and a developer build identically.
+      # It reads buildtime.env itself and passes the proxy settings as --build-arg.
+      - name: Build the images
+        run: ./build.sh
 
-  # Build the custom images and push them to the registry. Only runs if the test job
-  # passed and this is not a dry run. The server pulls them on its own schedule.
-  publish:
-    needs: test
-    if: ${{ github.event.inputs.dry_run != 'true' }}
-    runs-on: ubuntu-latest
-    permissions:
-      # Allow pushing to the GitHub Container Registry with the built-in token.
-      packages: write
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.ref }}
-
-      - name: Install a recent podman
+      # Stage every release asset in dist/: one tarball per image (CLAUDE.md's "one file
+      # per docker image"), one file per quadlet, the rendered manifest the installer
+      # sources, and the installer itself.
+      - name: Stage the release assets
         run: |
-          # podman >= 5.0 for the `podman artifact` commands the build uses.
-          . /etc/os-release
-          BASE="https://download.opensuse.org/repositories/devel:kubic:libcontainers:unstable/xUbuntu_${VERSION_ID}"
-          sudo install -d -m 0755 /etc/apt/keyrings
-          curl -fsSL "${BASE}/Release.key" | gpg --dearmor | sudo tee /etc/apt/keyrings/podman.gpg >/dev/null
-          echo "deb [signed-by=/etc/apt/keyrings/podman.gpg] ${BASE}/ /" | sudo tee /etc/apt/sources.list.d/podman.list >/dev/null
-          sudo apt-get update
-          sudo apt-get install -y podman
-          podman --version
+          mkdir -p dist
+          for svc in postgresql crudman sqlmesh proxy grafana; do
+            docker save "${REGISTRY}/${svc}:${IMAGE_TAG}" -o "dist/${svc}.tar"
+          done
 
-      - name: Load the configured registry
-        run: grep -E '^(REGISTRY|IMAGE_TAG)=' .env >> "$GITHUB_ENV"
+          # Render the quadlet templates, substituting only the known tokens so nginx's
+          # $host and Grafana's %(domain)s are left untouched.
+          VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SERVER_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${DEBUG}'
+          for f in quadlets/*; do
+            envsubst "$VARS" < "$f" > "dist/$(basename "$f")"
+          done
 
-      - name: Log in to the registry
-        # ghcr.io accepts the built-in GITHUB_TOKEN; for another registry (e.g.
-        # Artifactory) set REGISTRY_USERNAME/REGISTRY_PASSWORD repository secrets.
-        run: |
-          REGISTRY_HOST="${REGISTRY%%/*}"
-          echo "${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}" | \
-            podman login "$REGISTRY_HOST" \
-              -u "${{ secrets.REGISTRY_USERNAME || github.actor }}" --password-stdin
+          # The installer sources this for the values baked into the images.
+          {
+            echo "APP_NAME=${APP_NAME}"
+            echo "SUPERUSER_NAME=${SUPERUSER_NAME}"
+            echo "CRUDMAN_PATH=${CRUDMAN_PATH}"
+            echo "GRAFANA_PATH=${GRAFANA_PATH}"
+          } > dist/manifest.env
 
-      - name: Build and push the images
-        run: ./build.sh push
+          cp install.sh dist/install.sh
+
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$TAG" dist/* --title "$TAG" --generate-notes

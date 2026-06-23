@@ -1,4 +1,0 @@
-# The database volume. Named "gefieder-postgresql" so it groups with the project and
-# survives stopping the stack; remove it explicitly to delete the data.
-[Volume]
-VolumeName=${APP_NAME}-postgresql

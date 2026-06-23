@@ -1,4 +1,4 @@
-# Copilot Instructions for Gefieder
+# Instructions for Gefieder
 
 ## Purpose
 - The repository is named "Gefieder".
@@ -51,7 +51,60 @@
 - Users of the application can write queries using SQLMesh that are executed according 
   to a schedule.
 
-## Style
+# Deployment
+- The system shall be deployed using podman quadlets. 
+- Each software component shall have a `quadlets/` directory with the corresponding 
+  quadlet files.
+- The system shall run with rootless podman.
+- The README.md file shall include installation instructions.
+- All build artifacts, the quadlet files, as well as the install script shall be 
+  uploaded as github release.
+- The system shall be installable from a github release using a curl command similar to 
+  this: `curl -fsSL https://github.com/woernerm/gefieder/releases/latest/install.sh | bash`
+- The system shall use the entrypoint.sh scripts to write persistent logs to the volume
+  (e.g. using `tee`). The logs shall be owned by the rootless podman user.
+
+## Configuration
+- There shall be a buildtime.env configuration file for all variables that need to be
+  known before the images are build.
+- There shall be a runtime.env configuration file for all variables that need to be 
+  known before the images are run. These shall be made available as environment 
+  variables in the images requiring them (not every variable in every image).
+- The buildtime.env configuration file shall have entries for company proxy settings.
+
+## Build
+- Each service directory shall have a Dockerfile; 
+- The github workflow shall use docker to build the images. 
+- The github workflow shall read the proxy settings from the .env file and provide
+  then as command line arguments to the docker build command. This is intended to
+  allow the installation of packages from public repositories like pypi or dockerhub
+  even when building from behind a company proxy.
+- The github release shall consist of separate files: One file for each quadlet file.
+  One file for each docker image. 
+
+## Install Script
+- The install script shall test whether subuid and subgid mappings are available for the 
+  current user before continuing with the installation.
+- The install script shall make sure that the rootless podman user always owns all files 
+  in a volume so that `podman unshare ...` is not necessary.
+- The install script shall use separate curl commands for downloading all files related
+  to a github release.
+- The install script shall create podman secrets for the crudman, grafana and django
+  users as well as the django_secret_key based on `openssl rand -hex 32`. It shall omit 
+  the creation of secrets for human users like the superuser. 
+- The install script shall output a cheat sheet with control commands for
+    - Control command for starting the system right now.
+    - Control command for starting the backup procedure right now.
+    - Control command for viewing a life log the combined log of the system.
+    - Control command for viewing a life log of each software component.
+    - The path of each volume (so that the user can cd into the respective directories).
+    - Control command for opening the runtime.env configuration file with the host
+      system's default editor (or nano if there is no default).
+    - A `cat` command for viewing the persistent logs of each software component.
+- The install script shall store a helpfile in the rootless podman user's home 
+  directory.
+
+# Style
 - Follow podman/container deployment best practices.
 - Keep changes minimal compared to the current version.
 - Keep the code beautiful and simple. Do not add unnecessary complexity. 
@@ -62,12 +115,3 @@
 - Comments first and foremost explain why something is done.
 - Filenames and folder structure should look clean and professional, following best 
   practices.
-
-## Build & Deployment
-- Each service directory has a Dockerfile; images are built with Podman and deployed via 
-  the quadlets in the `quadlets/` directory.
-- The postgresql service is based on https://hub.docker.com/r/pgduckdb/pgduckdb.
-- The build, run and connect instructions are described in the README.md file in the 
-  root of the repository and shall be updated if necessary.
-- These instructions shall be compatible with running both in WSL on Windows as well as 
-  on a linux host machine.
