@@ -15,7 +15,16 @@ if [ -z "$GEFIEDER_LOGGING" ]; then
   mkdir -p "$LOG_DIR"
   export GEFIEDER_LOGGING=1
   STATUS_FILE="$(mktemp)"
-  { "$0" "$@"; echo $? > "$STATUS_FILE"; } 2>&1 | tee -a "$LOG_DIR/sqlmesh.log" || true
+  # Prefix every line with an ISO-8601 timestamp before persisting it, so each line on
+  # disk can be placed in time. This script's echoes and sqlmesh's plan/run output are
+  # not timestamped on their own. A shell read loop is used rather than awk because mawk
+  # (this image's awk) buffers its input in large blocks, so a slow stream like the run
+  # loop would sit unwritten for a long time; `read` emits each line at once. The
+  # `|| [ -n "$line" ]` flushes a final line that lacks a trailing newline.
+  { "$0" "$@"; echo $? > "$STATUS_FILE"; } 2>&1 \
+    | while IFS= read -r line || [ -n "$line" ]; do
+        printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$line"
+      done | tee -a "$LOG_DIR/sqlmesh.log" || true
   status="$(cat "$STATUS_FILE" 2>/dev/null || echo 1)"; rm -f "$STATUS_FILE"
   exit "$status"
 fi

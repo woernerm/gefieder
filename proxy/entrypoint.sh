@@ -15,7 +15,17 @@ if [ -z "$GEFIEDER_LOGGING" ]; then
   mkdir -p "$LOG_DIR"
   export GEFIEDER_LOGGING=1
   STATUS_FILE="$(mktemp)"
-  { "$0" "$@"; echo $? > "$STATUS_FILE"; } 2>&1 | tee -a "$LOG_DIR/proxy.log" || true
+  # Prefix every line with an ISO-8601 timestamp before persisting it, so each line on
+  # disk can be placed in time. nginx's access log uses a DD/Mon/YYYY timestamp and this
+  # script's echoes have none, so a uniform leading timestamp makes every line sortable.
+  # A shell read loop is used rather than awk because BusyBox awk buffers its input in
+  # large blocks, so a slow stream like the access log would sit unwritten for a long
+  # time; `read` emits each line at once. The `|| [ -n "$line" ]` flushes a final line
+  # that lacks a trailing newline.
+  { "$0" "$@"; echo $? > "$STATUS_FILE"; } 2>&1 \
+    | while IFS= read -r line || [ -n "$line" ]; do
+        printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$line"
+      done | tee -a "$LOG_DIR/proxy.log" || true
   status="$(cat "$STATUS_FILE" 2>/dev/null || echo 1)"; rm -f "$STATUS_FILE"
   exit "$status"
 fi

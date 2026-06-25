@@ -61,7 +61,9 @@
 - The system shall be installable from a github release using a curl command similar to 
   this: `curl -fsSL https://github.com/woernerm/gefieder/releases/latest/install.sh | bash`
 - The system shall use the entrypoint.sh scripts to write persistent logs to the volume
-  (e.g. using `tee`). The logs shall be owned by the rootless podman user.
+  (e.g. using `awk`). The logs shall be owned by the rootless podman user.
+- The persistent logs shall contain one (and only one) timestamp at the beginning of 
+  each message.
 
 ## Configuration
 - There shall be a `buildtime.env` configuration file for all variables that need to be
@@ -116,3 +118,5 @@
 - Comments first and foremost explain why something is done.
 - Filenames and folder structure should look clean and professional, following best 
   practices.
+- In `Readme.md`, keep a concise, natural human-like style with only user-level 
+  explainations. Don't fall into technical verbosity.

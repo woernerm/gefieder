@@ -8,6 +8,7 @@ volume instead of via an entrypoint, which satisfies the same goal (a log on dis
 diagnose a crash), so they are checked for the file but not for direct host ownership.
 """
 import os
+import re
 import subprocess
 import time
 
@@ -16,6 +17,27 @@ import pytest
 from conftest import (
     PERSISTENT_LOGS, USER_OWNED_LOGS, mount_in_container, podman, volume_mountpoint,
 )
+
+# A line is considered timestamped if it carries a calendar date and clock time
+# somewhere in it. This deliberately accepts the several formats the services emit:
+# ISO-8601 "2026-06-25T22:31:05" (this script's awk prefix, grafana's mid-line t=...),
+# gunicorn's bracketed "[2026-06-25 22:31:05 +0000]" and nginx's "2026/06/25 22:31:05".
+TIMESTAMP = re.compile(r"\d{4}[-/]\d{2}[-/]\d{2}[ T]\d{2}:\d{2}:\d{2}")
+
+
+def _log_lines(container, volume, rel):
+    """Return the lines of the persistent log, read from inside the container.
+
+    Read in-container for the same reason as _log_present: postgresql/grafana logs land
+    on a mapped subuid the host user cannot read directly. A directory (postgresql's
+    "log") is concatenated across its files so every service is checked the same way.
+    """
+    path = f"{mount_in_container(container, volume)}/{rel}"
+    out = podman(
+        "exec", container, "sh", "-c",
+        f'if [ -d "{path}" ]; then cat "{path}"/*; else cat "{path}"; fi',
+    )
+    return out.splitlines()
 
 
 def _log_present(container, volume, rel, timeout=60):
@@ -76,3 +98,26 @@ class TestPersistentLogs:
             time.sleep(2)
         assert os.path.getsize(path) >= before, "the persistent log was truncated on restart"
         assert os.path.getsize(path) > before, "the restart appended nothing to the log"
+
+
+class TestLogTimestamps:
+    """Every line of every persistent log carries a timestamp, so a line on disk can be
+    placed in time when diagnosing a crash. The services do not all timestamp their own
+    output (this script's echoes, Django's migrate output and parts of sqlmesh's output
+    have none), so the entrypoints are responsible for prefixing one."""
+
+    @pytest.mark.parametrize("container,volume,rel", PERSISTENT_LOGS,
+                             ids=[c for c, _, _ in PERSISTENT_LOGS])
+    def test_every_log_line_shall_carry_a_timestamp(self, container, volume, rel):
+        # The log is written asynchronously after readiness, so wait for it to exist
+        # before reading rather than racing an empty file.
+        assert _log_present(container, volume, rel), (
+            f"{container} wrote no persistent log at {rel} in {volume}"
+        )
+        lines = [ln for ln in _log_lines(container, volume, rel) if ln.strip()]
+        assert lines, f"{container}'s persistent log is empty"
+        missing = [ln for ln in lines if not TIMESTAMP.search(ln)]
+        assert not missing, (
+            f"{container}'s persistent log has {len(missing)} line(s) without a "
+            f"timestamp, e.g.: {missing[0]!r}"
+        )
