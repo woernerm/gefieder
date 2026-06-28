@@ -23,14 +23,16 @@ quarantined.
 
 1. Create the tenant in the admin panel (this creates its `bronze_<slug>` schema in
    PostgreSQL). The folder name here must match that slug.
-2. Copy one of the example folders to `silver/<slug>/` and rewrite its staging model to
+2. Add the tenant's bronze model(s) under `bronze/<slug>/` (see `bronze/README.md`):
+   usually a view over a shared source schema, selecting and filtering the rows for this
+   tenant.
+3. Copy one of the example folders to `silver/<slug>/` and rewrite its staging model to
    decode that tenant's bronze data into the canonical columns
    (`tenant_id, issue_id, title, state, created_on, effort`).
-3. Add one `UNION ALL` line for the new tenant to `silver/issues.sql`.
+4. Add one `UNION ALL` line for the new tenant to `silver/issues.sql`.
 
 Gold models read `silver.*` only and need no changes when tenants come and go.
 
-The example tenants ship with a SQLMesh `SEED` model under each folder
-(`bronze_issues.sql`) so the pipeline produces data out of the box. Real tenants get their
-bronze data from external acquisition tools instead, so a real tenant folder usually has
-no `bronze_*.sql` seed.
+The bronze layer for the example tenants lives in `bronze/project_a` and
+`bronze/project_b`. There it uses SQLMesh `SEED` models so the pipeline produces data out
+of the box; real tenants get their bronze data from views over source schemas instead.
