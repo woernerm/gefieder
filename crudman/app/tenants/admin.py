@@ -3,7 +3,13 @@ from unfold.admin import ModelAdmin
 
 from .forms import TenantChangeForm, TenantCreationForm
 from .models import Tenant
-from .utils import create_tenant, delete_tenant, set_tenant_limits, sync_tenants
+from .utils import (
+    create_tenant,
+    delete_tenant,
+    set_tenant_display_name,
+    set_tenant_limits,
+    sync_tenants,
+)
 
 
 @admin.register(Tenant)
@@ -74,9 +80,19 @@ class TenantAdmin(ModelAdmin):
     def save_model(self, request, obj, form, change):
         # Apply the change in PostgreSQL via the database functions. The cache row is only
         # written (via the normal save) once the database side has succeeded.
-        if not change and not create_tenant(obj.name, form.cleaned_data["password"]):
+        if not change and not create_tenant(
+            obj.name, form.cleaned_data["password"], obj.display_name
+        ):
             messages.error(request, f"Could not create tenant '{obj.name}'.")
             return
+        # On edit, propagate a renamed display name to the schema comment so the catalog
+        # stays authoritative and a later resync does not revert it. (On create the
+        # comment was just set by create_tenant above.)
+        if change and not set_tenant_display_name(obj.name, obj.display_name):
+            messages.warning(
+                request,
+                f"Tenant '{obj.name}' saved, but its display name could not be updated.",
+            )
         if not set_tenant_limits(
             obj.name,
             obj.connection_limit,

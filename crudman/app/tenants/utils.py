@@ -28,14 +28,20 @@ def slugify_tenant_name(display_name: str) -> str:
     return slug
 
 
-def create_tenant(tenant_name: str, tenant_password: str) -> bool:
+def create_tenant(
+    tenant_name: str, tenant_password: str, display_name: str = ""
+) -> bool:
     """Call the ``create_tenant`` database function.
 
     Wraps the PostgreSQL function with the same name and parameters and returns whether
     the call succeeded. The database function does the input validation, role creation
-    and schema setup; here we only forward the arguments.
+    and schema setup; here we only forward the arguments. The human-readable display name
+    is stored as a comment on the bronze schema so the catalog carries it too.
     """
-    return _call("SELECT create_tenant(%s, %s)", [tenant_name, tenant_password])
+    return _call(
+        "SELECT create_tenant(%s, %s, %s)",
+        [tenant_name, tenant_password, display_name],
+    )
 
 
 def set_tenant_limits(
@@ -60,6 +66,17 @@ def set_tenant_limits(
             "0" if work_mem is None else work_mem,
             "0" if temp_file_limit is None else temp_file_limit,
         ],
+    )
+
+
+def set_tenant_display_name(tenant_name: str, display_name: str) -> bool:
+    """Update a tenant's human-readable name via the ``set_tenant_display_name`` function.
+
+    Keeps the bronze schema's comment — the catalog's copy of the name — in sync when an
+    admin renames an existing tenant, so a later changelist resync does not revert it.
+    """
+    return _call(
+        "SELECT set_tenant_display_name(%s, %s)", [tenant_name, display_name]
     )
 
 
@@ -103,6 +120,7 @@ def get_tenants() -> list:
     query = """
         SELECT
             substr(n.nspname, %s) AS name,
+            obj_description(n.oid, 'pg_namespace') AS display_name,
             r.rolconnlimit,
             (SELECT split_part(c, '=', 2) FROM unnest(st.setconfig) c
                 WHERE c LIKE 'statement_timeout=%%') AS statement_timeout,
@@ -124,14 +142,15 @@ def get_tenants() -> list:
         rows = cursor.fetchall()
 
     tenants = []
-    for name, conn_limit, statement_timeout, work_mem, temp_file_limit in rows:
+    for name, display_name, conn_limit, statement_timeout, work_mem, temp_file_limit in rows:
         tenants.append(
             Tenant(
                 name=name,
-                # The catalog holds no human name; sync_tenants keeps any display name a
-                # crudman-created tenant already has and leaves this blank otherwise, so
-                # str(tenant) falls back to the slug for tenants made outside crudman.
-                display_name="",
+                # The human name is stored as a COMMENT on the bronze schema by
+                # create_tenant, so every tenant carries one — including those seeded
+                # outside crudman. A schema without a comment (e.g. created before this
+                # existed) reads as None; str() then falls back to the slug.
+                display_name=display_name or "",
                 # Represent "no limit" with the model's sentinels (-1 / "0") consistently:
                 # an unset catalog value (None) also means no limit. Keeping the same
                 # representation the add form and set_tenant_limits use means a tenant
@@ -159,13 +178,12 @@ def sync_tenants() -> None:
     tenants = get_tenants()
     names = [t.name for t in tenants]
     for tenant in tenants:
-        # display_name is intentionally left out of defaults: it does not exist in the
-        # catalog, so an update must not overwrite the human name a crudman-created tenant
-        # already has. update_or_create only sets it on insert (via the slug fallback in
-        # str()), so resyncing the changelist never clobbers an existing display name.
+        # The catalog now carries the human name (a COMMENT on the bronze schema), so it is
+        # part of the upsert: a resync reflects a name set or changed in PostgreSQL.
         Tenant.objects.update_or_create(
             name=tenant.name,
             defaults={
+                "display_name": tenant.display_name,
                 "connection_limit": tenant.connection_limit,
                 "statement_timeout": tenant.statement_timeout,
                 "work_mem": tenant.work_mem,

@@ -17,7 +17,15 @@ END;
 $$;
 
 -- Main onboarding function
-CREATE OR REPLACE FUNCTION create_tenant(tenant_name text, tenant_password text)
+CREATE OR REPLACE FUNCTION create_tenant(
+    tenant_name text,
+    tenant_password text,
+    -- The human-readable name (e.g. "Project A") shown in the admin. It is stored as a
+    -- COMMENT on the bronze schema so the catalog — the source of truth for tenants —
+    -- carries it too, not just the crudman cache. Defaults to the slug so callers that do
+    -- not supply one (and tenants created before this column existed) still have a name.
+    tenant_display_name text DEFAULT NULL
+)
 RETURNS void
 LANGUAGE plpgsql
 -- SECURITY DEFINER so the unprivileged application role (crudman) can onboard tenants:
@@ -113,6 +121,16 @@ BEGIN
     );
 
     --------------------------------------------------------------------
+    -- Store the human-readable name on the schema so the catalog carries it. Falls back
+    -- to the slug when no display name is given, so get_tenants always reads a name.
+    --------------------------------------------------------------------
+    EXECUTE format(
+        'COMMENT ON SCHEMA %I IS %L',
+        schema_name,
+        coalesce(nullif(tenant_display_name, ''), tenant_name)
+    );
+
+    --------------------------------------------------------------------
     -- Grant privileges inside bronze schema
     --------------------------------------------------------------------
     EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I', schema_name, tenant_name);
@@ -149,6 +167,33 @@ BEGIN
     );
 
     RAISE NOTICE 'Tenant % created with schema %', tenant_name, schema_name;
+END;
+$$;
+
+-- Update a tenant's human-readable name, stored as the comment on its bronze schema.
+-- Used when an admin renames an existing tenant; create_tenant sets the comment on
+-- onboarding, this keeps it in sync afterwards. search_path and %I/%L hardening as above.
+CREATE OR REPLACE FUNCTION set_tenant_display_name(
+    tenant_name text,
+    tenant_display_name text
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+    schema_name text := 'bronze_' || tenant_name;
+BEGIN
+    IF tenant_name !~ '^[a-zA-Z0-9_]+$' THEN
+        RAISE EXCEPTION 'tenant_name can only contain letters, numbers, and underscores';
+    END IF;
+
+    EXECUTE format(
+        'COMMENT ON SCHEMA %I IS %L',
+        schema_name,
+        coalesce(nullif(tenant_display_name, ''), tenant_name)
+    );
 END;
 $$;
 

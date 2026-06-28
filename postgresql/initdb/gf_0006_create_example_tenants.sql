@@ -13,5 +13,5 @@
 -- The example login password is intentionally simple and well known: these tenants exist
 -- to be explored and then deleted, so the password is documentation, not a secret. The
 -- per-tenant bronze data is provided by SQLMesh SEED models, not by this role logging in.
-SELECT create_tenant('project_a', 'changeme123');
-SELECT create_tenant('project_b', 'changeme123');
+SELECT create_tenant('project_a', 'changeme123', 'Project A');
+SELECT create_tenant('project_b', 'changeme123', 'Project B');

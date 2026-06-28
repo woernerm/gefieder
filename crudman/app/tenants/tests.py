@@ -48,11 +48,11 @@ class CreateTenantUtilTests(TestCase):
     def test_calls_database_function_with_same_parameters(self, connection):
         cursor = connection.cursor.return_value.__enter__.return_value
 
-        result = utils.create_tenant("acme", "supersecret")
+        result = utils.create_tenant("acme", "supersecret", "Acme")
 
         self.assertTrue(result)
         cursor.execute.assert_called_once_with(
-            "SELECT create_tenant(%s, %s)", ["acme", "supersecret"]
+            "SELECT create_tenant(%s, %s, %s)", ["acme", "supersecret", "Acme"]
         )
 
     @patch("tenants.utils.connection")
@@ -102,8 +102,8 @@ class GetTenantsUtilTests(TestCase):
     def test_builds_tenant_instances_from_rows(self, connection):
         cursor = connection.cursor.return_value.__enter__.return_value
         cursor.fetchall.return_value = [
-            ("acme", 5, "5min", "256MB", "1GB"),
-            ("globex", -1, "0", "0", "0"),
+            ("acme", "Acme", 5, "5min", "256MB", "1GB"),
+            ("globex", None, -1, "0", "0", "0"),
         ]
 
         tenants = utils.get_tenants()
@@ -111,6 +111,9 @@ class GetTenantsUtilTests(TestCase):
         self.assertEqual([t.name for t in tenants], ["acme", "globex"])
 
         acme = tenants[0]
+        self.assertEqual(acme.display_name, "Acme")
+        # A schema with no comment reads as None and becomes an empty display name.
+        self.assertEqual(tenants[1].display_name, "")
         self.assertEqual(acme.connection_limit, 5)
         self.assertEqual(acme.statement_timeout, "5min")
         self.assertEqual(acme.work_mem, "256MB")
@@ -128,7 +131,7 @@ class GetTenantsUtilTests(TestCase):
     def test_unset_catalog_values_become_unlimited_sentinels(self, connection):
         # A role with no per-role settings (NULLs) still reads as "no limit".
         cursor = connection.cursor.return_value.__enter__.return_value
-        cursor.fetchall.return_value = [("acme", None, None, None, None)]
+        cursor.fetchall.return_value = [("acme", None, None, None, None, None)]
 
         tenant = utils.get_tenants()[0]
         self.assertIsInstance(tenant, Tenant)
@@ -147,12 +150,19 @@ class SyncTenantsUtilTests(TestCase):
         Tenant.objects.create(name="old", connection_limit=1)
 
         get_tenants.return_value = [
-            Tenant(name="acme", connection_limit=5, statement_timeout="5min"),
+            Tenant(
+                name="acme",
+                display_name="Acme",
+                connection_limit=5,
+                statement_timeout="5min",
+            ),
         ]
         utils.sync_tenants()
 
         self.assertEqual(list(Tenant.objects.values_list("name", flat=True)), ["acme"])
         acme = Tenant.objects.get(name="acme")
+        # The human name from the catalog is mirrored into the cache too.
+        self.assertEqual(acme.display_name, "Acme")
         self.assertEqual(acme.connection_limit, 5)
         self.assertEqual(acme.statement_timeout, "5min")
 
@@ -201,13 +211,13 @@ class TenantAdminTests(TestCase):
     @patch("tenants.admin.set_tenant_limits", return_value=True)
     @patch("tenants.admin.create_tenant", return_value=True)
     def test_save_model_creates_tenant_and_caches_row(self, create, set_limits):
-        obj = Tenant(name="acme", connection_limit=5)
+        obj = Tenant(name="acme", display_name="Acme", connection_limit=5)
         form = MagicMock()
         form.cleaned_data = {"password": "supersecret"}
 
         self.admin.save_model(self.request, obj, form, change=False)
 
-        create.assert_called_once_with("acme", "supersecret")
+        create.assert_called_once_with("acme", "supersecret", "Acme")
         # The unset size limits keep their unlimited-sentinel defaults.
         set_limits.assert_called_once_with("acme", 5, "0", "0", "0")
         # The cache row is written only after the database functions succeed.
@@ -225,17 +235,26 @@ class TenantAdminTests(TestCase):
         set_limits.assert_not_called()
         self.assertFalse(Tenant.objects.filter(name="acme").exists())
 
+    @patch("tenants.admin.set_tenant_display_name", return_value=True)
     @patch("tenants.admin.set_tenant_limits", return_value=True)
     @patch("tenants.admin.create_tenant", return_value=True)
-    def test_save_model_on_edit_only_sets_limits(self, create, set_limits):
-        obj = Tenant.objects.create(name="acme", connection_limit=5)
+    def test_save_model_on_edit_updates_name_and_limits(
+        self, create, set_limits, set_name
+    ):
+        obj = Tenant.objects.create(
+            name="acme", display_name="Acme", connection_limit=5
+        )
         obj.connection_limit = 10
+        obj.display_name = "Acme Corp"
         form = MagicMock()
         form.cleaned_data = {}
 
         self.admin.save_model(self.request, obj, form, change=True)
 
+        # An edit does not re-create the tenant, but does propagate the renamed display
+        # name to PostgreSQL (the schema comment) and apply the limits.
         create.assert_not_called()
+        set_name.assert_called_once_with("acme", "Acme Corp")
         set_limits.assert_called_once_with("acme", 10, "0", "0", "0")
         self.assertEqual(Tenant.objects.get(name="acme").connection_limit, 10)
 
@@ -321,8 +340,8 @@ class TenantAdminViewTests(TestCase):
             },
         )
         self.assertEqual(response.status_code, 302)
-        # The slug derived from "Project A" is what reaches create_tenant and is stored.
-        create.assert_called_once_with("project_a", "supersecret")
+        # The slug derived from "Project A" reaches create_tenant along with the human name.
+        create.assert_called_once_with("project_a", "supersecret", "Project A")
         self.assertTrue(Tenant.objects.filter(name="project_a").exists())
 
     @patch("tenants.admin.delete_tenant", return_value=True)
