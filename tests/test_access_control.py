@@ -7,14 +7,18 @@ The expected permission matrix (from postgresql/initdb) is:
   ---------+---------------------------+-------------------+----------------+----------
   crudman  | owns (full read/write)    | no access         | no access      | no access
   sqlmesh  | read-only                 | owns (read/write) | owns (full)    | read/write
-  grafana  | read model tables only    | read-only         | read-only**    | read-only
+  grafana  | read model tables only    | read-only         | no access**    | read-only
            | (not auth_/django_ ones)  |                   |                |
 
-  ** the CREATE SCHEMA event trigger fires for every schema, so grafana also receives
-     read access to the sqlmesh state schema. See test_grafana_shall_read_the_sqlmesh_schema.
+  ** grafana sees only the schemas it should chart: bronze_<tenant>, silver and gold (and
+     the crudman model tables). It must NOT see sqlmesh's internals -- the state schema
+     (sqlmesh), the per-tenant staging schema (silver_staging) or the physical schemas
+     behind the virtual layer (sqlmesh__*) -- which hold churning, versioned objects. The
+     CREATE SCHEMA event trigger therefore grants grafana read only on bronze_<tenant>
+     schemas; silver and gold are granted explicitly in initdb.
 
-  * bronze schemas are created per tenant by create_tenant(); they are not covered
-    here because no tenant exists on a fresh stack.
+  * bronze schemas are created per tenant by create_tenant(); a fresh stack has none, so
+    the bronze visibility checks below create a throwaway bronze_<tenant> schema directly.
 
 A representative table is seeded into the relevant schemas by the superuser so the
 assertions are deterministic regardless of what the running apps have created.
@@ -106,19 +110,52 @@ class TestGrafanaUser:
     def test_grafana_shall_not_write_anywhere(self, grafana_db, table):
         denied(grafana_db, f"INSERT INTO {table} VALUES (1)")
 
-    def test_grafana_shall_read_the_sqlmesh_schema(self, grafana_db):
-        # The CREATE SCHEMA event trigger fires for every schema, including the sqlmesh
-        # state schema created in initdb, so grafana receives read access to it too.
-        allowed(grafana_db, "SELECT * FROM sqlmesh._snapshots")
+    def test_grafana_shall_not_read_the_sqlmesh_schema(self, grafana_db):
+        # The sqlmesh state schema holds internal bookkeeping; grafana must not see it.
+        with grafana_db.cursor() as cur:
+            cur.execute("SELECT has_schema_privilege('grafana', 'sqlmesh', 'USAGE')")
+            assert cur.fetchone()[0] is False
 
-    def test_grafana_shall_gain_read_access_to_newly_created_schemas(self, admin_db, grafana_db):
-        # The event trigger grants grafana USAGE on any schema sqlmesh creates.
+    def test_grafana_shall_not_read_sqlmesh_internal_schemas(self, admin_db, grafana_db):
+        # The physical (sqlmesh__*) and staging (silver_staging) schemas are SQLMesh
+        # internals and must stay hidden, even though sqlmesh creates them. They may not
+        # exist on a fresh stack (no plan has run), so create representative ones.
+        for schema in ("sqlmesh__silver", "silver_staging"):
+            with admin_db.cursor() as cur:
+                cur.execute(
+                    f"CREATE SCHEMA IF NOT EXISTS {schema} AUTHORIZATION sqlmesh"
+                )
+        for schema in ("sqlmesh__silver", "silver_staging"):
+            with grafana_db.cursor() as cur:
+                cur.execute(
+                    "SELECT has_schema_privilege('grafana', %s, 'USAGE')", (schema,)
+                )
+                assert cur.fetchone()[0] is False, f"grafana can see {schema}"
+
+    def test_grafana_shall_gain_read_access_to_new_bronze_schemas(self, admin_db, grafana_db):
+        # The event trigger grants grafana USAGE on a tenant bronze schema as it is created
+        # (this is how a newly onboarded tenant's data becomes visible in Grafana).
+        with admin_db.cursor() as cur:
+            cur.execute(
+                "CREATE SCHEMA IF NOT EXISTS bronze_probe AUTHORIZATION sqlmesh"
+            )
+        try:
+            with grafana_db.cursor() as cur:
+                cur.execute("SELECT has_schema_privilege('grafana', 'bronze_probe', 'USAGE')")
+                assert cur.fetchone()[0] is True
+        finally:
+            with admin_db.cursor() as cur:
+                cur.execute("DROP SCHEMA bronze_probe CASCADE")
+
+    def test_grafana_shall_not_gain_access_to_non_bronze_schemas(self, admin_db, grafana_db):
+        # A non-bronze schema created later (e.g. one of sqlmesh's own) must not become
+        # visible: the trigger only grants the bronze_<tenant> schemas.
         with admin_db.cursor() as cur:
             cur.execute("CREATE SCHEMA IF NOT EXISTS test_probe AUTHORIZATION sqlmesh")
         try:
             with grafana_db.cursor() as cur:
                 cur.execute("SELECT has_schema_privilege('grafana', 'test_probe', 'USAGE')")
-                assert cur.fetchone()[0] is True
+                assert cur.fetchone()[0] is False
         finally:
             with admin_db.cursor() as cur:
                 cur.execute("DROP SCHEMA test_probe CASCADE")

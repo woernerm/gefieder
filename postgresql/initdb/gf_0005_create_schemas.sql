@@ -10,11 +10,16 @@ GRANT USAGE ON SCHEMA crudman TO sqlmesh;
 GRANT SELECT ON ALL TABLES IN SCHEMA crudman TO sqlmesh;
 ALTER DEFAULT PRIVILEGES FOR ROLE crudman IN SCHEMA crudman GRANT SELECT ON TABLES TO sqlmesh;
 
--- Grafana reads, but never writes, the analytics data. The silver and gold schemas
--- are created by sqlmesh at runtime, the per-tenant bronze schemas by create_tenant,
--- so an event trigger grants grafana read access to every schema as it is created.
--- The default privileges are set FOR the creating roles so that grafana can also
--- read tables and views added to those schemas later.
+-- Grafana reads, but never writes, the analytics data: the per-tenant bronze schemas
+-- (bronze_<tenant>), the standardized silver schema and the materialized gold schema.
+-- It must NOT see sqlmesh's internals: the physical schemas behind the virtual layer
+-- (sqlmesh__*), the per-tenant silver staging schema (silver_staging) and the state
+-- schema (sqlmesh) all hold versioned, churning objects that are not meant to be queried.
+--
+-- The bronze schemas are created later by create_tenant, so an event trigger grants
+-- grafana read access as each one appears -- but only for bronze_<tenant> schemas, so the
+-- sqlmesh__bronze_* physical schemas (and every other sqlmesh-created schema) are skipped.
+-- silver and gold are created explicitly below and granted directly.
 CREATE OR REPLACE FUNCTION grant_grafana_read()
 RETURNS event_trigger
 LANGUAGE plpgsql
@@ -27,6 +32,11 @@ BEGIN
         FROM pg_event_trigger_ddl_commands()
         WHERE command_tag = 'CREATE SCHEMA'
     LOOP
+        -- Only the tenant bronze schemas are visible to grafana. Match bronze_% but
+        -- exclude sqlmesh's physical mirror of them (sqlmesh__bronze_%), which is internal.
+        CONTINUE WHEN obj.object_identity NOT LIKE 'bronze\_%'
+                   OR obj.object_identity LIKE 'sqlmesh\_\_%';
+
         EXECUTE format('GRANT USAGE ON SCHEMA %I TO grafana', obj.object_identity);
         EXECUTE format(
             'GRANT SELECT ON ALL TABLES IN SCHEMA %I TO grafana', obj.object_identity
@@ -46,11 +56,16 @@ CREATE EVENT TRIGGER grafana_read_on_create_schema
     EXECUTE FUNCTION grant_grafana_read();
 
 -- The standardized silver schema and the materialized gold schema are owned by
--- sqlmesh, which writes its models there. They are created after the event trigger
--- above so that grafana automatically receives read access to them and to every
--- table and view sqlmesh adds to them later.
+-- sqlmesh, which writes its models there. Grant grafana read on them directly (the event
+-- trigger above only handles the bronze schemas). The default privileges are set FOR
+-- sqlmesh so grafana can also read tables and views sqlmesh adds to them later.
 CREATE SCHEMA IF NOT EXISTS silver AUTHORIZATION sqlmesh;
 CREATE SCHEMA IF NOT EXISTS gold AUTHORIZATION sqlmesh;
+
+GRANT USAGE ON SCHEMA silver, gold TO grafana;
+GRANT SELECT ON ALL TABLES IN SCHEMA silver, gold TO grafana;
+ALTER DEFAULT PRIVILEGES FOR ROLE sqlmesh IN SCHEMA silver GRANT SELECT ON TABLES TO grafana;
+ALTER DEFAULT PRIVILEGES FOR ROLE sqlmesh IN SCHEMA gold GRANT SELECT ON TABLES TO grafana;
 
 -- Grafana may also read the crudman model tables, but not the Django-internal tables
 -- (user, session, migration, ... tables, recognisable by their auth_/django_ prefix)
