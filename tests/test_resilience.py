@@ -6,9 +6,7 @@ These tests stop/kill containers, so they run after the read-only startup/http/d
 """
 import time
 
-import pytest
-
-from conftest import SUPERUSER_NAME, _connect, inspect, podman
+from conftest import inspect, podman
 
 
 def _wait_running(container, timeout=60):
@@ -45,20 +43,11 @@ class TestVolumePersistence:
 
         podman("restart", "postgresql")
 
-        # Reconnect after the restart (the old connection is now dead) and read it back.
-        deadline = time.time() + 60
-        last_err = None
-        while time.time() < deadline:
-            try:
-                conn = _connect(SUPERUSER_NAME)
-                with conn.cursor() as cur:
-                    cur.execute("SELECT id FROM public.persistence_probe")
-                    row = cur.fetchone()
-                    cur.execute("DROP TABLE public.persistence_probe")
-                conn.close()
-                assert row is not None and row[0] == 42
-                return
-            except Exception as exc:  # noqa: BLE001 - retry until the DB is back
-                last_err = exc
-                time.sleep(2)
-        pytest.fail(f"database did not return after restart: {last_err}")
+        # admin_db is a self-healing connection (see conftest): the restart closed the
+        # backend, and the next cursor() reconnects, retrying until the server is back. The
+        # same healing is what lets every later test (e.g. test_tenants) keep working.
+        with admin_db.cursor() as cur:
+            cur.execute("SELECT id FROM public.persistence_probe")
+            row = cur.fetchone()
+            cur.execute("DROP TABLE public.persistence_probe")
+        assert row is not None and row[0] == 42

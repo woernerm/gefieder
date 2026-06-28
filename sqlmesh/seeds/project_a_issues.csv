@@ -1,0 +1,6 @@
+issue_key,summary,status,created_at,story_points
+PA-1,Set up CI pipeline,Done,2026-06-10,5
+PA-2,Write onboarding docs,In Progress,2026-06-11,3
+PA-3,Fix login redirect,Done,2026-06-12,2
+PA-4,Design dashboard,To Do,2026-06-13,8
+PA-5,Migrate database,In Progress,2026-06-14,5

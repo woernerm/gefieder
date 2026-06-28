@@ -17,12 +17,29 @@ END;
 $$;
 
 -- Main onboarding function
-CREATE OR REPLACE FUNCTION create_tenant(tenant_name text, tenant_password text)
+CREATE OR REPLACE FUNCTION create_tenant(
+    tenant_name text,
+    tenant_password text,
+    -- The human-readable name (e.g. "Project A") shown in the admin. It is stored as a
+    -- COMMENT on the bronze schema so the catalog — the source of truth for tenants —
+    -- carries it too, not just the crudman cache. Defaults to the slug so callers that do
+    -- not supply one (and tenants created before this column existed) still have a name.
+    tenant_display_name text DEFAULT NULL
+)
 RETURNS void
 LANGUAGE plpgsql
+-- SECURITY DEFINER so the unprivileged application role (crudman) can onboard tenants:
+-- the function runs with its owner's rights (the bootstrap superuser), which has the
+-- CREATEROLE needed for the CREATE ROLE below. The search_path is pinned to pg_catalog
+-- so a caller cannot shadow the objects this definer-owned function resolves; all
+-- identifiers are interpolated with format()'s %I/%L, so no unqualified user objects are
+-- referenced. public is included only so the GRANT EXECUTE ON FUNCTION use_duckdb(...)
+-- below can resolve that function, which lives in public.
+SECURITY DEFINER
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
-    schema_name text := tenant_name || '_bronze';
+    schema_name text := 'bronze_' || tenant_name;
 BEGIN
     --------------------------------------------------------------------
     -- Input validation
@@ -104,6 +121,16 @@ BEGIN
     );
 
     --------------------------------------------------------------------
+    -- Store the human-readable name on the schema so the catalog carries it. Falls back
+    -- to the slug when no display name is given, so get_tenants always reads a name.
+    --------------------------------------------------------------------
+    EXECUTE format(
+        'COMMENT ON SCHEMA %I IS %L',
+        schema_name,
+        coalesce(nullif(tenant_display_name, ''), tenant_name)
+    );
+
+    --------------------------------------------------------------------
     -- Grant privileges inside bronze schema
     --------------------------------------------------------------------
     EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I', schema_name, tenant_name);
@@ -143,13 +170,45 @@ BEGIN
 END;
 $$;
 
+-- Update a tenant's human-readable name, stored as the comment on its bronze schema.
+-- Used when an admin renames an existing tenant; create_tenant sets the comment on
+-- onboarding, this keeps it in sync afterwards. search_path and %I/%L hardening as above.
+CREATE OR REPLACE FUNCTION set_tenant_display_name(
+    tenant_name text,
+    tenant_display_name text
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+    schema_name text := 'bronze_' || tenant_name;
+BEGIN
+    IF tenant_name !~ '^[a-zA-Z0-9_]+$' THEN
+        RAISE EXCEPTION 'tenant_name can only contain letters, numbers, and underscores';
+    END IF;
+
+    EXECUTE format(
+        'COMMENT ON SCHEMA %I IS %L',
+        schema_name,
+        coalesce(nullif(tenant_display_name, ''), tenant_name)
+    );
+END;
+$$;
+
 -- Tenant deletion function
 CREATE OR REPLACE FUNCTION delete_tenant(tenant_name text)
 RETURNS void
 LANGUAGE plpgsql
+-- SECURITY DEFINER so crudman can offboard tenants; dropping the role needs CREATEROLE,
+-- which the function's superuser owner has. search_path pinned for the same reason as
+-- create_tenant above.
+SECURITY DEFINER
+SET search_path = pg_catalog
 AS $$
 DECLARE
-    schema_bronze text := tenant_name || '_bronze';
+    schema_bronze text := 'bronze_' || tenant_name;
 BEGIN
     --------------------------------------------------------------------
     -- Input validation
@@ -165,8 +224,24 @@ BEGIN
     END IF;
 
     --------------------------------------------------------------------
-    -- Delete tenant's bronze schema and all its contents
+    -- Remove everything the tenant role owns or was granted, then drop it.
+    --
+    -- DROP ROLE refuses to run while any object still depends on the role:
+    -- create_tenant grants the role EXECUTE on use_duckdb() and several
+    -- privileges inside its bronze schema, and sqlmesh may have created tables
+    -- in that schema too. DROP OWNED BY clears all of those grants and drops the
+    -- objects the role owns — including the bronze schema it authorises — so the
+    -- DROP ROLE below can succeed. Without it the role drop aborts and, because
+    -- the function is atomic, the schema drop is rolled back as well, leaving the
+    -- tenant only half-deleted. Skipped when the role is already gone, since
+    -- DROP OWNED BY errors on an unknown role.
     --------------------------------------------------------------------
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = tenant_name) THEN
+        EXECUTE format('DROP OWNED BY %I CASCADE', tenant_name);
+    END IF;
+
+    -- Safety net for the case where the role was already removed but its schema
+    -- lingers; DROP OWNED BY above already drops the schema in the normal case.
     EXECUTE format('DROP SCHEMA IF EXISTS %I CASCADE', schema_bronze);
 
     RAISE NOTICE 'Deleted schema % for tenant %', schema_bronze, tenant_name;
@@ -193,6 +268,10 @@ CREATE OR REPLACE FUNCTION set_tenant_limits(
 )
 RETURNS void
 LANGUAGE plpgsql
+-- SECURITY DEFINER so crudman can apply a tenant's limits; ALTER ROLE needs CREATEROLE,
+-- which the function's superuser owner has. search_path pinned as above.
+SECURITY DEFINER
+SET search_path = pg_catalog
 AS $$
 BEGIN
     --------------------------------------------------------------------
@@ -212,26 +291,32 @@ BEGIN
         RAISE EXCEPTION 'Tenant role % does not exist', tenant_name;
     END IF;
 
-    -- Validate connection_limit
+    -- "No limit" sentinels, mirroring how the values are stored and displayed elsewhere:
+    -- -1 for the connection count and '0' for the size/time limits. A sentinel means the
+    -- per-tenant override is removed with RESET, so the tenant falls back to the server
+    -- default (i.e. no special cap); only real values are format-validated.
+
+    -- Validate connection_limit (-1 means unlimited)
     IF connection_limit < -1 THEN
         RAISE EXCEPTION 'connection_limit must be >= -1 (unlimited)';
     END IF;
 
-    -- Validate timeout and memory values (basic check)
-    IF statement_timeout !~ '^\d+[smh]$' AND statement_timeout !~ '^\d+$' THEN
+    -- Validate timeout and memory values, skipping the '0' = unlimited sentinel.
+    IF statement_timeout <> '0'
+       AND statement_timeout !~ '^\d+[smh]$' AND statement_timeout !~ '^\d+$' THEN
         RAISE EXCEPTION 'statement_timeout must be in format like 5min, 10s, 1h';
     END IF;
 
-    IF work_mem !~ '^\d+[kMG]B?$' THEN
+    IF work_mem <> '0' AND work_mem !~ '^\d+[kMG]B?$' THEN
         RAISE EXCEPTION 'work_mem must be in format like 256MB, 1GB';
     END IF;
 
-    IF temp_file_limit !~ '^\d+[kMG]B?$' THEN
+    IF temp_file_limit <> '0' AND temp_file_limit !~ '^\d+[kMG]B?$' THEN
         RAISE EXCEPTION 'temp_file_limit must be in format like 1GB';
     END IF;
 
     --------------------------------------------------------------------
-    -- Apply connection limit
+    -- Apply connection limit (-1 = unlimited is a valid CONNECTION LIMIT value)
     --------------------------------------------------------------------
     EXECUTE format(
         'ALTER ROLE %I CONNECTION LIMIT %s',
@@ -240,25 +325,30 @@ BEGIN
     );
 
     --------------------------------------------------------------------
-    -- Apply resource limits
+    -- Apply the resource limits, or RESET them to the server default when the '0'
+    -- unlimited sentinel is given (PostgreSQL has no literal "unlimited" for these).
     --------------------------------------------------------------------
-    EXECUTE format(
-        'ALTER ROLE %I SET statement_timeout = %L',
-        tenant_name,
-        statement_timeout
-    );
+    IF statement_timeout = '0' THEN
+        EXECUTE format('ALTER ROLE %I RESET statement_timeout', tenant_name);
+    ELSE
+        EXECUTE format(
+            'ALTER ROLE %I SET statement_timeout = %L', tenant_name, statement_timeout
+        );
+    END IF;
 
-    EXECUTE format(
-        'ALTER ROLE %I SET work_mem = %L',
-        tenant_name,
-        work_mem
-    );
+    IF work_mem = '0' THEN
+        EXECUTE format('ALTER ROLE %I RESET work_mem', tenant_name);
+    ELSE
+        EXECUTE format('ALTER ROLE %I SET work_mem = %L', tenant_name, work_mem);
+    END IF;
 
-    EXECUTE format(
-        'ALTER ROLE %I SET temp_file_limit = %L',
-        tenant_name,
-        temp_file_limit
-    );
+    IF temp_file_limit = '0' THEN
+        EXECUTE format('ALTER ROLE %I RESET temp_file_limit', tenant_name);
+    ELSE
+        EXECUTE format(
+            'ALTER ROLE %I SET temp_file_limit = %L', tenant_name, temp_file_limit
+        );
+    END IF;
 
     RAISE NOTICE 'Resource limits set for tenant %: connections=%, timeout=%, work_mem=%, temp_file_limit=%',
         tenant_name,

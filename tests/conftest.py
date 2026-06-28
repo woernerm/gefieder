@@ -146,18 +146,71 @@ def _connect(user):
     return conn
 
 
+class _ReconnectingConnection:
+    """A psycopg2 connection wrapper that reopens itself if the backend has gone away.
+
+    The role connections are session-scoped and shared across tests. A test that restarts
+    postgresql (test_resilience) kills every backend, so a later test reaching for one of
+    these connections would otherwise hit "server closed the connection unexpectedly".
+    This wrapper checks the connection before each ``cursor()`` call and reconnects when it
+    is closed or broken, so every holder of the same object transparently gets a live
+    connection without having to re-fetch it.
+    """
+
+    def __init__(self, user):
+        self._user = user
+        self._conn = _connect(user)
+
+    def _ensure_alive(self):
+        # psycopg2 sets .closed != 0 once it notices the backend is gone; a still-open
+        # handle is probed with a trivial query so a server restart is detected eagerly.
+        if self._conn.closed:
+            self._reconnect()
+            return
+        try:
+            with self._conn.cursor() as cur:
+                cur.execute("SELECT 1")
+        except psycopg2.Error:
+            self._reconnect()
+
+    def _reconnect(self):
+        # Retry until the freshly restarted server accepts connections again.
+        for _ in range(30):
+            try:
+                self._conn = _connect(self._user)
+                return
+            except psycopg2.OperationalError:
+                time.sleep(2)
+        self._conn = _connect(self._user)  # last attempt, surfacing the error if it fails
+
+    def cursor(self, *args, **kwargs):
+        self._ensure_alive()
+        return self._conn.cursor(*args, **kwargs)
+
+    def close(self):
+        self._conn.close()
+
+    def __getattr__(self, name):
+        # Delegate any other attribute access (e.g. .autocommit) to the live connection.
+        return getattr(self._conn, name)
+
+
 @pytest.fixture(scope="session")
 def connect():
-    """Factory yielding a database connection for a given role, cleaned up at the end."""
-    conns = []
+    """Factory yielding a database connection for a given role, cleaned up at the end.
+
+    Each role gets one shared, self-healing connection (see ``_ReconnectingConnection``),
+    so tests that run after a postgresql restart still receive a live connection.
+    """
+    conns = {}
 
     def _factory(user):
-        conn = _connect(user)
-        conns.append(conn)
-        return conn
+        if user not in conns:
+            conns[user] = _ReconnectingConnection(user)
+        return conns[user]
 
     yield _factory
-    for conn in conns:
+    for conn in conns.values():
         conn.close()
 
 

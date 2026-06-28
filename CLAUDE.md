@@ -38,6 +38,9 @@
 
 ### Administration Panel
 - `crudman` mainly uses Django's "free" admin feature, styled with the Unfold package.
+- Prefer Django's public and documented API instead of private methods and undocumented
+  workarounds. Likewise, only override functions that the Django team intended to be
+  overridden by the user.
 - It is used to add contextual/organizational data to the database, such as knowledge of 
   teams, projects, users, metadata or institutional knowledge that has not been 
   documented otherwise and may vary from project to project. If this data was adequately 
@@ -106,6 +109,10 @@
     - A `cat` command for viewing the persistent logs of each software component.
 - The install script shall store a helpfile in the rootless podman user's home 
   directory.
+
+# Testing & Debugging
+- The integration tests are run using run-tests.sh.
+- A local development system can be started using dev.sh.
 
 # Style
 - Follow podman/container deployment best practices.
