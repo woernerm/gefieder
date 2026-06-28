@@ -6,7 +6,7 @@ A tenant is not a row in a table. It is a PostgreSQL login role that owns a
 the corresponding database functions and by reading PostgreSQL's catalog, so the admin
 interface can present tenants as if they were ordinary model instances.
 """
-from django.db import connection
+from django.db import connection, transaction
 
 # Suffix every tenant's bronze schema carries; used to discover tenants from the catalog.
 _BRONZE_SUFFIX = "_bronze"
@@ -19,12 +19,7 @@ def create_tenant(tenant_name: str, tenant_password: str) -> bool:
     the call succeeded. The database function does the input validation, role creation
     and schema setup; here we only forward the arguments.
     """
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT create_tenant(%s, %s)", [tenant_name, tenant_password])
-        return True
-    except Exception:
-        return False
+    return _call("SELECT create_tenant(%s, %s)", [tenant_name, tenant_password])
 
 
 def set_tenant_limits(
@@ -36,33 +31,38 @@ def set_tenant_limits(
 ) -> bool:
     """Apply resource limits to a tenant via the ``set_tenant_limits`` database function.
 
-    A value of ``None`` means "no limit". PostgreSQL expresses that differently per
-    setting: an unlimited connection limit is ``-1``, and unlimited memory/time is the
-    string ``0``. We translate ``None`` to those sentinels so the limit fields can be
-    left empty in the admin to mean infinite.
+    "No limit" is expressed with PostgreSQL's sentinels: ``-1`` for the connection count
+    and the string ``0`` for memory/time. A blank field arrives as ``None`` and is mapped
+    to those sentinels too, so leaving a field empty in the admin also means infinite.
     """
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT set_tenant_limits(%s, %s, %s, %s, %s)",
-                [
-                    tenant_name,
-                    -1 if connection_limit is None else connection_limit,
-                    "0" if statement_timeout is None else statement_timeout,
-                    "0" if work_mem is None else work_mem,
-                    "0" if temp_file_limit is None else temp_file_limit,
-                ],
-            )
-        return True
-    except Exception:
-        return False
+    return _call(
+        "SELECT set_tenant_limits(%s, %s, %s, %s, %s)",
+        [
+            tenant_name,
+            -1 if connection_limit is None else connection_limit,
+            "0" if statement_timeout is None else statement_timeout,
+            "0" if work_mem is None else work_mem,
+            "0" if temp_file_limit is None else temp_file_limit,
+        ],
+    )
 
 
 def delete_tenant(tenant_name: str) -> bool:
     """Call the ``delete_tenant`` database function, dropping the role and its schema."""
+    return _call("SELECT delete_tenant(%s)", [tenant_name])
+
+
+def _call(sql: str, params: list) -> bool:
+    """Run a tenant database function, returning True on success and False on failure.
+
+    The call is wrapped in its own atomic block so that a database error (e.g. a tenant
+    that already exists) rolls back only this statement. Without the savepoint, the failed
+    statement would leave the surrounding request transaction in an aborted state and every
+    later query — including Django's own admin log write — would then fail too.
+    """
     try:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT delete_tenant(%s)", [tenant_name])
+        with transaction.atomic(), connection.cursor() as cursor:
+            cursor.execute(sql, params)
         return True
     except Exception:
         return False
@@ -71,11 +71,14 @@ def delete_tenant(tenant_name: str) -> bool:
 def get_tenants() -> list:
     """Return one ``Tenant`` instance per tenant discovered in the database.
 
-    Tenants are recognised by their ``<name>_bronze`` schema. The resource limits are
-    read from PostgreSQL's catalog: the connection limit from ``pg_roles`` (``-1`` means
-    unlimited) and the per-role ``statement_timeout``, ``work_mem`` and
-    ``temp_file_limit`` from ``pg_db_role_setting`` (``0`` means unlimited). Unlimited
-    values map back to ``None`` so the model mirrors how a tenant was created.
+    Tenants are recognised by their ``<name>_bronze`` schema. Schemas are read from
+    ``pg_namespace`` rather than ``information_schema.schemata`` because the latter only
+    lists schemas the connecting role (crudman) has privileges on, and the bronze schemas
+    are owned by the tenant roles — so crudman would see none of them. The resource limits
+    come from the catalog too: the connection limit from ``pg_roles`` and the per-role
+    ``statement_timeout``, ``work_mem`` and ``temp_file_limit`` from
+    ``pg_db_role_setting``. A missing value means the limit was reset to the server
+    default, i.e. no per-tenant cap.
     """
     # Imported here to avoid a circular import at module load (models import nothing from
     # this module, but admin imports both).
@@ -83,7 +86,7 @@ def get_tenants() -> list:
 
     query = """
         SELECT
-            left(s.schema_name, -%s) AS name,
+            left(n.nspname, -%s) AS name,
             r.rolconnlimit,
             (SELECT split_part(c, '=', 2) FROM unnest(st.setconfig) c
                 WHERE c LIKE 'statement_timeout=%%') AS statement_timeout,
@@ -91,10 +94,11 @@ def get_tenants() -> list:
                 WHERE c LIKE 'work_mem=%%') AS work_mem,
             (SELECT split_part(c, '=', 2) FROM unnest(st.setconfig) c
                 WHERE c LIKE 'temp_file_limit=%%') AS temp_file_limit
-        FROM information_schema.schemata s
-        JOIN pg_roles r ON r.rolname = left(s.schema_name, -%s)
-        LEFT JOIN pg_db_role_setting st ON st.setrole = r.oid AND st.setdatabase = 0
-        WHERE s.schema_name LIKE %s
+        FROM pg_catalog.pg_namespace n
+        JOIN pg_catalog.pg_roles r ON r.rolname = left(n.nspname, -%s)
+        LEFT JOIN pg_catalog.pg_db_role_setting st
+            ON st.setrole = r.oid AND st.setdatabase = 0
+        WHERE n.nspname LIKE %s
         ORDER BY name
     """
     suffix_len = len(_BRONZE_SUFFIX)
@@ -107,11 +111,16 @@ def get_tenants() -> list:
         tenants.append(
             Tenant(
                 name=name,
-                # -1 / 0 are PostgreSQL's "unlimited" sentinels; show them as no limit.
-                connection_limit=None if conn_limit in (-1, None) else conn_limit,
-                statement_timeout=_unlimited_to_none(statement_timeout),
-                work_mem=_unlimited_to_none(work_mem),
-                temp_file_limit=_unlimited_to_none(temp_file_limit),
+                # Represent "no limit" with the model's sentinels (-1 / "0") consistently:
+                # an unset catalog value (None) also means no limit. Keeping the same
+                # representation the add form and set_tenant_limits use means a tenant
+                # looks identical right after creation and after a later changelist sync.
+                connection_limit=(
+                    Tenant.UNLIMITED_COUNT if conn_limit is None else conn_limit
+                ),
+                statement_timeout=_size_or_unlimited(statement_timeout),
+                work_mem=_size_or_unlimited(work_mem),
+                temp_file_limit=_size_or_unlimited(temp_file_limit),
             )
         )
     return tenants
@@ -141,6 +150,8 @@ def sync_tenants() -> None:
     Tenant.objects.exclude(name__in=names).delete()
 
 
-def _unlimited_to_none(value: str | None) -> str | None:
-    """Map PostgreSQL's unlimited sentinel ("0", or an unset value) to ``None``."""
-    return None if value in (None, "", "0") else value
+def _size_or_unlimited(value: str | None) -> str:
+    """Return a size/time limit, or the unlimited sentinel "0" when none is set."""
+    from .models import Tenant
+
+    return Tenant.UNLIMITED_SIZE if value in (None, "") else value

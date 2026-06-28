@@ -22,34 +22,44 @@ class Tenant(models.Model):
         help_text="e.g. max_mustermann or customer_a_project",
     )
 
-    # All limit fields default to None, meaning no limit (infinite). They map to the
-    # arguments of the set_tenant_limits database function.
+    # The limit fields map to the arguments of the set_tenant_limits database function.
+    # Their defaults are PostgreSQL's "unlimited" sentinels, so a freshly opened add form
+    # is pre-filled with values that mean "no limit": -1 for the connection count and 0
+    # for the size/time limits. Leaving a field blank means the same (no limit); the
+    # utility functions map both the sentinel and an empty value to/from None.
+    UNLIMITED_COUNT = -1
+    UNLIMITED_SIZE = "0"
+
     connection_limit = models.IntegerField(
         "connection limit",
         null=True,
         blank=True,
-        help_text="Maximum number of simultaneous database connections.",
+        default=UNLIMITED_COUNT,
+        help_text="Maximum number of simultaneous database connections. -1 means no limit.",
     )
     statement_timeout = models.CharField(
         "statement timeout",
         max_length=32,
         null=True,
         blank=True,
-        help_text="Maximum runtime of a single statement, e.g. 5min, 10s, 1h.",
+        default=UNLIMITED_SIZE,
+        help_text="Maximum runtime of a single statement, e.g. 5min, 10s, 1h. 0 means no limit.",
     )
     work_mem = models.CharField(
         "work memory",
         max_length=32,
         null=True,
         blank=True,
-        help_text="Maximum memory per query operation, e.g. 256MB, 1GB.",
+        default=UNLIMITED_SIZE,
+        help_text="Maximum memory per query operation, e.g. 256MB, 1GB. 0 means no limit.",
     )
     temp_file_limit = models.CharField(
         "temp file limit",
         max_length=32,
         null=True,
         blank=True,
-        help_text="Maximum size of a temporary file, e.g. 1GB.",
+        default=UNLIMITED_SIZE,
+        help_text="Maximum size of a temporary file, e.g. 1GB. 0 means no limit.",
     )
 
     class Meta:

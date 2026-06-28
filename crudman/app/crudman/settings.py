@@ -47,6 +47,18 @@ ALLOWED_HOSTS = ["localhost", "127.0.0.1", SERVER_NAME]
 
 CSRF_TRUSTED_ORIGINS = [f"http://{SERVER_NAME}", f"https://{SERVER_NAME}"]
 
+# Django matches the request's Origin against CSRF_TRUSTED_ORIGINS including scheme and
+# port, so a dev setup reached on a non-default port (e.g. http://127.0.0.1:8080) needs
+# that exact origin listed. CSRF_TRUSTED_ORIGINS holds a comma-separated list of extra
+# origins; the local dev runner sets it to the address it publishes. It is only consulted
+# in DEBUG mode so production keeps trusting SERVER_NAME alone.
+if DEBUG:
+    CSRF_TRUSTED_ORIGINS += [
+        origin.strip()
+        for origin in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",")
+        if origin.strip()
+    ]
+
 # In production the TLS-terminating reverse proxy is the only way in, so cookies are
 # restricted to HTTPS and the forwarded protocol header is trusted. In development
 # (DEBUG=true) the proxy serves plain HTTP instead.

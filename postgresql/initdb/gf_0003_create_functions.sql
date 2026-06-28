@@ -20,6 +20,15 @@ $$;
 CREATE OR REPLACE FUNCTION create_tenant(tenant_name text, tenant_password text)
 RETURNS void
 LANGUAGE plpgsql
+-- SECURITY DEFINER so the unprivileged application role (crudman) can onboard tenants:
+-- the function runs with its owner's rights (the bootstrap superuser), which has the
+-- CREATEROLE needed for the CREATE ROLE below. The search_path is pinned to pg_catalog
+-- so a caller cannot shadow the objects this definer-owned function resolves; all
+-- identifiers are interpolated with format()'s %I/%L, so no unqualified user objects are
+-- referenced. public is included only so the GRANT EXECUTE ON FUNCTION use_duckdb(...)
+-- below can resolve that function, which lives in public.
+SECURITY DEFINER
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
     schema_name text := tenant_name || '_bronze';
@@ -147,6 +156,11 @@ $$;
 CREATE OR REPLACE FUNCTION delete_tenant(tenant_name text)
 RETURNS void
 LANGUAGE plpgsql
+-- SECURITY DEFINER so crudman can offboard tenants; dropping the role needs CREATEROLE,
+-- which the function's superuser owner has. search_path pinned for the same reason as
+-- create_tenant above.
+SECURITY DEFINER
+SET search_path = pg_catalog
 AS $$
 DECLARE
     schema_bronze text := tenant_name || '_bronze';
@@ -193,6 +207,10 @@ CREATE OR REPLACE FUNCTION set_tenant_limits(
 )
 RETURNS void
 LANGUAGE plpgsql
+-- SECURITY DEFINER so crudman can apply a tenant's limits; ALTER ROLE needs CREATEROLE,
+-- which the function's superuser owner has. search_path pinned as above.
+SECURITY DEFINER
+SET search_path = pg_catalog
 AS $$
 BEGIN
     --------------------------------------------------------------------
@@ -212,26 +230,32 @@ BEGIN
         RAISE EXCEPTION 'Tenant role % does not exist', tenant_name;
     END IF;
 
-    -- Validate connection_limit
+    -- "No limit" sentinels, mirroring how the values are stored and displayed elsewhere:
+    -- -1 for the connection count and '0' for the size/time limits. A sentinel means the
+    -- per-tenant override is removed with RESET, so the tenant falls back to the server
+    -- default (i.e. no special cap); only real values are format-validated.
+
+    -- Validate connection_limit (-1 means unlimited)
     IF connection_limit < -1 THEN
         RAISE EXCEPTION 'connection_limit must be >= -1 (unlimited)';
     END IF;
 
-    -- Validate timeout and memory values (basic check)
-    IF statement_timeout !~ '^\d+[smh]$' AND statement_timeout !~ '^\d+$' THEN
+    -- Validate timeout and memory values, skipping the '0' = unlimited sentinel.
+    IF statement_timeout <> '0'
+       AND statement_timeout !~ '^\d+[smh]$' AND statement_timeout !~ '^\d+$' THEN
         RAISE EXCEPTION 'statement_timeout must be in format like 5min, 10s, 1h';
     END IF;
 
-    IF work_mem !~ '^\d+[kMG]B?$' THEN
+    IF work_mem <> '0' AND work_mem !~ '^\d+[kMG]B?$' THEN
         RAISE EXCEPTION 'work_mem must be in format like 256MB, 1GB';
     END IF;
 
-    IF temp_file_limit !~ '^\d+[kMG]B?$' THEN
+    IF temp_file_limit <> '0' AND temp_file_limit !~ '^\d+[kMG]B?$' THEN
         RAISE EXCEPTION 'temp_file_limit must be in format like 1GB';
     END IF;
 
     --------------------------------------------------------------------
-    -- Apply connection limit
+    -- Apply connection limit (-1 = unlimited is a valid CONNECTION LIMIT value)
     --------------------------------------------------------------------
     EXECUTE format(
         'ALTER ROLE %I CONNECTION LIMIT %s',
@@ -240,25 +264,30 @@ BEGIN
     );
 
     --------------------------------------------------------------------
-    -- Apply resource limits
+    -- Apply the resource limits, or RESET them to the server default when the '0'
+    -- unlimited sentinel is given (PostgreSQL has no literal "unlimited" for these).
     --------------------------------------------------------------------
-    EXECUTE format(
-        'ALTER ROLE %I SET statement_timeout = %L',
-        tenant_name,
-        statement_timeout
-    );
+    IF statement_timeout = '0' THEN
+        EXECUTE format('ALTER ROLE %I RESET statement_timeout', tenant_name);
+    ELSE
+        EXECUTE format(
+            'ALTER ROLE %I SET statement_timeout = %L', tenant_name, statement_timeout
+        );
+    END IF;
 
-    EXECUTE format(
-        'ALTER ROLE %I SET work_mem = %L',
-        tenant_name,
-        work_mem
-    );
+    IF work_mem = '0' THEN
+        EXECUTE format('ALTER ROLE %I RESET work_mem', tenant_name);
+    ELSE
+        EXECUTE format('ALTER ROLE %I SET work_mem = %L', tenant_name, work_mem);
+    END IF;
 
-    EXECUTE format(
-        'ALTER ROLE %I SET temp_file_limit = %L',
-        tenant_name,
-        temp_file_limit
-    );
+    IF temp_file_limit = '0' THEN
+        EXECUTE format('ALTER ROLE %I RESET temp_file_limit', tenant_name);
+    ELSE
+        EXECUTE format(
+            'ALTER ROLE %I SET temp_file_limit = %L', tenant_name, temp_file_limit
+        );
+    END IF;
 
     RAISE NOTICE 'Resource limits set for tenant %: connections=%, timeout=%, work_mem=%, temp_file_limit=%',
         tenant_name,

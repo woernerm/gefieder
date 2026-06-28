@@ -10,13 +10,13 @@ from . import utils
 
 
 class TenantModelTests(TestCase):
-    def test_limits_default_to_none(self):
-        """Limit fields default to None, meaning no limit (infinite)."""
+    def test_limits_default_to_unlimited_sentinels(self):
+        """Limit fields default to the values that stand for "no limit" (infinite)."""
         tenant = Tenant(name="acme")
-        self.assertIsNone(tenant.connection_limit)
-        self.assertIsNone(tenant.statement_timeout)
-        self.assertIsNone(tenant.work_mem)
-        self.assertIsNone(tenant.temp_file_limit)
+        self.assertEqual(tenant.connection_limit, Tenant.UNLIMITED_COUNT)
+        self.assertEqual(tenant.statement_timeout, Tenant.UNLIMITED_SIZE)
+        self.assertEqual(tenant.work_mem, Tenant.UNLIMITED_SIZE)
+        self.assertEqual(tenant.temp_file_limit, Tenant.UNLIMITED_SIZE)
 
     def test_str_is_name(self):
         self.assertEqual(str(Tenant(name="acme")), "acme")
@@ -95,20 +95,26 @@ class GetTenantsUtilTests(TestCase):
         self.assertEqual(acme.work_mem, "256MB")
         self.assertEqual(acme.temp_file_limit, "1GB")
 
-        # PostgreSQL's unlimited sentinels (-1 and "0") map back to None.
+        # PostgreSQL's unlimited sentinels (-1 and "0") are kept as-is, the same
+        # representation the add form and set_tenant_limits use for "no limit".
         globex = tenants[1]
-        self.assertIsNone(globex.connection_limit)
-        self.assertIsNone(globex.statement_timeout)
-        self.assertIsNone(globex.work_mem)
-        self.assertIsNone(globex.temp_file_limit)
+        self.assertEqual(globex.connection_limit, Tenant.UNLIMITED_COUNT)
+        self.assertEqual(globex.statement_timeout, Tenant.UNLIMITED_SIZE)
+        self.assertEqual(globex.work_mem, Tenant.UNLIMITED_SIZE)
+        self.assertEqual(globex.temp_file_limit, Tenant.UNLIMITED_SIZE)
 
     @patch("tenants.utils.connection")
-    def test_returns_model_instances(self, connection):
+    def test_unset_catalog_values_become_unlimited_sentinels(self, connection):
+        # A role with no per-role settings (NULLs) still reads as "no limit".
         cursor = connection.cursor.return_value.__enter__.return_value
-        cursor.fetchall.return_value = [("acme", -1, None, None, None)]
+        cursor.fetchall.return_value = [("acme", None, None, None, None)]
 
-        tenants = utils.get_tenants()
-        self.assertIsInstance(tenants[0], Tenant)
+        tenant = utils.get_tenants()[0]
+        self.assertIsInstance(tenant, Tenant)
+        self.assertEqual(tenant.connection_limit, Tenant.UNLIMITED_COUNT)
+        self.assertEqual(tenant.statement_timeout, Tenant.UNLIMITED_SIZE)
+        self.assertEqual(tenant.work_mem, Tenant.UNLIMITED_SIZE)
+        self.assertEqual(tenant.temp_file_limit, Tenant.UNLIMITED_SIZE)
 
 
 class SyncTenantsUtilTests(TestCase):
@@ -164,7 +170,8 @@ class TenantAdminTests(TestCase):
         self.admin.save_model(self.request, obj, form, change=False)
 
         create.assert_called_once_with("acme", "supersecret")
-        set_limits.assert_called_once_with("acme", 5, None, None, None)
+        # The unset size limits keep their unlimited-sentinel defaults.
+        set_limits.assert_called_once_with("acme", 5, "0", "0", "0")
         # The cache row is written only after the database functions succeed.
         self.assertTrue(Tenant.objects.filter(name="acme").exists())
 
@@ -191,7 +198,7 @@ class TenantAdminTests(TestCase):
         self.admin.save_model(self.request, obj, form, change=True)
 
         create.assert_not_called()
-        set_limits.assert_called_once_with("acme", 10, None, None, None)
+        set_limits.assert_called_once_with("acme", 10, "0", "0", "0")
         self.assertEqual(Tenant.objects.get(name="acme").connection_limit, 10)
 
     @patch("tenants.admin.delete_tenant", return_value=True)

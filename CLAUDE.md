@@ -107,6 +107,10 @@
 - The install script shall store a helpfile in the rootless podman user's home 
   directory.
 
+# Testing & Debugging
+- The integration tests are run using run-tests.sh.
+- A local development system can be started using dev.sh.
+
 # Style
 - Follow podman/container deployment best practices.
 - Keep changes minimal compared to the current version.
