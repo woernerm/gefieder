@@ -14,12 +14,26 @@ class Tenant(models.Model):
     """
 
     # The role/schema name doubles as the primary key so the admin can build per-object
-    # URLs without a synthetic id column.
+    # URLs without a synthetic id column. It is a snake_case slug because it has to be a
+    # valid PostgreSQL identifier (the tenant's role and bronze_<name> schema); the human
+    # name the user typed is kept separately in display_name. The slug is derived from the
+    # display name on the add form (see TenantCreationForm), so the user never types it.
     name = models.CharField(
-        "name",
+        "slug",
         max_length=50,
         primary_key=True,
-        help_text="e.g. max_mustermann or customer_a_project",
+        help_text="Identifier used for the database role and bronze schema, e.g. project_a.",
+    )
+
+    # The human-friendly name as entered in the admin, e.g. "Project A". It may contain
+    # spaces and capitals; only display_name is shown in the changelist. Tenants created
+    # outside crudman (e.g. the seeded example tenants) have no display name in the
+    # database, so sync_tenants falls back to the slug for those.
+    display_name = models.CharField(
+        "name",
+        max_length=100,
+        blank=True,
+        help_text="e.g. Project A",
     )
 
     # The limit fields map to the arguments of the set_tenant_limits database function.
@@ -67,4 +81,4 @@ class Tenant(models.Model):
         verbose_name_plural = "tenants"
 
     def __str__(self):
-        return self.name
+        return self.display_name or self.name

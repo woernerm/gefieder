@@ -18,8 +18,29 @@ class TenantModelTests(TestCase):
         self.assertEqual(tenant.work_mem, Tenant.UNLIMITED_SIZE)
         self.assertEqual(tenant.temp_file_limit, Tenant.UNLIMITED_SIZE)
 
-    def test_str_is_name(self):
-        self.assertEqual(str(Tenant(name="acme")), "acme")
+    def test_str_is_display_name(self):
+        self.assertEqual(str(Tenant(name="acme", display_name="Acme")), "Acme")
+
+    def test_str_falls_back_to_slug_without_display_name(self):
+        # Tenants created outside crudman (e.g. the seeded example tenants) have no display
+        # name, so the slug stands in for it.
+        self.assertEqual(str(Tenant(name="project_a")), "project_a")
+
+
+class SlugifyTenantNameTests(TestCase):
+    def test_lowercases_and_replaces_spaces(self):
+        # The headline case: "Project A" must become a valid PostgreSQL identifier.
+        self.assertEqual(utils.slugify_tenant_name("Project A"), "project_a")
+
+    def test_collapses_separators_and_strips_edges(self):
+        self.assertEqual(utils.slugify_tenant_name("  Customer A / Project  "), "customer_a_project")
+
+    def test_prefixes_leading_digit(self):
+        # PostgreSQL identifiers may not start with a digit.
+        self.assertEqual(utils.slugify_tenant_name("3M"), "t_3m")
+
+    def test_empty_when_no_usable_characters(self):
+        self.assertEqual(utils.slugify_tenant_name("!!!"), "")
 
 
 class CreateTenantUtilTests(TestCase):
@@ -138,12 +159,29 @@ class SyncTenantsUtilTests(TestCase):
 
 class TenantFormTests(TestCase):
     def test_creation_form_requires_password(self):
-        form = TenantCreationForm(data={"name": "acme"})
+        form = TenantCreationForm(data={"display_name": "Acme"})
         self.assertIn("password", form.errors)
 
-    def test_creation_form_is_valid_with_password(self):
-        form = TenantCreationForm(data={"name": "acme", "password": "supersecret"})
+    def test_creation_form_derives_slug_from_display_name(self):
+        # "Project A" -> the slug "project_a" used as the role and bronze schema name.
+        form = TenantCreationForm(
+            data={"display_name": "Project A", "password": "supersecret"}
+        )
         self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.instance.name, "project_a")
+
+    def test_creation_form_rejects_unsluggable_name(self):
+        form = TenantCreationForm(
+            data={"display_name": "!!!", "password": "supersecret"}
+        )
+        self.assertIn("display_name", form.errors)
+
+    def test_creation_form_rejects_duplicate_slug(self):
+        Tenant.objects.create(name="project_a", display_name="Project A")
+        form = TenantCreationForm(
+            data={"display_name": "Project A", "password": "supersecret"}
+        )
+        self.assertIn("display_name", form.errors)
 
     def test_change_form_name_is_disabled(self):
         form = TenantChangeForm(instance=Tenant(name="acme"))
@@ -274,7 +312,7 @@ class TenantAdminViewTests(TestCase):
         response = self.client.post(
             reverse("admin:tenants_tenant_add"),
             {
-                "name": "acme",
+                "display_name": "Project A",
                 "password": "supersecret",
                 "connection_limit": "",
                 "statement_timeout": "",
@@ -283,8 +321,9 @@ class TenantAdminViewTests(TestCase):
             },
         )
         self.assertEqual(response.status_code, 302)
-        create.assert_called_once_with("acme", "supersecret")
-        self.assertTrue(Tenant.objects.filter(name="acme").exists())
+        # The slug derived from "Project A" is what reaches create_tenant and is stored.
+        create.assert_called_once_with("project_a", "supersecret")
+        self.assertTrue(Tenant.objects.filter(name="project_a").exists())
 
     @patch("tenants.admin.delete_tenant", return_value=True)
     @patch("tenants.admin.sync_tenants")

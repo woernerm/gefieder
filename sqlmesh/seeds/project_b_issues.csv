@@ -1,0 +1,6 @@
+id,title,state,opened,priority
+1001,Investigate memory leak,closed,2026-06-09,high
+1002,Add export button,open,2026-06-10,low
+1003,Refactor auth module,closed,2026-06-11,medium
+1004,Update dependencies,open,2026-06-12,low
+1005,Improve error messages,merged,2026-06-13,medium

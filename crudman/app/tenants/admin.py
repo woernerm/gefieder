@@ -18,13 +18,14 @@ class TenantAdmin(ModelAdmin):
     """
 
     list_display = (
+        "display_name",
         "name",
         "connection_limit_display",
         "statement_timeout_display",
         "work_mem_display",
         "temp_file_limit_display",
     )
-    search_fields = ("name",)
+    search_fields = ("name", "display_name")
     form = TenantChangeForm
     add_form = TenantCreationForm
 

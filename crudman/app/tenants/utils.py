@@ -6,10 +6,26 @@ A tenant is not a row in a table. It is a PostgreSQL login role that owns a
 the corresponding database functions and by reading PostgreSQL's catalog, so the admin
 interface can present tenants as if they were ordinary model instances.
 """
+import re
+
 from django.db import connection, transaction
 
 # Prefix every tenant's bronze schema carries; used to discover tenants from the catalog.
 _BRONZE_PREFIX = "bronze_"
+
+
+def slugify_tenant_name(display_name: str) -> str:
+    """Turn a human tenant name like "Project A" into a PostgreSQL-safe slug "project_a".
+
+    The slug becomes the tenant's role and bronze schema name, so it must satisfy the same
+    rules the create_tenant database function enforces: only ``[a-z0-9_]`` and no leading
+    digit. Spaces and other separators collapse to single underscores; a leading digit is
+    prefixed with ``t_`` so the result is always a valid identifier.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "_", display_name.strip().lower()).strip("_")
+    if slug and slug[0].isdigit():
+        slug = f"t_{slug}"
+    return slug
 
 
 def create_tenant(tenant_name: str, tenant_password: str) -> bool:
@@ -112,6 +128,10 @@ def get_tenants() -> list:
         tenants.append(
             Tenant(
                 name=name,
+                # The catalog holds no human name; sync_tenants keeps any display name a
+                # crudman-created tenant already has and leaves this blank otherwise, so
+                # str(tenant) falls back to the slug for tenants made outside crudman.
+                display_name="",
                 # Represent "no limit" with the model's sentinels (-1 / "0") consistently:
                 # an unset catalog value (None) also means no limit. Keeping the same
                 # representation the add form and set_tenant_limits use means a tenant
@@ -139,6 +159,10 @@ def sync_tenants() -> None:
     tenants = get_tenants()
     names = [t.name for t in tenants]
     for tenant in tenants:
+        # display_name is intentionally left out of defaults: it does not exist in the
+        # catalog, so an update must not overwrite the human name a crudman-created tenant
+        # already has. update_or_create only sets it on insert (via the slug fallback in
+        # str()), so resyncing the changelist never clobbers an existing display name.
         Tenant.objects.update_or_create(
             name=tenant.name,
             defaults={
