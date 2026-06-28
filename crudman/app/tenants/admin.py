@@ -19,14 +19,43 @@ class TenantAdmin(ModelAdmin):
 
     list_display = (
         "name",
-        "connection_limit",
-        "statement_timeout",
-        "work_mem",
-        "temp_file_limit",
+        "connection_limit_display",
+        "statement_timeout_display",
+        "work_mem_display",
+        "temp_file_limit_display",
     )
     search_fields = ("name",)
     form = TenantChangeForm
     add_form = TenantCreationForm
+
+    # The changelist shows the raw column value by default, so the "no limit" sentinels
+    # (-1 for the connection count, "0" for the size/time limits) appear as bare numbers.
+    # These display methods replace only those sentinels with the word "infinite"; any
+    # real limit is shown unchanged. They use @admin.display so the column keeps the
+    # field's verbose name and stays orderable by the underlying field.
+
+    @admin.display(description="connection limit", ordering="connection_limit")
+    def connection_limit_display(self, obj):
+        if obj.connection_limit == Tenant.UNLIMITED_COUNT:
+            return "infinite"
+        return obj.connection_limit
+
+    @admin.display(description="statement timeout", ordering="statement_timeout")
+    def statement_timeout_display(self, obj):
+        return self._size_or_infinite(obj.statement_timeout)
+
+    @admin.display(description="work memory", ordering="work_mem")
+    def work_mem_display(self, obj):
+        return self._size_or_infinite(obj.work_mem)
+
+    @admin.display(description="temp file limit", ordering="temp_file_limit")
+    def temp_file_limit_display(self, obj):
+        return self._size_or_infinite(obj.temp_file_limit)
+
+    @staticmethod
+    def _size_or_infinite(value):
+        """Show a size/time limit, or "infinite" for the unlimited sentinel "0"."""
+        return "infinite" if value == Tenant.UNLIMITED_SIZE else value
 
     def get_form(self, request, obj=None, **kwargs):
         # Mirror Django's UserAdmin: use the creation form (with a password field) when

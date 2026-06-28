@@ -5,7 +5,7 @@ class Tenant(models.Model):
     """A tenant of the analytics platform.
 
     The source of truth for tenants is PostgreSQL: each tenant is a role that owns a
-    ``<name>_bronze`` schema, created by the ``create_tenant`` database function. This
+    ``bronze_<name>`` schema, created by the ``create_tenant`` database function. This
     table is only a cache that the admin keeps in sync with those schemas (see
     ``tenants.utils.get_tenants`` and ``TenantAdmin.get_queryset``) so the standard admin
     changelist — with its searching, sorting and pagination — has a real queryset to work

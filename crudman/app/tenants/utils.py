@@ -2,14 +2,14 @@
 database functions defined in ``postgresql/initdb/gf_0003_create_functions.sql``.
 
 A tenant is not a row in a table. It is a PostgreSQL login role that owns a
-``<name>_bronze`` schema. These helpers create, configure and list tenants by calling
+``bronze_<name>`` schema. These helpers create, configure and list tenants by calling
 the corresponding database functions and by reading PostgreSQL's catalog, so the admin
 interface can present tenants as if they were ordinary model instances.
 """
 from django.db import connection, transaction
 
-# Suffix every tenant's bronze schema carries; used to discover tenants from the catalog.
-_BRONZE_SUFFIX = "_bronze"
+# Prefix every tenant's bronze schema carries; used to discover tenants from the catalog.
+_BRONZE_PREFIX = "bronze_"
 
 
 def create_tenant(tenant_name: str, tenant_password: str) -> bool:
@@ -71,7 +71,7 @@ def _call(sql: str, params: list) -> bool:
 def get_tenants() -> list:
     """Return one ``Tenant`` instance per tenant discovered in the database.
 
-    Tenants are recognised by their ``<name>_bronze`` schema. Schemas are read from
+    Tenants are recognised by their ``bronze_<name>`` schema. Schemas are read from
     ``pg_namespace`` rather than ``information_schema.schemata`` because the latter only
     lists schemas the connecting role (crudman) has privileges on, and the bronze schemas
     are owned by the tenant roles — so crudman would see none of them. The resource limits
@@ -86,7 +86,7 @@ def get_tenants() -> list:
 
     query = """
         SELECT
-            left(n.nspname, -%s) AS name,
+            substr(n.nspname, %s) AS name,
             r.rolconnlimit,
             (SELECT split_part(c, '=', 2) FROM unnest(st.setconfig) c
                 WHERE c LIKE 'statement_timeout=%%') AS statement_timeout,
@@ -95,15 +95,16 @@ def get_tenants() -> list:
             (SELECT split_part(c, '=', 2) FROM unnest(st.setconfig) c
                 WHERE c LIKE 'temp_file_limit=%%') AS temp_file_limit
         FROM pg_catalog.pg_namespace n
-        JOIN pg_catalog.pg_roles r ON r.rolname = left(n.nspname, -%s)
+        JOIN pg_catalog.pg_roles r ON r.rolname = substr(n.nspname, %s)
         LEFT JOIN pg_catalog.pg_db_role_setting st
             ON st.setrole = r.oid AND st.setdatabase = 0
         WHERE n.nspname LIKE %s
         ORDER BY name
     """
-    suffix_len = len(_BRONZE_SUFFIX)
+    # substr() is 1-based, so the tenant name starts one past the prefix length.
+    name_start = len(_BRONZE_PREFIX) + 1
     with connection.cursor() as cursor:
-        cursor.execute(query, [suffix_len, suffix_len, f"%{_BRONZE_SUFFIX}"])
+        cursor.execute(query, [name_start, name_start, f"{_BRONZE_PREFIX}%"])
         rows = cursor.fetchall()
 
     tenants = []

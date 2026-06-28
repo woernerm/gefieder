@@ -31,7 +31,7 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public
 AS $$
 DECLARE
-    schema_name text := tenant_name || '_bronze';
+    schema_name text := 'bronze_' || tenant_name;
 BEGIN
     --------------------------------------------------------------------
     -- Input validation
@@ -163,7 +163,7 @@ SECURITY DEFINER
 SET search_path = pg_catalog
 AS $$
 DECLARE
-    schema_bronze text := tenant_name || '_bronze';
+    schema_bronze text := 'bronze_' || tenant_name;
 BEGIN
     --------------------------------------------------------------------
     -- Input validation
@@ -179,8 +179,24 @@ BEGIN
     END IF;
 
     --------------------------------------------------------------------
-    -- Delete tenant's bronze schema and all its contents
+    -- Remove everything the tenant role owns or was granted, then drop it.
+    --
+    -- DROP ROLE refuses to run while any object still depends on the role:
+    -- create_tenant grants the role EXECUTE on use_duckdb() and several
+    -- privileges inside its bronze schema, and sqlmesh may have created tables
+    -- in that schema too. DROP OWNED BY clears all of those grants and drops the
+    -- objects the role owns — including the bronze schema it authorises — so the
+    -- DROP ROLE below can succeed. Without it the role drop aborts and, because
+    -- the function is atomic, the schema drop is rolled back as well, leaving the
+    -- tenant only half-deleted. Skipped when the role is already gone, since
+    -- DROP OWNED BY errors on an unknown role.
     --------------------------------------------------------------------
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = tenant_name) THEN
+        EXECUTE format('DROP OWNED BY %I CASCADE', tenant_name);
+    END IF;
+
+    -- Safety net for the case where the role was already removed but its schema
+    -- lingers; DROP OWNED BY above already drops the schema in the normal case.
     EXECUTE format('DROP SCHEMA IF EXISTS %I CASCADE', schema_bronze);
 
     RAISE NOTICE 'Deleted schema % for tenant %', schema_bronze, tenant_name;

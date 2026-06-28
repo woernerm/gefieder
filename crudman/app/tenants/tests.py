@@ -215,6 +215,42 @@ class TenantAdminTests(TestCase):
         self.assertTrue(Tenant.objects.filter(name="acme").exists())
 
 
+class TenantAdminLimitDisplayTests(TestCase):
+    """The changelist renders the "no limit" sentinels (-1 / "0") as "infinite", but
+    shows real limits unchanged."""
+
+    def setUp(self):
+        from django.contrib import admin
+
+        self.admin = admin.site._registry[Tenant]
+
+    def test_unlimited_sentinels_render_as_infinite(self):
+        tenant = Tenant(
+            name="acme",
+            connection_limit=Tenant.UNLIMITED_COUNT,
+            statement_timeout=Tenant.UNLIMITED_SIZE,
+            work_mem=Tenant.UNLIMITED_SIZE,
+            temp_file_limit=Tenant.UNLIMITED_SIZE,
+        )
+        self.assertEqual(self.admin.connection_limit_display(tenant), "infinite")
+        self.assertEqual(self.admin.statement_timeout_display(tenant), "infinite")
+        self.assertEqual(self.admin.work_mem_display(tenant), "infinite")
+        self.assertEqual(self.admin.temp_file_limit_display(tenant), "infinite")
+
+    def test_real_limits_render_unchanged(self):
+        tenant = Tenant(
+            name="acme",
+            connection_limit=5,
+            statement_timeout="5min",
+            work_mem="256MB",
+            temp_file_limit="1GB",
+        )
+        self.assertEqual(self.admin.connection_limit_display(tenant), 5)
+        self.assertEqual(self.admin.statement_timeout_display(tenant), "5min")
+        self.assertEqual(self.admin.work_mem_display(tenant), "256MB")
+        self.assertEqual(self.admin.temp_file_limit_display(tenant), "1GB")
+
+
 class TenantAdminViewTests(TestCase):
     """End-to-end checks that the admin pages render and that the database functions,
     not the ORM, drive create, edit and delete."""
