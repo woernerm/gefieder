@@ -12,6 +12,35 @@ PROFILE="${1:-dev}"
 REPO="$(cd "$(dirname "$0")" && pwd)"
 cd "$REPO"
 
+# Check the prerequisites up front so a missing one fails in a second with a clear message,
+# rather than after the multi-minute image build or with an opaque error mid-run.
+
+# podman runs the whole stack.
+if ! command -v podman >/dev/null 2>&1; then
+  echo "podman is not installed; it is required to build and run the test stack." >&2
+  exit 1
+fi
+
+# Rootless podman needs subuid/subgid mappings for the current user (same requirement the
+# install script checks). Without them the containers cannot map their users and fail to
+# start. grep matches an entry keyed by either the username or the numeric uid.
+if ! grep -qE "^($(id -un)|$(id -u)):" /etc/subuid 2>/dev/null \
+   || ! grep -qE "^($(id -un)|$(id -u)):" /etc/subgid 2>/dev/null; then
+  echo "No subuid/subgid mappings for $(id -un); rootless podman cannot run." >&2
+  echo "Add them with: sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $(id -un)" >&2
+  exit 1
+fi
+
+# The suite connects to the database as each role using these secrets (read below). They
+# are created by the install script; a fresh checkout has none, so check before building.
+for secret in grafana_password superuser_password crudman_password sqlmesh_password; do
+  if ! podman secret exists "$secret" 2>/dev/null; then
+    echo "Missing podman secret '$secret'; the test stack needs it to start." >&2
+    echo "Create the stack's secrets first (see install.sh)." >&2
+    exit 1
+  fi
+done
+
 # Load the build-time settings so the suite tests the configured stack (CRUDMAN_PATH,
 # GRAFANA_PATH, APP_NAME, SUPERUSER_NAME, ...) rather than assuming the defaults.
 set -a
