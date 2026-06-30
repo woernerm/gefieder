@@ -103,6 +103,33 @@ CREATE TABLE IF NOT EXISTS :"schema".table_sample (
 );
 
 --------------------------------------------------------------------------------
+-- Dashboard/page visits: who looked at which dashboard, and when.
+--------------------------------------------------------------------------------
+-- One row per page navigation, drained from the proxy's filtered visit log by the
+-- collector (the proxy already discards API/asset/non-GET noise, so each row is a real
+-- view). app is 'grafana' or 'crudman'; url_path is the full path, and dashboard_uid is
+-- the Grafana dashboard id parsed out of /<grafana>/d/<uid>/<slug> for easy grouping
+-- (NULL for crudman). session_hash is a hash of the session cookie, never the cookie
+-- itself, so distinct user-sessions can be counted and dwell time estimated (by ordering a
+-- session's visits by time) without storing anything that identifies a person. visited_at
+-- carries the time-of-day and weekday the usage charts need; no extra columns required.
+CREATE TABLE IF NOT EXISTS :"schema".dashboard_visit (
+    visited_at     timestamptz NOT NULL,
+    app            text,
+    url_path       text,
+    dashboard_uid  text,
+    client_ip      text,
+    session_hash   text,
+    status         int,
+    user_agent     text
+);
+-- Indexed by time for the time-series charts and by (session, time) for dwell estimation.
+CREATE INDEX IF NOT EXISTS dashboard_visit_visited_at_idx
+    ON :"schema".dashboard_visit (visited_at);
+CREATE INDEX IF NOT EXISTS dashboard_visit_session_idx
+    ON :"schema".dashboard_visit (session_hash, visited_at);
+
+--------------------------------------------------------------------------------
 -- Hourly rollup of the host counters, kept long-term for the sizing horizon.
 --------------------------------------------------------------------------------
 -- One row per hour: the min/max/avg of each absolute column and the per-hour counter
@@ -205,6 +232,11 @@ BEGIN
     DELETE FROM query_sample WHERE sampled_at < now() - raw_retention;
     DELETE FROM table_sample WHERE sampled_at < now() - raw_retention;
     DELETE FROM host_hourly  WHERE bucket     < now() - hourly_retention;
+
+    -- Visits are the point of the usage stats, not a means to an end, so they are kept on
+    -- the long horizon (like the hourly rollup) rather than the short raw window: the
+    -- time-of-day and weekday distributions need many months of history.
+    DELETE FROM dashboard_visit WHERE visited_at < now() - hourly_retention;
 END;
 $$;
 

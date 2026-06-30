@@ -227,6 +227,11 @@ and stores the numbers in the database, next to the per-query statistics it also
   read off the sustained load and the peaks.
 - **For tuning**: which queries cost the most time and I/O, and which tables are scanned
   often enough to deserve an index.
+- **For usage**: which dashboard gets visited, how often, and at what time of day and day
+  of the week. The proxy records each page view (filtering out the background requests a
+  dashboard makes), so you can see what people actually look at — for the admin panel too.
+  Visitors are grouped by a hashed session, never by name, and the raw session cookie is
+  never stored.
 
 It starts automatically after installation. The data lives in the `server_stats` schema;
 the dashboards that present it are added separately. A few controls:

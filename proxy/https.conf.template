@@ -1,5 +1,51 @@
 # Production configuration: everything is served over TLS, plain HTTP requests are
 # permanently redirected to HTTPS.
+
+# --- dashboard/page visit logging -----------------------------------------------------
+# A structured, filtered access log used for usage statistics (which dashboard is visited,
+# when, by which session). It is deliberately separate from the human proxy.log and only
+# records real page navigations, because a single dashboard view triggers dozens of API,
+# asset and live-poll requests that would otherwise inflate every count. The maps below
+# classify each request; only those tagged with an app are logged. See the collector,
+# which drains this file into server_stats.dashboard_visit.
+
+# Tag a request with the app it is a page visit for, or "" to skip it. Grafana renders a
+# dashboard at /${GRAFANA_PATH}/d/<uid>/<slug> (and /d-solo for a single panel); its panel
+# data, assets and live updates are under /api, /public, /avatar, ... and are skipped.
+# crudman (Django admin) serves its pages directly under /${CRUDMAN_PATH}/; its static
+# files live under /${CRUDMAN_PATH}/static/ and are skipped.
+map $uri $visit_app {
+    default                              "";
+    ~^/${GRAFANA_PATH}/d-solo/           grafana;
+    ~^/${GRAFANA_PATH}/d/                grafana;
+    ~^/${CRUDMAN_PATH}/static/           "";   # assets, not a page view
+    ~^/${CRUDMAN_PATH}/                  crudman;
+}
+
+# Only GET requests are page views; a POST is a form submit/login, not a visit.
+map $request_method $visit_is_get {
+    default  0;
+    GET      1;
+}
+
+# The final gate: log only when the request is a GET and matched an app. The value is the
+# app name (non-empty => logged via the "if=$visit_log" below), or "" to drop the line.
+map "$visit_is_get:$visit_app" $visit_log {
+    default        "";
+    ~^1:(.+)$      $1;
+}
+
+# One JSON object per visit. escape=json keeps user-controlled fields (the path, the
+# user-agent) from breaking the JSON. The session cookie is logged raw here -- the log
+# lives on the proxy's own volume, owned by the rootless podman user -- and the collector
+# hashes it before storing, so the raw value is never persisted in the database. $remote_addr
+# is the direct client; $http_x_forwarded_for carries the original client behind any proxy.
+log_format gefieder_visit escape=json
+    '{"ts":"$time_iso8601","app":"$visit_app","path":"$uri",'
+    '"status":$status,"ip":"$remote_addr","xff":"$http_x_forwarded_for",'
+    '"ua":"$http_user_agent",'
+    '"grafana_session":"$cookie_grafana_session","crudman_session":"$cookie_sessionid"}';
+
 server {
     listen 80;
     return 301 https://$host$request_uri;
@@ -20,6 +66,9 @@ server {
     # The Django application serves its URLs under /${CRUDMAN_PATH} itself, so the
     # path is forwarded unchanged.
     location /${CRUDMAN_PATH}/ {
+        # Record page visits (the map drops assets/non-GET); other requests are not logged
+        # here. The human access log still captures everything in proxy.log.
+        access_log /var/log/gefieder/visits.log gefieder_visit if=$visit_log;
         proxy_pass http://crudman:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -29,6 +78,7 @@ server {
     # Grafana is configured to serve from /${GRAFANA_PATH} (see GF_SERVER_*), so the
     # path is forwarded unchanged.
     location /${GRAFANA_PATH}/ {
+        access_log /var/log/gefieder/visits.log gefieder_visit if=$visit_log;
         proxy_pass http://grafana:3000;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

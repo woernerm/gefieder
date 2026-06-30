@@ -4,12 +4,19 @@ These cover the data-recording side that sizes a future server (CPU, RAM, temp/f
 storage, disk space, IOPS, throughput, egress) and finds queries worth an index. The
 display is added later, so the tests assert that the data is collected, not how it looks.
 """
+import hashlib
 import os
 import subprocess
+import time
+import uuid
 
+import httpx
 import pytest
 
-from conftest import COLLECTOR, SERVER_STATS_SCHEMA, SUPERUSER_NAME, denied
+from conftest import (
+    BASE_URL, COLLECTOR, CRUDMAN_PATH, GRAFANA_PATH, SERVER_STATS_SCHEMA,
+    SUPERUSER_NAME, VERIFY_TLS, denied,
+)
 
 
 # The tables the collector fills and the rollup the schema must expose.
@@ -85,21 +92,16 @@ class TestGrafanaAccess:
                f'INSERT INTO {SERVER_STATS_SCHEMA}.host_sample (cpu_usage_usec) VALUES (1)')
 
 
-# The collector run is the slow part (it execs into the container and probes the host), so
-# run it once per module and let several tests assert on the single sample it produced.
-@pytest.fixture(scope="module")
-def collected(admin_db):
-    """Run the host collector once and return the timestamp of the sample it inserted."""
+def run_collector():
+    """Run the host collector once, asserting it exits cleanly.
+
+    POSTGRES_USER lets it authenticate as the superuser inside the container; the schema
+    name matches what the suite was told. RUNTIME_ENV=/dev/null skips the runtime.env
+    lookup so the default interval applies. HOME/PATH are passed through because the
+    collector resolves its state dir under HOME and runs podman from PATH.
+    """
     if not COLLECTOR:
         pytest.skip("no collector path provided (GEFIEDER_COLLECTOR unset)")
-
-    with admin_db.cursor() as cur:
-        before = q(cur, f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.host_sample')[0]
-
-    # POSTGRES_USER lets the collector authenticate as the superuser inside the container;
-    # the schema name matches what the suite was told. RUNTIME_ENV=/dev/null skips the
-    # runtime.env lookup so the default interval applies. HOME/PATH are passed through
-    # because the collector resolves its state dir under HOME and runs podman from PATH.
     proc = subprocess.run(
         [COLLECTOR],
         env={"POSTGRES_USER": SUPERUSER_NAME, "SERVER_STATS_SCHEMA": SERVER_STATS_SCHEMA,
@@ -109,6 +111,15 @@ def collected(admin_db):
     )
     assert proc.returncode == 0, f"collector failed: {proc.stderr}\n{proc.stdout}"
 
+
+# The collector run is the slow part (it execs into the container and probes the host), so
+# run it once per module and let several tests assert on the single sample it produced.
+@pytest.fixture(scope="module")
+def collected(admin_db):
+    """Run the host collector once and return the timestamp of the sample it inserted."""
+    with admin_db.cursor() as cur:
+        before = q(cur, f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.host_sample')[0]
+    run_collector()
     with admin_db.cursor() as cur:
         after = q(cur, f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.host_sample')[0]
     assert after == before + 1, "the collector did not insert exactly one host sample"
@@ -171,3 +182,89 @@ class TestRollup:
             cur.execute(f"SELECT {SERVER_STATS_SCHEMA}.rollup_and_prune()")
             second = q(cur, f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.host_hourly')[0]
         assert first == second, "rollup is not idempotent"
+
+
+# A unique dashboard uid and session cookie per test run, so the assertions match exactly
+# the visits this test generated and never a leftover row from earlier traffic.
+VISIT_UID = uuid.uuid4().hex[:12]
+VISIT_COOKIE = "sess-" + uuid.uuid4().hex
+
+
+@pytest.fixture(scope="module")
+def visits(admin_db):
+    """Generate page visits through the proxy, then drain them with one collector run.
+
+    The proxy logs the request regardless of how Grafana/crudman answer it (even a redirect
+    to login), so the pipeline can be tested without authenticating. Noise requests (API,
+    assets, a POST) are sent too and must NOT appear, proving the nginx filter holds.
+    """
+    nav_dashboard = f"/{GRAFANA_PATH}/d/{VISIT_UID}/probe"
+    with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS, follow_redirects=False,
+                      timeout=10, cookies={"grafana_session": VISIT_COOKIE}) as c:
+        c.get(nav_dashboard)                          # grafana dashboard nav -> logged
+        c.get(f"/{GRAFANA_PATH}/api/dashboards/uid/{VISIT_UID}")  # API -> skipped
+        c.get(f"/{GRAFANA_PATH}/public/build/app.js")            # asset -> skipped
+        c.get(f"/{CRUDMAN_PATH}/")                     # crudman page nav -> logged
+        c.post(f"/{CRUDMAN_PATH}/login/")              # POST -> skipped
+
+    # nginx buffers the access log; a tiny pause lets the lines flush before the collector
+    # reads the file. The collector then drains visits.log into dashboard_visit.
+    time.sleep(1)
+    run_collector()
+    return nav_dashboard
+
+
+class TestDashboardVisits:
+    """Page navigations through the proxy are recorded, with noise filtered out."""
+
+    def test_a_grafana_dashboard_visit_shall_be_recorded(self, admin_db, visits):
+        with admin_db.cursor() as cur:
+            row = q(cur,
+                f"SELECT app, dashboard_uid FROM {SERVER_STATS_SCHEMA}.dashboard_visit "
+                f"WHERE dashboard_uid = %s", (VISIT_UID,))
+        assert row is not None, "the grafana dashboard visit was not recorded"
+        assert row[0] == "grafana" and row[1] == VISIT_UID
+
+    def test_a_crudman_page_visit_shall_be_recorded(self, admin_db, visits):
+        # crudman views ride the same pipeline; assert at least one landed for this app.
+        with admin_db.cursor() as cur:
+            cnt = q(cur,
+                f"SELECT count(*) FROM {SERVER_STATS_SCHEMA}.dashboard_visit "
+                f"WHERE app = 'crudman'")[0]
+        assert cnt >= 1, "no crudman page visit was recorded"
+
+    def test_api_and_asset_requests_shall_not_be_recorded(self, admin_db, visits):
+        # The noise requests share the unique uid in their path but are API/asset/POST, so
+        # the only row carrying this uid must be the one dashboard navigation.
+        with admin_db.cursor() as cur:
+            paths = [r[0] for r in _all(cur,
+                f"SELECT url_path FROM {SERVER_STATS_SCHEMA}.dashboard_visit "
+                f"WHERE url_path LIKE %s", (f"%{VISIT_UID}%",))]
+        assert paths == [f"/{GRAFANA_PATH}/d/{VISIT_UID}/probe"], \
+            f"noise requests leaked into visits: {paths}"
+
+    def test_the_session_cookie_shall_be_hashed_not_stored(self, admin_db, visits):
+        # The raw cookie must never be stored; the session_hash is its md5, so it equals
+        # md5(cookie) and never contains the cookie value itself.
+        expected = hashlib.md5(VISIT_COOKIE.encode()).hexdigest()
+        with admin_db.cursor() as cur:
+            row = q(cur,
+                f"SELECT session_hash FROM {SERVER_STATS_SCHEMA}.dashboard_visit "
+                f"WHERE dashboard_uid = %s", (VISIT_UID,))
+            leaked = q(cur,
+                f"SELECT count(*) FROM {SERVER_STATS_SCHEMA}.dashboard_visit "
+                f"WHERE session_hash LIKE %s", (f"%{VISIT_COOKIE}%",))[0]
+        assert row[0] == expected, "session_hash is not md5(cookie)"
+        assert leaked == 0, "the raw session cookie leaked into the database"
+
+    def test_grafana_shall_read_but_not_write_visits(self, grafana_db):
+        with grafana_db.cursor() as cur:
+            cur.execute(f"SELECT count(*) FROM {SERVER_STATS_SCHEMA}.dashboard_visit")
+            assert cur.fetchone()[0] >= 0
+        denied(grafana_db,
+               f"INSERT INTO {SERVER_STATS_SCHEMA}.dashboard_visit (app) VALUES ('x')")
+
+
+def _all(cur, sql, params=None):
+    cur.execute(sql, params or ())
+    return cur.fetchall()

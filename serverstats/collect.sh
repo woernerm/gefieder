@@ -182,6 +182,68 @@ SELECT now(), t.schemaname, t.relname,
        coalesce(io.heap_blks_read,0), coalesce(io.idx_blks_read,0)
 FROM pg_stat_user_tables t
 LEFT JOIN pg_statio_user_tables io ON io.relid = t.relid;
-
-SELECT "$SCHEMA".rollup_and_prune();
 SQL
+
+# --- drain the proxy's dashboard/page visit log ---------------------------------------
+# The proxy writes one JSON line per page navigation to visits.log (it already discards
+# API/asset/non-GET noise). Read only the lines added since last tick -- a byte offset
+# kept in the state dir is the cursor -- and load them. If the file shrank since last time
+# (rotated/truncated), restart from the beginning. Parsing, the cookie hashing and the
+# dashboard-uid extraction are all done server-side in SQL below, so this just moves bytes.
+VISIT_LOG="${SERVER_STATS_VISIT_LOG:-/var/log/gefieder/visits.log}"
+VISIT_CONTAINER="${SERVER_STATS_PROXY_CONTAINER:-proxy}"
+OFFSET_FILE="$STATE_DIR/serverstats-visit-offset"
+
+# Current size of the log inside the proxy container; empty if the proxy or file is absent.
+cur_size="$(podman exec "$VISIT_CONTAINER" sh -c "wc -c < '$VISIT_LOG' 2>/dev/null" 2>/dev/null | tr -d ' ' || true)"
+if [ -n "$cur_size" ]; then
+    prev_size=0
+    [ -f "$OFFSET_FILE" ] && prev_size="$(cat "$OFFSET_FILE" 2>/dev/null || echo 0)"
+    # A shrunk file means it was rotated/truncated; re-read from the start.
+    [ "$cur_size" -lt "$prev_size" ] && prev_size=0
+
+    if [ "$cur_size" -gt "$prev_size" ]; then
+        # Build a single psql script: stage the new lines with an inline COPY (the data
+        # follows the \copy command in the same stream, terminated by \.), then transform
+        # them. md5() turns the raw session cookie into a stable, non-reversible hash so a
+        # person is never identifiable; the dashboard uid is parsed from /d/<uid>/<slug>.
+        # A half-written final line cannot abort the drain: jsonb parse errors are avoided
+        # by skipping blank lines, and any bad line is re-read whole on the next tick.
+        VISIT_SQL="$(mktemp)"
+        {
+            printf 'CREATE TEMP TABLE _visit_raw (line text);\n'
+            printf '\\copy _visit_raw FROM STDIN\n'
+            podman exec "$VISIT_CONTAINER" sh -c "tail -c +$((prev_size + 1)) '$VISIT_LOG'" 2>/dev/null
+            printf '\\.\n'
+            cat <<SQL
+INSERT INTO "$SCHEMA".dashboard_visit
+    (visited_at, app, url_path, dashboard_uid, client_ip, session_hash, status, user_agent)
+SELECT
+    (j->>'ts')::timestamptz,
+    j->>'app',
+    j->>'path',
+    -- The Grafana dashboard uid is the path segment after /d/ or /d-solo/; NULL otherwise.
+    substring(j->>'path' FROM '/d(?:-solo)?/([^/]+)'),
+    -- Prefer the original client behind a forwarding proxy, else the direct peer.
+    coalesce(nullif(split_part(j->>'xff', ',', 1), ''), j->>'ip'),
+    -- Hash whichever session cookie is present; never store the cookie itself.
+    md5(coalesce(nullif(j->>'grafana_session',''), nullif(j->>'crudman_session',''), '')),
+    nullif(j->>'status','')::int,
+    j->>'ua'
+FROM (SELECT line::jsonb AS j FROM _visit_raw WHERE line <> '') s;
+SQL
+        } > "$VISIT_SQL"
+        # Feed the script (commands + inline COPY data) to psql over stdin, which podman
+        # exec -i forwards into the container; \copy then reads the data from that same
+        # stream. Passing -f a host path would fail, since psql runs inside the container.
+        # Only advance the cursor if the load succeeded, so a transient failure re-reads
+        # the same bytes next tick rather than dropping visits.
+        if psql_exec < "$VISIT_SQL" >/dev/null 2>&1; then
+            printf '%s' "$cur_size" > "$OFFSET_FILE"
+        fi
+        rm -f "$VISIT_SQL"
+    fi
+fi
+
+# --- roll up and prune ----------------------------------------------------------------
+psql_exec -c "SELECT \"$SCHEMA\".rollup_and_prune();"
