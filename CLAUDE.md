@@ -75,6 +75,8 @@
   known before the images are run. These shall be made available as environment 
   variables in the images requiring them (not every variable in every image).
 - The `buildtime.env` configuration file shall have entries for company proxy settings.
+- There shall be a setting for extra index URL (for uv or pip). If not empty, uv/pip
+  shall use the provided index url (e.g. --extra-index-url if pip is used).
 
 ## Build
 - Each service directory shall have a Dockerfile; 
