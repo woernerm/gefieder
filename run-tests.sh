@@ -141,6 +141,10 @@ install -m 0755 serverstats/collect.sh "$APP_CONFIG_DIR/serverstats/collect.sh"
 cp runtime.env "$APP_CONFIG_DIR/runtime.env"
 
 cleanup() {
+  # Runs on EXIT after pytest prints its summary: stops the services, removes the pod and
+  # deletes the throwaway volumes. The teardown is silenced, so announce it -- this is the
+  # pause between the test result and the prompt returning.
+  echo "Tearing down the test stack ..."
   for u in $UNITS; do systemctl --user stop "${u}.service" >/dev/null 2>&1 || true; done
   systemctl --user stop server-stats.timer >/dev/null 2>&1 || true
   podman pod rm -f "$APP_NAME" >/dev/null 2>&1 || true
@@ -156,7 +160,10 @@ trap cleanup EXIT INT TERM
 
 systemctl --user daemon-reload
 # Starting the proxy pulls in the rest of the pod (After=/Requires=), but start every
-# unit explicitly so a failure in any one surfaces here rather than being masked.
+# unit explicitly so a failure in any one surfaces here rather than being masked. Each
+# start blocks on the service's healthcheck (Notify=healthy), so this waits for the
+# database to run its init scripts and the apps to come up -- the long, silent pause.
+echo "Starting the test stack and waiting for every service to become healthy ..."
 for u in $UNITS; do systemctl --user start "${u}.service"; done
 
 export GEFIEDER_PROFILE="$PROFILE"
