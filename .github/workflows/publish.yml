@@ -58,12 +58,18 @@ jobs:
             docker save "${REGISTRY}/${svc}:${IMAGE_TAG}" -o "dist/${svc}.tar"
           done
 
-          # Render the quadlet templates, substituting only the known tokens so nginx's
-          # $host and Grafana's %(domain)s are left untouched.
+          # Render the quadlet templates and the server-stats systemd units, substituting
+          # only the known tokens so nginx's $host and Grafana's %(domain)s are left
+          # untouched. The units take ${APP_NAME} like the quadlets do.
           VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SERVER_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${DEBUG}'
-          for f in quadlets/*; do
+          for f in quadlets/* serverstats/server-stats.service serverstats/server-stats.timer; do
             envsubst "$VARS" < "$f" > "dist/$(basename "$f")"
           done
+
+          # The host-side collector and the default runtime config ship verbatim; the
+          # installer drops them next to the rendered units.
+          cp serverstats/collect.sh dist/collect.sh
+          cp runtime.env dist/runtime.env
 
           # The installer sources this for the values baked into the images.
           {
@@ -71,6 +77,7 @@ jobs:
             echo "SUPERUSER_NAME=${SUPERUSER_NAME}"
             echo "CRUDMAN_PATH=${CRUDMAN_PATH}"
             echo "GRAFANA_PATH=${GRAFANA_PATH}"
+            echo "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}"
           } > dist/manifest.env
 
           cp install.sh dist/install.sh

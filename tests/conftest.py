@@ -67,6 +67,11 @@ SUPERUSER_NAME = os.environ["SUPERUSER_NAME"]
 CRUDMAN_PATH = os.environ["CRUDMAN_PATH"]
 GRAFANA_PATH = os.environ["GRAFANA_PATH"]
 
+# The server-statistics schema name and the host-side collector run-tests.sh installed,
+# so the server-stats tests can trigger a real sample and read its rows back.
+SERVER_STATS_SCHEMA = os.environ.get("GEFIEDER_SERVER_STATS_SCHEMA", "server_stats")
+COLLECTOR = os.environ.get("GEFIEDER_COLLECTOR", "")
+
 # The URL paths the apps are served under, derived from the configured base paths.
 CRUDMAN_LOGIN = f"/{CRUDMAN_PATH}/login/"
 GRAFANA_LOGIN = f"/{GRAFANA_PATH}/login"

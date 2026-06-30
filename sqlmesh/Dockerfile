@@ -17,11 +17,16 @@ ARG http_proxy
 ARG https_proxy
 ARG no_proxy
 
+# Extra Python package index (a company-internal PyPI mirror). uv reads UV_EXTRA_INDEX_URL
+# and tries it in addition to PyPI, like pip's --extra-index-url. Scoped to this stage and
+# not persisted in the image; empty by default, i.e. PyPI only.
+ARG PYTHON_INDEX
+
 # Copy dependency metadata first so Docker can cache dependency installation.
 COPY sqlmesh/pyproject.toml /sqlmesh/pyproject.toml
 
 # Install the project dependencies defined in pyproject.toml.
-RUN uv sync --project /sqlmesh --no-dev
+RUN UV_EXTRA_INDEX_URL=${PYTHON_INDEX} uv sync --project /sqlmesh --no-dev
 
 # Copy the SQLMesh project into the image.
 COPY sqlmesh/ /sqlmesh/app/

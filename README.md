@@ -141,8 +141,17 @@ adjust:
 | `SERVER_NAME` | the public host name, e.g. `mysite.com`; the admin panel also accepts `localhost` |
 | `CRUDMAN_PATH` | the base path of the admin panel, e.g. `crudman` → `https://SERVER_NAME/crudman/` |
 | `GRAFANA_PATH` | the base path of Grafana, e.g. `grafana` → `https://SERVER_NAME/grafana/` |
+| `SERVER_STATS_SCHEMA` | the schema that holds the server-usage and query statistics (see [Server statistics](#server-statistics)) |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | company proxy for image builds (empty = direct) |
 | `DEBUG` | development vs. production mode (see below) |
+
+A second file, `runtime.env`, holds settings read when the system runs rather than when
+it is built, so changing one takes effect on the next run without a rebuild. The installer
+places it at `~/.config/<APP_NAME>/runtime.env`.
+
+| Setting | Meaning |
+| --- | --- |
+| `SERVER_STATS_INTERVAL` | how often, in seconds, the server-statistics collector samples (default 60) |
 
 ## Development vs. production mode
 The `DEBUG` setting in `buildtime.env` decides how the system runs:
@@ -207,12 +216,44 @@ journalctl --user -f -u crudman.service                       # live log of one 
 cat "$(podman volume inspect crudman_data -f '{{.Mountpoint}}')/crudman.log"
 ```
 
+## Server statistics
+Gefieder records how much of the server it actually uses, so you can right-size the next
+one (up or down) instead of guessing. A small collector samples the system once a minute
+and stores the numbers in the database, next to the per-query statistics it also records:
+
+- **For sizing**: CPU, memory, disk space, the temporary/spill storage that wants fast
+  disk, disk read/write speed and IOPS, and outgoing network traffic. Each is kept as a
+  fine-grained recent history and a long-term hourly trend, so after a few months you can
+  read off the sustained load and the peaks.
+- **For tuning**: which queries cost the most time and I/O, and which tables are scanned
+  often enough to deserve an index.
+- **For usage**: which dashboard gets visited, how often, and at what time of day and day
+  of the week. The proxy records each page view (filtering out the background requests a
+  dashboard makes), so you can see what people actually look at — for the admin panel too.
+  Visitors are grouped by a hashed session, never by name, and the raw session cookie is
+  never stored.
+
+It starts automatically after installation. The data lives in the `server_stats` schema;
+the dashboards that present it are added separately. A few controls:
+
+```bash
+systemctl --user status server-stats.timer    # is sampling running?
+systemctl --user start server-stats.service    # take a sample right now
+journalctl --user -u server-stats.service      # see what the collector did
+```
+
+The sampling interval is the `SERVER_STATS_INTERVAL` value in `runtime.env`; the default
+of 60 seconds is plenty for sizing. Disk read/write speed and IOPS need the `io` control
+group, which the installer delegates for you (it asks for `sudo` once); without it those
+two figures stay blank while everything else is still recorded.
+
 ## Scripts
 | Script | What it does |
 | --- | --- |
 | `./build.sh` | build the five images with docker (REGISTRY/IMAGE_TAG from `buildtime.env`) |
 | `./install.sh` | install from a GitHub release: load the image tarballs, install the quadlets, create secrets |
 | `./run-tests.sh [production]` | build a throwaway stack, run the integration suite, tear it down |
+| `./dev.sh serverstats` | take one server-statistics sample against the local dev stack |
 
 ## Everyday commands
 ```bash
