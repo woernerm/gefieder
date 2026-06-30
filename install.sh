@@ -33,16 +33,21 @@ QUADLETS="main.pod postgresql.container crudman.container sqlmesh.container \
   grafana.container proxy.container postgresql_data.volume grafana_data.volume \
   crudman_data.volume sqlmesh_data.volume proxy_data.volume"
 
-# --- preflight: rootless podman needs subuid/subgid mappings --------------------------
-# Without a range mapped for this user, rootless containers cannot start. Fail early with
-# a fixable message instead of a confusing runtime error later.
-if ! grep -q "^$(id -un):" /etc/subuid || ! grep -q "^$(id -un):" /etc/subgid; then
-  echo "No subuid/subgid mappings for '$(id -un)'. Ask an admin to run:" >&2
+# --- preflight: rootless podman needs a usable subuid/subgid range ---------------------
+command -v podman >/dev/null || { echo "podman is not installed." >&2; exit 1; }
+
+# Without a range of subordinate UIDs/GIDs, rootless podman falls back to single-UID
+# mapping: a trivial image may load, but any layer needing more than one UID fails later
+# with a confusing error. Rather than grep /etc/subuid (which misses realm-joined users
+# like name@domain, whose ranges come from SSSD/nss and are not listed there), ask podman
+# itself: `unshare` only succeeds when a real user namespace with the range can be set up.
+if ! podman unshare sh -c 'true' >/dev/null 2>&1; then
+  echo "Rootless podman cannot set up a user namespace for '$(id -un)'." >&2
+  echo "This usually means no subuid/subgid range is mapped. Ask an admin to run:" >&2
   echo "  sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $(id -un)" >&2
+  echo "Realm-joined users (name@domain) may need the range added to their directory." >&2
   exit 1
 fi
-
-command -v podman >/dev/null || { echo "podman is not installed." >&2; exit 1; }
 
 # --- images: download each tarball with its own curl, then load it --------------------
 echo "Downloading the release from ${BASE} ..."
@@ -171,6 +176,12 @@ Volume paths (cd into them to inspect data):
 
 Edit the runtime configuration in your default editor:
   ${EDITOR_CMD} \$HOME/.config/${APP_NAME}/runtime.env
+
+Reset the runtime configuration to its shipped default (next install restores it):
+  rm -f \$HOME/.config/${APP_NAME}/runtime.env
+
+Update to the latest version (re-runs this installer; keeps your config and secrets):
+  curl -fsSL https://github.com/${REPO}/releases/latest/download/install.sh | bash
 
 Server-statistics sampling (resource usage for sizing, query stats for indexing):
   systemctl --user status server-stats.timer        # is sampling active?
