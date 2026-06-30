@@ -22,6 +22,7 @@ for svc in postgresql crudman sqlmesh proxy grafana; do
     --build-arg "http_proxy=${HTTP_PROXY}" \
     --build-arg "https_proxy=${HTTPS_PROXY}" \
     --build-arg "no_proxy=${NO_PROXY}" \
+    --build-arg "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}" \
     -t "${REGISTRY}/${svc}:${IMAGE_TAG}" \
     -f "${svc}/Dockerfile" .
 done

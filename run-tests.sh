@@ -127,13 +127,28 @@ EOF
 UNITS="postgresql crudman sqlmesh grafana proxy"
 VOLUMES="postgresql_data grafana_data crudman_data sqlmesh_data proxy_data"
 
+# Install the server-statistics collector the way the release installer does, so the
+# suite exercises the real host-side sampler: render its units into the systemd user dir
+# and drop the collector and a runtime.env under ~/.config/<APP_NAME>/. The suite triggers
+# a sample itself (rather than waiting for the timer) and asserts rows appear.
+SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+APP_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/${APP_NAME}"
+mkdir -p "$SYSTEMD_USER_DIR" "$APP_CONFIG_DIR/serverstats"
+for u in serverstats/server-stats.service serverstats/server-stats.timer; do
+  envsubst "$VARS" < "$u" > "$SYSTEMD_USER_DIR/$(basename "$u")"
+done
+install -m 0755 serverstats/collect.sh "$APP_CONFIG_DIR/serverstats/collect.sh"
+cp runtime.env "$APP_CONFIG_DIR/runtime.env"
+
 cleanup() {
   for u in $UNITS; do systemctl --user stop "${u}.service" >/dev/null 2>&1 || true; done
+  systemctl --user stop server-stats.timer >/dev/null 2>&1 || true
   podman pod rm -f "$APP_NAME" >/dev/null 2>&1 || true
   podman volume rm -f $VOLUMES >/dev/null 2>&1 || true
   # Remove exactly the unit files rendered above (one per quadlets/ entry), so renames
   # never leave stragglers behind.
   for f in quadlets/*; do rm -f "$QUADLET_DIR/$(basename "$f")"; done
+  rm -f "$SYSTEMD_USER_DIR/server-stats.service" "$SYSTEMD_USER_DIR/server-stats.timer"
   systemctl --user daemon-reload >/dev/null 2>&1 || true
   rm -f "$CERT_DIR/fullchain.pem" "$CERT_DIR/privkey.pem"
 }
@@ -152,6 +167,10 @@ export GEFIEDER_GRAFANA_PASSWORD="$GRAFANA_PASSWORD"
 export GEFIEDER_SUPERUSER_PASSWORD="$SUPERUSER_PASSWORD"
 export GEFIEDER_CRUDMAN_PASSWORD="$CRUDMAN_PASSWORD"
 export GEFIEDER_SQLMESH_PASSWORD="$SQLMESH_PASSWORD"
+
+# The server-statistics schema name and the path of the collector the suite triggers.
+export GEFIEDER_SERVER_STATS_SCHEMA="${SERVER_STATS_SCHEMA:-server_stats}"
+export GEFIEDER_COLLECTOR="$APP_CONFIG_DIR/serverstats/collect.sh"
 
 # Run the suite. uv provides the test dependencies from tests/pyproject.toml.
 uv run --project tests pytest tests/ -v

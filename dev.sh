@@ -2,8 +2,9 @@
 # Build and run the whole stack locally with rootless podman, in development mode.
 #
 #   ./dev.sh            build the images and (re)start the stack
-#   ./dev.sh down       stop and remove the pod (volumes and secrets are kept)
-#   ./dev.sh logs       follow the combined logs of all containers
+#   ./dev.sh down         stop and remove the pod (volumes and secrets are kept)
+#   ./dev.sh logs         follow the combined logs of all containers
+#   ./dev.sh serverstats  take one server-statistics sample now
 #
 # This is the local counterpart to build.sh + install.sh: build.sh/install.sh produce a
 # release and deploy it as systemd quadlets, whereas this script builds straight into
@@ -49,9 +50,17 @@ case "${1:-up}" in
     # Follow every container's log at once; podman prefixes each line with the name.
     exec podman pod logs -f "$POD"
     ;;
+  serverstats)
+    # Take one server-statistics sample against the running dev stack. The deployment runs
+    # this on a systemd timer; locally there is no user-systemd, so invoke the collector
+    # directly. POSTGRES_USER lets it authenticate as the dev superuser, and RUNTIME_ENV
+    # is unset so it falls back to the default interval.
+    POSTGRES_USER="$PG_USER" SERVER_STATS_SCHEMA="${SERVER_STATS_SCHEMA:-server_stats}" \
+      RUNTIME_ENV=/dev/null exec ./serverstats/collect.sh
+    ;;
   up) ;;
   *)
-    echo "usage: $0 [up|down|logs]" >&2
+    echo "usage: $0 [up|down|logs|serverstats]" >&2
     exit 1
     ;;
 esac

@@ -23,6 +23,7 @@ The expected permission matrix (from postgresql/initdb) is:
 A representative table is seeded into the relevant schemas by the superuser so the
 assertions are deterministic regardless of what the running apps have created.
 """
+import psycopg2
 import pytest
 
 from conftest import allowed, denied
@@ -120,11 +121,17 @@ class TestGrafanaUser:
         # The physical (sqlmesh__*) and staging (silver_staging) schemas are SQLMesh
         # internals and must stay hidden, even though sqlmesh creates them. They may not
         # exist on a fresh stack (no plan has run), so create representative ones.
+        # CREATE SCHEMA IF NOT EXISTS is not atomic, so the live sqlmesh engine creating
+        # the same schema concurrently can still raise a duplicate-key error between the
+        # check and the create; the test only needs the schema to exist, so ignore it.
         for schema in ("sqlmesh__silver", "silver_staging"):
             with admin_db.cursor() as cur:
-                cur.execute(
-                    f"CREATE SCHEMA IF NOT EXISTS {schema} AUTHORIZATION sqlmesh"
-                )
+                try:
+                    cur.execute(
+                        f"CREATE SCHEMA IF NOT EXISTS {schema} AUTHORIZATION sqlmesh"
+                    )
+                except psycopg2.errors.DuplicateSchema:
+                    pass  # sqlmesh created it first; that is exactly the state we want
         for schema in ("sqlmesh__silver", "silver_staging"):
             with grafana_db.cursor() as cur:
                 cur.execute(

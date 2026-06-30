@@ -1,0 +1,17 @@
+# Fires the server-statistics sample on a fixed cadence. The base cadence here is 60s to
+# match the default SERVER_STATS_INTERVAL; the collector additionally honours that runtime
+# value for its slower disk-size sub-probe, so the cheap counter sample runs every minute
+# while the expensive size probe runs every few minutes. To change the sampling rate edit
+# this OnUnitActiveSec (a rebuild is not needed; reload with `systemctl --user daemon-reload`).
+[Unit]
+Description=Gefieder server-statistics sampling timer
+
+[Timer]
+# Take the first sample shortly after boot, then one per minute. Persistent=true runs a
+# missed sample once after the machine comes back, so a reboot leaves no permanent gap.
+OnBootSec=2min
+OnUnitActiveSec=60s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
