@@ -7,6 +7,7 @@
 #
 #   uv run --project /sqlmesh sqlmesh create_external_models
 #
-# The two example tenants intentionally do NOT appear here: their bronze data comes from
-# SEED models (models/silver/<tenant>/bronze_issues.sql) so the example works without any
-# external tooling. This file is left as a template for real tenants.
+# The example tenants intentionally do NOT appear here: their bronze data comes from the
+# CSVs in seeds/ (project_a/project_b via SEED models, project_c via a polars Python model)
+# so the example works without any external tooling. This file is left as a template for
+# real tenants.

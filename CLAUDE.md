@@ -127,3 +127,14 @@
   practices.
 - In `Readme.md`, keep a concise, natural human-like style with only user-level 
   explainations. Don't fall into technical verbosity.
+
+# Example Tenants
+- There are three example tenants "Project A", "Project B" and "Project C"
+- "Project A" and "Project B" use sql transformations while "Project C" uses Python,
+  specifically Polars.
+- The example tenants are always created when the system first starts.
+- Having two example tenants should nicely illustrate to the user where to place files 
+  for real tenants.
+- The example tenants are intended to be deleted by the user when developing for
+  production.
+- There is some example seed data for both example tenants.

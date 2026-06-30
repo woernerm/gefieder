@@ -6,4 +6,8 @@ requires-python = ">=3.13"
 # The postgres extra of sqlmesh is intentionally not used: it depends on psycopg2,
 # which must be compiled against libpq. psycopg2-binary provides the same module as
 # a prebuilt wheel, so no compiler or libpq headers are needed in the image.
-dependencies = ["sqlmesh[lsp,github,web]", "psycopg2-binary"]
+#
+# polars is used by the Project C bronze model (models/bronze/project_c/issues_raw.py),
+# which transforms its raw data with polars instead of SQL. Declared here so the package
+# is present in the image's Python environment.
+dependencies = ["sqlmesh[lsp,github,web]", "psycopg2-binary", "polars"]

@@ -15,13 +15,20 @@ tenant has a bespoke source that nobody else uses.
 
 ```
 bronze/
-  <tenant_slug>/        # one folder per tenant (e.g. project_a, project_b)
+  <tenant_slug>/        # one folder per tenant (e.g. project_a, project_b, project_c)
     issues_raw.sql      # a view over a source schema (or a bespoke table)
+    issues_raw.py       # or a Python model, when the transform is easier in Python
 ```
 
-`project_a` and `project_b` are worked examples. To keep the example runnable without any
-external source they use SQLMesh `SEED` models with example data from `seeds/`; a real
-tenant's bronze model is a view over a shared source schema instead.
+`project_a`, `project_b` and `project_c` are worked examples. To keep the example runnable
+without any external source they read example data from `seeds/`; a real tenant's bronze
+model is a view over a shared source schema instead.
+
+`project_a` and `project_b` use SQLMesh `SEED` models and leave the transform to silver.
+`project_c` instead uses a [Python model](https://sqlmesh.readthedocs.io/en/latest/concepts/models/python_models/)
+that reads its CSV and harmonizes it with [polars](https://pola.rs/) right here in bronze,
+so silver only has to union it in -- a worked example of bronze data shaped in Python
+rather than SQL. The `polars` dependency is declared in `sqlmesh/pyproject.toml`.
 
 ## Adding a real bronze model
 

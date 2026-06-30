@@ -1,0 +1,6 @@
+ticket,headline,phase,logged,weight
+TKT-501,Provision staging cluster,resolved,2026-06-09,13
+TKT-502,Document API endpoints,active,2026-06-10,5
+TKT-503,Patch security advisory,resolved,2026-06-11,8
+TKT-504,Plan Q3 roadmap,backlog,2026-06-12,3
+TKT-505,Optimize report query,active,2026-06-13,8
