@@ -14,16 +14,13 @@ Environment=APP_NAME=${APP_NAME}
 Environment=GF_SECURITY_ADMIN_USER=${SUPERUSER_NAME}
 Environment=GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/superuser_password
 # Serve Grafana from the /GRAFANA_PATH subpath behind the proxy so its internal links
-# and assets resolve correctly.
+# and assets resolve correctly. This stays here rather than in custom.ini because it
+# depends on the build-time GRAFANA_PATH variable.
 Environment=GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/${GRAFANA_PATH}/
 Environment=GF_SERVER_SERVE_FROM_SUB_PATH=true
-# Persist the log into the data volume (in addition to the container's stdout), so a
-# crash leaves a log on disk. GF_PATHS_LOGS points at a subdir of the mounted volume;
-# the grafana user writes it and the rootless container maps it back to the podman user.
-# The value is quoted because systemd's Environment= otherwise splits on the space and
-# would set GF_LOG_MODE=console only, dropping the "file" sink.
-Environment="GF_LOG_MODE=console file"
-Environment=GF_PATHS_LOGS=/var/lib/grafana/log
+# Logging (console + a file on the volume) is configured in custom.ini, baked into the
+# image. The log subdir lives on the mounted volume; the grafana user writes it and the
+# rootless container maps it back to the podman user.
 Volume=grafana_data.volume:/var/lib/grafana
 # superuser_password for the admin login, grafana_password for the data source.
 Secret=superuser_password
