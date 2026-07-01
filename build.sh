@@ -15,6 +15,11 @@ set -a
 . ./buildtime.env
 set +a
 
+# Render the Grafana provisioning templates (data source + dashboards) into a temporary
+# directory the grafana Dockerfile COPYs in. This bakes APP_NAME and SERVER_STATS_SCHEMA
+# into the dashboard JSON, which Grafana itself cannot interpolate.
+./grafana/render.sh grafana/.provisioning
+
 # The entrypoints are committed executable and the Dockerfiles use plain COPY, so the
 # build needs no BuildKit-only features and works on any docker (classic or BuildKit).
 for svc in postgresql crudman sqlmesh proxy grafana; do

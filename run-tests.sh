@@ -63,6 +63,9 @@ mkdir -p "$CERT_DIR"
 # workflow; docker and podman keep separate image stores, so a docker build would not be
 # visible to the podman-run stack here.) Tagged REGISTRY/<svc>:IMAGE_TAG to match the
 # Image= lines in the quadlets; built from the working tree, not pulled.
+# Render the Grafana provisioning templates the grafana Dockerfile COPYs in first, as
+# build.sh/dev.sh do; otherwise the COPY of grafana/.provisioning/ has no source.
+./grafana/render.sh grafana/.provisioning
 for svc in postgresql crudman sqlmesh proxy grafana; do
   podman build -t "${REGISTRY}/${svc}:${IMAGE_TAG}" -f "${svc}/Dockerfile" .
 done

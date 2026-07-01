@@ -1,0 +1,17 @@
+# Provisions the dashboards shipped with the image. On startup, and while running, Grafana
+# scans the folder below and loads every dashboard JSON it finds there.
+apiVersion: 1
+
+providers:
+  - name: gefieder
+    # Group the shipped dashboards under a "Default" folder rather than at the root.
+    folder: Default
+    type: file
+    # Let users save changes without Grafana reverting them on the next scan; the files on
+    # disk remain the defaults restored when the image is reinstalled.
+    allowUiUpdates: true
+    options:
+      # The dashboards baked into the image by the Dockerfile's COPY of grafana/provisioning/.
+      path: /etc/grafana/provisioning/dashboards
+      # Keep the folder structure on disk as folders in the UI.
+      foldersFromFilesStructure: true

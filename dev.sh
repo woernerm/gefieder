@@ -1,8 +1,12 @@
 #!/bin/sh
 # Build and run the whole stack locally with rootless podman, in development mode.
 #
-#   ./dev.sh            build the images and (re)start the stack
+#   ./dev.sh            rebuild changed images and (re)start the stack
 #   ./dev.sh down         stop and remove the pod (volumes and secrets are kept)
+#
+# Run on a stack that is already up, `./dev.sh` refreshes it: podman's layer cache rebuilds
+# only the images whose inputs changed, then the pod is torn down and recreated from the
+# current images. Nothing to stop first; an unchanged run is quick.
 #   ./dev.sh logs         follow the combined logs of all containers
 #   ./dev.sh serverstats  take one server-statistics sample now
 #
@@ -67,15 +71,37 @@ esac
 
 # --- build the images -----------------------------------------------------------------
 # Same Dockerfiles and proxy build-args as build.sh, but built with podman so the images
-# land directly in the local rootless store the containers run from.
+# land directly in the local rootless store the containers run from. podman's layer cache
+# makes re-runs cheap: a service whose Dockerfile and inputs are unchanged reuses its
+# cached layers, so a plain `./dev.sh` on a running stack is a quick refresh rather than a
+# full rebuild. Build output is quiet so a cached run does not look like real work; drop
+# the redirection on a line below to see a failing build's full log.
 echo "Building images ..."
+
+# Render the Grafana provisioning templates the grafana Dockerfile COPYs in, exactly as
+# build.sh does; without this the COPY of grafana/.provisioning/ has no source. The output
+# is deterministic, so an unchanged dashboard keeps the grafana COPY layer cached.
+./grafana/render.sh grafana/.provisioning
+
 for svc in $SERVICES; do
-  podman build \
-    --build-arg "http_proxy=${HTTP_PROXY}" \
-    --build-arg "https_proxy=${HTTPS_PROXY}" \
-    --build-arg "no_proxy=${NO_PROXY}" \
-    -t "${REGISTRY}/${svc}:${IMAGE_TAG}" \
-    -f "${svc}/Dockerfile" .
+  printf '  %-11s ' "$svc"
+  build_svc() {
+    podman build \
+      --build-arg "http_proxy=${HTTP_PROXY}" \
+      --build-arg "https_proxy=${HTTPS_PROXY}" \
+      --build-arg "no_proxy=${NO_PROXY}" \
+      -t "${REGISTRY}/${svc}:${IMAGE_TAG}" \
+      -f "${svc}/Dockerfile" .
+  }
+  # Keep the happy path quiet; on failure re-run the same build so its full log is shown,
+  # then abort (set -e alone would swallow the log we redirected away).
+  if build_svc >/dev/null 2>&1; then
+    echo "ok"
+  else
+    echo "FAILED"
+    build_svc
+    exit 1
+  fi
 done
 
 # --- secrets --------------------------------------------------------------------------
