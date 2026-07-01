@@ -275,6 +275,64 @@
       ],
       "title": "Storage used",
       "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "text", "value": null }] },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "id": 10,
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Total scans", "desc": true }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  schemaname || '.' || relname AS \"Table\",\n  (max(seq_scan) - min(seq_scan)) AS \"Seq scans\",\n  (max(idx_scan) - min(idx_scan)) AS \"Index scans\",\n  ((max(seq_scan) - min(seq_scan)) + (max(idx_scan) - min(idx_scan))) AS \"Total scans\",\n  round(((max(seq_scan) - min(seq_scan)) + (max(idx_scan) - min(idx_scan))) / GREATEST(EXTRACT(EPOCH FROM max(sampled_at) - min(sampled_at)) / 86400.0, 1), 3) AS \"Scans/day\",\n  max(n_live_tup) AS \"Live rows\",\n  (max(heap_blks_read) - min(heap_blks_read)) AS \"Heap blocks read\",\n  (max(idx_blks_read) - min(idx_blks_read)) AS \"Index blocks read\"\nFROM ${SERVER_STATS_SCHEMA}.table_sample\nWHERE $__timeFilter(sampled_at)\nGROUP BY schemaname, relname\nORDER BY \"Total scans\" DESC NULLS LAST\nLIMIT 20",
+          "refId": "A"
+        }
+      ],
+      "title": "Top monitored tables",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "text", "value": null }] },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "id": 11,
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Runs", "desc": true }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  left(query, 2000) AS \"Query\",\n  (max(calls) - min(calls)) AS \"Runs\",\n  round(((max(total_exec_time) - min(total_exec_time)) / 1000)::numeric, 3) AS \"Time sec\",\n  round(((max(calls) - min(calls)) / GREATEST(EXTRACT(EPOCH FROM max(sampled_at) - min(sampled_at)) / 86400.0, 1))::numeric, 3) AS \"Runs/day\",\n  round(((max(total_exec_time) - min(total_exec_time)) / 1000 / GREATEST(EXTRACT(EPOCH FROM max(sampled_at) - min(sampled_at)) / 86400.0, 1))::numeric, 3) AS \"Time sec/day\",\n  CASE WHEN max(calls) - min(calls) > 0 THEN\n    round(((max(total_exec_time) - min(total_exec_time)) / 1000 / (max(calls) - min(calls)))::numeric, 3)\n    ELSE NULL END AS \"Avg sec\"\nFROM ${SERVER_STATS_SCHEMA}.query_sample\nWHERE $__timeFilter(sampled_at)\nGROUP BY queryid, query\nORDER BY \"Runs\" DESC NULLS LAST\nLIMIT 20",
+          "refId": "A"
+        }
+      ],
+      "title": "Top query runs and cost",
+      "type": "table"
     }
   ],
   "refresh": "1m",
