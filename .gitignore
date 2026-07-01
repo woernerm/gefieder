@@ -42,5 +42,8 @@ Thumbs.db
 # Podman / container artifacts
 *.tar
 
+# Grafana provisioning rendered from templates by build.sh (see grafana/render-provisioning.sh)
+grafana/.provisioning/
+
 # Django
 staticfiles/

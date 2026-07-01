@@ -1,10 +1,19 @@
 #!/bin/sh
 # Build and run the whole stack locally with rootless podman, in development mode.
 #
-#   ./dev.sh            build the images and (re)start the stack
+#   ./dev.sh            rebuild changed images and (re)start the stack
 #   ./dev.sh down         stop and remove the pod (volumes and secrets are kept)
+#
+# Run on a stack that is already up, `./dev.sh` refreshes it: podman's layer cache rebuilds
+# only the images whose inputs changed, then the pod is torn down and recreated from the
+# current images. Nothing to stop first; an unchanged run is quick.
 #   ./dev.sh logs         follow the combined logs of all containers
 #   ./dev.sh serverstats  take one server-statistics sample now
+#
+# `./dev.sh` also starts a background loop that samples server statistics every
+# SERVER_STATS_INTERVAL seconds, standing in for the systemd timer the deployment uses so
+# the server_stats schema (and the Grafana monitoring dashboard) fills on its own. The loop
+# is stopped by `./dev.sh down` and replaced on each `./dev.sh` run.
 #
 # This is the local counterpart to build.sh + install.sh: build.sh/install.sh produce a
 # release and deploy it as systemd quadlets, whereas this script builds straight into
@@ -39,9 +48,60 @@ PG_DB="postgres"
 HOST_ADDR="127.0.0.1"
 SERVICES="postgresql crudman sqlmesh proxy grafana"
 
+# The sampling cadence for the background loop below, read from runtime.env like the
+# collector does (default 60s). Kept in one place so `serverstats` and the loop agree.
+SERVER_STATS_INTERVAL="${SERVER_STATS_INTERVAL:-60}"
+# Where the loop's PID is recorded so a later run or `down` can stop it. Under the same
+# state dir the collector already uses, so dev leaves nothing outside XDG paths.
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/${APP_NAME}"
+STATS_PIDFILE="$STATE_DIR/dev-serverstats.pid"
+
+# Run the collector once against the dev stack. The deployment runs this on a systemd
+# timer; locally there is no user-systemd, so it is invoked directly. POSTGRES_USER lets it
+# authenticate as the dev superuser, and RUNTIME_ENV=/dev/null skips the runtime.env lookup
+# so the interval passed in the environment (or the default) applies.
+run_collector_once() {
+  POSTGRES_USER="$PG_USER" SERVER_STATS_SCHEMA="${SERVER_STATS_SCHEMA:-server_stats}" \
+    RUNTIME_ENV=/dev/null ./serverstats/collect.sh
+}
+
+# Stop a previously started background collector loop, if one is running.
+stop_stats_loop() {
+  [ -f "$STATS_PIDFILE" ] || return 0
+  pid="$(cat "$STATS_PIDFILE" 2>/dev/null || true)"
+  [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+  rm -f "$STATS_PIDFILE"
+}
+
+# Start the background loop that samples every SERVER_STATS_INTERVAL seconds, standing in
+# for the systemd timer. Any earlier loop is stopped first so a re-run never leaves two.
+# A collector run against a not-yet-ready or stopped stack fails; the loop ignores that and
+# retries, so it is harmless until `down` kills it. Errors go to the dev log so a failing
+# sample is visible without spamming stdout.
+start_stats_loop() {
+  mkdir -p "$STATE_DIR"
+  stop_stats_loop
+  (
+    # Wait for Postgres to report healthy before the first sample, so data appears as soon
+    # as the database is up rather than after a full interval. Bounded so the loop still
+    # starts sampling (and logging its failures) if the container never turns healthy.
+    i=0
+    while [ "$(podman inspect postgresql --format '{{.State.Health.Status}}' 2>/dev/null)" != "healthy" ] \
+          && [ "$i" -lt 30 ]; do
+      i=$((i + 1)); sleep 2
+    done
+    while true; do
+      run_collector_once >>"$STATE_DIR/dev-serverstats.log" 2>&1 || true
+      sleep "$SERVER_STATS_INTERVAL"
+    done
+  ) &
+  echo "$!" > "$STATS_PIDFILE"
+}
+
 # --- subcommands ----------------------------------------------------------------------
 case "${1:-up}" in
   down)
+    stop_stats_loop
     podman pod rm -f "$POD" >/dev/null 2>&1 || true
     echo "Stopped and removed pod '$POD'. Volumes and secrets are kept."
     exit 0
@@ -51,12 +111,9 @@ case "${1:-up}" in
     exec podman pod logs -f "$POD"
     ;;
   serverstats)
-    # Take one server-statistics sample against the running dev stack. The deployment runs
-    # this on a systemd timer; locally there is no user-systemd, so invoke the collector
-    # directly. POSTGRES_USER lets it authenticate as the dev superuser, and RUNTIME_ENV
-    # is unset so it falls back to the default interval.
-    POSTGRES_USER="$PG_USER" SERVER_STATS_SCHEMA="${SERVER_STATS_SCHEMA:-server_stats}" \
-      RUNTIME_ENV=/dev/null exec ./serverstats/collect.sh
+    # Take one server-statistics sample against the running dev stack, now.
+    run_collector_once
+    exit $?
     ;;
   up) ;;
   *)
@@ -67,15 +124,37 @@ esac
 
 # --- build the images -----------------------------------------------------------------
 # Same Dockerfiles and proxy build-args as build.sh, but built with podman so the images
-# land directly in the local rootless store the containers run from.
+# land directly in the local rootless store the containers run from. podman's layer cache
+# makes re-runs cheap: a service whose Dockerfile and inputs are unchanged reuses its
+# cached layers, so a plain `./dev.sh` on a running stack is a quick refresh rather than a
+# full rebuild. Build output is quiet so a cached run does not look like real work; drop
+# the redirection on a line below to see a failing build's full log.
 echo "Building images ..."
+
+# Render the Grafana provisioning templates the grafana Dockerfile COPYs in, exactly as
+# build.sh does; without this the COPY of grafana/.provisioning/ has no source. The output
+# is deterministic, so an unchanged dashboard keeps the grafana COPY layer cached.
+./grafana/render.sh grafana/.provisioning
+
 for svc in $SERVICES; do
-  podman build \
-    --build-arg "http_proxy=${HTTP_PROXY}" \
-    --build-arg "https_proxy=${HTTPS_PROXY}" \
-    --build-arg "no_proxy=${NO_PROXY}" \
-    -t "${REGISTRY}/${svc}:${IMAGE_TAG}" \
-    -f "${svc}/Dockerfile" .
+  printf '  %-11s ' "$svc"
+  build_svc() {
+    podman build \
+      --build-arg "http_proxy=${HTTP_PROXY}" \
+      --build-arg "https_proxy=${HTTPS_PROXY}" \
+      --build-arg "no_proxy=${NO_PROXY}" \
+      -t "${REGISTRY}/${svc}:${IMAGE_TAG}" \
+      -f "${svc}/Dockerfile" .
+  }
+  # Keep the happy path quiet; on failure re-run the same build so its full log is shown,
+  # then abort (set -e alone would swallow the log we redirected away).
+  if build_svc >/dev/null 2>&1; then
+    echo "ok"
+  else
+    echo "FAILED"
+    build_svc
+    exit 1
+  fi
 done
 
 # --- secrets --------------------------------------------------------------------------
@@ -172,6 +251,12 @@ podman run -d --pod "$POD" --name proxy --restart always \
   -v proxy_data:/var/log/gefieder \
   "${REGISTRY}/proxy:${IMAGE_TAG}" >/dev/null
 
+# --- background server-statistics sampling --------------------------------------------
+# Replace the systemd timer the deployment uses with a background loop, so server_stats
+# fills automatically in dev too. Started here, after the containers are up, so the first
+# sample has a database to write to; stopped by `./dev.sh down`.
+start_stats_loop
+
 # --- summary --------------------------------------------------------------------------
 cat <<EOF
 
@@ -187,6 +272,10 @@ ${APP_NAME} is starting in development mode (plain HTTP, no certificate).
 
   Follow logs:  ./dev.sh logs
   Stop:         ./dev.sh down
+
+Server statistics are sampled every ${SERVER_STATS_INTERVAL}s in the background (the
+server_stats schema and the Grafana monitoring dashboard fill on their own). Run one sample
+now with ./dev.sh serverstats.
 
 The database needs a few seconds to initialise on the first run.
 EOF

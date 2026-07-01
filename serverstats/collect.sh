@@ -203,19 +203,51 @@ if [ -n "$cur_size" ]; then
     [ "$cur_size" -lt "$prev_size" ] && prev_size=0
 
     if [ "$cur_size" -gt "$prev_size" ]; then
-        # Build a single psql script: stage the new lines with an inline COPY (the data
-        # follows the \copy command in the same stream, terminated by \.), then transform
-        # them. md5() turns the raw session cookie into a stable, non-reversible hash so a
-        # person is never identifiable; the dashboard uid is parsed from /d/<uid>/<slug>.
-        # A half-written final line cannot abort the drain: jsonb parse errors are avoided
-        # by skipping blank lines, and any bad line is re-read whole on the next tick.
-        VISIT_SQL="$(mktemp)"
-        {
-            printf 'CREATE TEMP TABLE _visit_raw (line text);\n'
-            printf '\\copy _visit_raw FROM STDIN\n'
-            podman exec "$VISIT_CONTAINER" sh -c "tail -c +$((prev_size + 1)) '$VISIT_LOG'" 2>/dev/null
-            printf '\\.\n'
-            cat <<SQL
+        # Pull the new bytes into a host temp file, then advance the cursor only over whole
+        # lines: it must land on a newline, never mid-line. The proxy may still be writing
+        # the final line, and -- the bug this guards against -- advancing the cursor to a
+        # mid-line byte would feed a partial JSON fragment on every future tick, wedging the
+        # drain permanently (the cursor never moves past a line it cannot parse). So compute
+        # the byte length of the complete-line prefix (through the last newline) and consume
+        # exactly that; any trailing partial line is left for the next tick.
+        NEW_BYTES="$(mktemp)"
+        podman exec "$VISIT_CONTAINER" sh -c "tail -c +$((prev_size + 1)) '$VISIT_LOG'" > "$NEW_BYTES" 2>/dev/null || true
+        # Everything is measured in bytes (LC_ALL=C) so a multibyte UTF-8 user-agent cannot
+        # skew the offset. If the data ends on a newline it is all complete lines; otherwise
+        # subtract the trailing partial line's bytes. No newline at all leaves consumed at 0.
+        total_new="$(LC_ALL=C wc -c < "$NEW_BYTES" | tr -d ' ')"
+        if [ "$(tail -c1 "$NEW_BYTES" | od -An -tx1 | tr -d ' \n')" = "0a" ]; then
+            # Ends on a newline: every byte is part of a complete line.
+            consumed="$total_new"
+        else
+            # Ends mid-line: drop the trailing partial line. Isolate it (all bytes after the
+            # last newline) by deleting every line but the last with sed, count its bytes,
+            # and subtract. If there is no newline at all the whole thing is the partial line,
+            # so consumed is 0 and we wait for the line to finish next tick.
+            partial="$(sed '$!d' "$NEW_BYTES" | LC_ALL=C wc -c | tr -d ' ')"
+            consumed=$(( total_new - partial ))
+        fi
+
+        if [ "${consumed:-0}" -gt 0 ]; then
+            # Build a single psql script: stage the complete lines with an inline COPY (the
+            # data follows the \copy in the same stream, terminated by \.), then transform
+            # them. md5() turns the raw session cookie into a stable, non-reversible hash so
+            # a person is never identifiable; the dashboard uid is parsed from /d/<uid>/<slug>.
+            # A malformed line cannot abort the drain: rows are filtered to valid JSON first
+            # (pg_input_is_valid, which tests without raising), so a bad line is skipped.
+            VISIT_SQL="$(mktemp)"
+            {
+                printf 'CREATE TEMP TABLE _visit_raw (line text);\n'
+                # CSV format with a delimiter and quote that never occur in a JSON log line
+                # (two control bytes) makes COPY take each newline-terminated line verbatim
+                # into the single column. The default TEXT format instead processes
+                # backslash escapes, so a line containing a backslash or tab would be mangled
+                # or, worse, raise a COPY error -- which the server then logs together with
+                # the whole multi-line statement, adding un-timestamped lines to the log.
+                printf "\\\\copy _visit_raw FROM STDIN WITH (FORMAT csv, DELIMITER E'\\\\x1f', QUOTE E'\\\\x01')\\n"
+                head -c "$consumed" "$NEW_BYTES"
+                printf '\\.\n'
+                cat <<SQL
 INSERT INTO "$SCHEMA".dashboard_visit
     (visited_at, app, url_path, dashboard_uid, client_ip, session_hash, status, user_agent)
 SELECT
@@ -230,18 +262,27 @@ SELECT
     md5(coalesce(nullif(j->>'grafana_session',''), nullif(j->>'crudman_session',''), '')),
     nullif(j->>'status','')::int,
     j->>'ua'
-FROM (SELECT line::jsonb AS j FROM _visit_raw WHERE line <> '') s;
+-- Keep only lines that parse as JSON, so a single malformed line (e.g. one the proxy
+-- half-wrote across a rotation) is skipped rather than aborting the whole INSERT.
+-- pg_input_is_valid tests the cast without raising, unlike a bare line::jsonb.
+FROM (
+    SELECT line::jsonb AS j FROM _visit_raw
+    WHERE line <> '' AND pg_input_is_valid(line, 'jsonb')
+) s;
 SQL
-        } > "$VISIT_SQL"
-        # Feed the script (commands + inline COPY data) to psql over stdin, which podman
-        # exec -i forwards into the container; \copy then reads the data from that same
-        # stream. Passing -f a host path would fail, since psql runs inside the container.
-        # Only advance the cursor if the load succeeded, so a transient failure re-reads
-        # the same bytes next tick rather than dropping visits.
-        if psql_exec < "$VISIT_SQL" >/dev/null 2>&1; then
-            printf '%s' "$cur_size" > "$OFFSET_FILE"
+            } > "$VISIT_SQL"
+            # Feed the script (commands + inline COPY data) to psql over stdin, which podman
+            # exec -i forwards into the container; \copy then reads the data from that same
+            # stream. Passing -f a host path would fail, since psql runs inside the container.
+            # Only advance the cursor -- by the complete-line bytes actually consumed, not the
+            # raw file size -- if the load succeeded, so a transient failure re-reads the same
+            # bytes next tick rather than dropping visits, and the cursor stays line-aligned.
+            if psql_exec < "$VISIT_SQL" >/dev/null 2>&1; then
+                printf '%s' "$((prev_size + consumed))" > "$OFFSET_FILE"
+            fi
+            rm -f "$VISIT_SQL"
         fi
-        rm -f "$VISIT_SQL"
+        rm -f "$NEW_BYTES"
     fi
 fi
 

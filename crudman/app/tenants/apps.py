@@ -6,4 +6,4 @@ class TenantsConfig(AppConfig):
     # A distinct app label so the sidebar's app heading ("Tenant administration") does
     # not read identically to the model link under it ("Tenants"), which looked like a
     # duplicate menu entry.
-    verbose_name = 'Tenant administration'
+    verbose_name = 'System'
