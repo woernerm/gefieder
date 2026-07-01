@@ -1,0 +1,291 @@
+{
+  "__comment": "Server monitoring dashboard shipped with Gefieder, provisioned from grafana/provisioning/dashboards. It charts the host counters the server-stats collector writes into the ${SERVER_STATS_SCHEMA} schema (see postgresql/initdb/gf_0007_create_server_stats.sh) to help size a future server. Layout: a top row of stat numbers (available CPU cores and memory, plus the network traffic sent/received totalled over the selected window), then time-series trends for CPU, memory, disk throughput, network throughput and storage. The ${APP_NAME}-postgresql datasource uid and the schema name are substituted at build time by grafana/render.sh, so this file is a template: do not load it into Grafana directly.",
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "text", "value": null }] },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "id": 5,
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT host_nproc AS \"Cores\"\nFROM ${SERVER_STATS_SCHEMA}.host_sample\nWHERE host_nproc IS NOT NULL\nORDER BY sampled_at DESC\nLIMIT 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Available CPU cores",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "text", "value": null }] },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "id": 6,
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT host_mem_total_bytes AS \"Memory\"\nFROM ${SERVER_STATS_SCHEMA}.host_sample\nWHERE host_mem_total_bytes IS NOT NULL\nORDER BY sampled_at DESC\nLIMIT 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Available memory",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "text", "value": null }] },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "id": 7,
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "-- Total outgoing traffic over the selected window: sum of the positive per-sample\n-- deltas of the monotonic net_tx counter. Reach one sample before the window so the\n-- first in-window delta is not lost, then clip the sum to the window.\nSELECT sum(d_tx) AS \"Sent\"\nFROM (\n  SELECT\n    sampled_at,\n    GREATEST(net_tx_bytes - lag(net_tx_bytes) OVER (ORDER BY sampled_at), 0) AS d_tx\n  FROM ${SERVER_STATS_SCHEMA}.host_sample\n  WHERE sampled_at >= $__timeFrom()::timestamptz - interval '1 hour' AND sampled_at <= $__timeTo()\n) d\nWHERE $__timeFilter(sampled_at)",
+          "refId": "A"
+        }
+      ],
+      "title": "Traffic sent (window total)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "text", "value": null }] },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "id": 8,
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "-- Total incoming traffic over the selected window (mirror of the sent total above).\nSELECT sum(d_rx) AS \"Received\"\nFROM (\n  SELECT\n    sampled_at,\n    GREATEST(net_rx_bytes - lag(net_rx_bytes) OVER (ORDER BY sampled_at), 0) AS d_rx\n  FROM ${SERVER_STATS_SCHEMA}.host_sample\n  WHERE sampled_at >= $__timeFrom()::timestamptz - interval '1 hour' AND sampled_at <= $__timeTo()\n) d\nWHERE $__timeFilter(sampled_at)",
+          "refId": "A"
+        }
+      ],
+      "title": "Traffic received (window total)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never" },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "id": 1,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time, \"CPU cores busy\" FROM (\n  SELECT\n    sampled_at AS \"time\",\n    GREATEST(cpu_usage_usec - lag(cpu_usage_usec) OVER (ORDER BY sampled_at), 0)\n      / NULLIF(extract(epoch FROM sampled_at - lag(sampled_at) OVER (ORDER BY sampled_at)) * 1e6, 0) AS \"CPU cores busy\"\n  FROM ${SERVER_STATS_SCHEMA}.host_sample\n  -- Reach one sample before the visible window so lag() gives the first shown point a\n  -- real predecessor instead of a NULL rate; the outer filter then clips to the window.\n  WHERE sampled_at >= $__timeFrom()::timestamptz - interval '1 hour' AND sampled_at <= $__timeTo()\n) s\nWHERE $__timeFilter(time)\nORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "CPU cores used",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never" },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "id": 2,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  sampled_at AS \"time\",\n  mem_current_bytes AS \"Memory used\"\nFROM ${SERVER_STATS_SCHEMA}.host_sample\nWHERE $__timeFilter(sampled_at)\nORDER BY sampled_at",
+          "refId": "A"
+        }
+      ],
+      "title": "Memory used",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never" },
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "id": 3,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time, \"Read\", \"Write\" FROM (\n  SELECT\n    sampled_at AS \"time\",\n    GREATEST(io_read_bytes - lag(io_read_bytes) OVER (ORDER BY sampled_at), 0)\n      / NULLIF(extract(epoch FROM sampled_at - lag(sampled_at) OVER (ORDER BY sampled_at)), 0) AS \"Read\",\n    GREATEST(io_write_bytes - lag(io_write_bytes) OVER (ORDER BY sampled_at), 0)\n      / NULLIF(extract(epoch FROM sampled_at - lag(sampled_at) OVER (ORDER BY sampled_at)), 0) AS \"Write\"\n  FROM ${SERVER_STATS_SCHEMA}.host_sample\n  -- Reach one sample before the visible window so lag() gives the first shown point a\n  -- real predecessor instead of a NULL rate; the outer filter then clips to the window.\n  WHERE sampled_at >= $__timeFrom()::timestamptz - interval '1 hour' AND sampled_at <= $__timeTo()\n) s\nWHERE $__timeFilter(time)\nORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "Disk throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never" },
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "id": 9,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time, \"Sent\", \"Received\" FROM (\n  SELECT\n    sampled_at AS \"time\",\n    GREATEST(net_tx_bytes - lag(net_tx_bytes) OVER (ORDER BY sampled_at), 0)\n      / NULLIF(extract(epoch FROM sampled_at - lag(sampled_at) OVER (ORDER BY sampled_at)), 0) AS \"Sent\",\n    GREATEST(net_rx_bytes - lag(net_rx_bytes) OVER (ORDER BY sampled_at), 0)\n      / NULLIF(extract(epoch FROM sampled_at - lag(sampled_at) OVER (ORDER BY sampled_at)), 0) AS \"Received\"\n  FROM ${SERVER_STATS_SCHEMA}.host_sample\n  -- Reach one sample before the visible window so lag() gives the first shown point a\n  -- real predecessor instead of a NULL rate; the outer filter then clips to the window.\n  WHERE sampled_at >= $__timeFrom()::timestamptz - interval '1 hour' AND sampled_at <= $__timeTo()\n) s\nWHERE $__timeFilter(time)\nORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "Network throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never" },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "id": 4,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "${APP_NAME}-postgresql" },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time, \"Database\", \"All volumes\", \"Temp/spill\" FROM (\n  SELECT\n    time,\n    -- Carry the last non-NULL value forward: the size columns are only probed every few\n    -- minutes and are NULL in between, so a short window can hold only NULLs. Grouping by\n    -- the running count of non-NULL samples puts each NULL run in the group of the value\n    -- before it; taking that group's (single) non-NULL value forward-fills the gaps. Done\n    -- per column because the probes for each may land on different rows.\n    max(db_size_bytes)     OVER (PARTITION BY db_grp)   AS \"Database\",\n    max(volume_size_bytes) OVER (PARTITION BY vol_grp)  AS \"All volumes\",\n    max(temp_size_bytes)   OVER (PARTITION BY temp_grp) AS \"Temp/spill\"\n  FROM (\n    SELECT\n      sampled_at AS time, db_size_bytes, volume_size_bytes, temp_size_bytes,\n      count(db_size_bytes)     OVER (ORDER BY sampled_at) AS db_grp,\n      count(volume_size_bytes) OVER (ORDER BY sampled_at) AS vol_grp,\n      count(temp_size_bytes)   OVER (ORDER BY sampled_at) AS temp_grp\n    FROM ${SERVER_STATS_SCHEMA}.host_sample\n    -- Reach back far enough to include the previous size probe before the window starts.\n    WHERE sampled_at >= $__timeFrom()::timestamptz - interval '1 hour' AND sampled_at <= $__timeTo()\n  ) filled\n) s\nWHERE $__timeFilter(time)\nORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "Storage used",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": ["gefieder", "server"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Server monitoring",
+  "uid": "gefieder-server-monitoring",
+  "version": 1,
+  "weekStart": ""
+}

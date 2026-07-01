@@ -36,3 +36,20 @@ class TestDashboardProvisioning:
         assert resp.status_code == 200, f"grafana search failed: {resp.status_code}"
         dashboards = resp.json()
         assert len(dashboards) >= 1, "no dashboard was provisioned on the running grafana"
+
+    def test_the_server_monitoring_dashboard_shall_be_in_the_default_folder(self, grafana_api):
+        # The provider derives each dashboard's folder from its on-disk directory
+        # (foldersFromFilesStructure), and the server-monitoring JSON lives under
+        # dashboards/Default/, so it must land in a "Default" folder rather than the root
+        # "General" one. Grafana reports a dashboard's folder in the search result's
+        # folderTitle (absent/empty when the dashboard sits at the root).
+        resp = grafana_api.get("/api/search", params={"type": "dash-db"})
+        assert resp.status_code == 200, f"grafana search failed: {resp.status_code}"
+        dashboards = resp.json()
+        monitoring = [d for d in dashboards if d.get("uid") == "gefieder-server-monitoring"]
+        assert monitoring, "the server-monitoring dashboard is not provisioned"
+        folder = monitoring[0].get("folderTitle")
+        assert folder == "Default", (
+            f"server-monitoring dashboard is in folder {folder!r}, expected 'Default' "
+            "(it must be provisioned into the Default folder, not the root)"
+        )

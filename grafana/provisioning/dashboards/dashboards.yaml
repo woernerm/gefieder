@@ -4,8 +4,6 @@ apiVersion: 1
 
 providers:
   - name: gefieder
-    # Group the shipped dashboards under a "Default" folder rather than at the root.
-    folder: Default
     type: file
     # Let users save changes without Grafana reverting them on the next scan; the files on
     # disk remain the defaults restored when the image is reinstalled.
@@ -13,5 +11,10 @@ providers:
     options:
       # The dashboards baked into the image by the Dockerfile's COPY of grafana/provisioning/.
       path: /etc/grafana/provisioning/dashboards
-      # Keep the folder structure on disk as folders in the UI.
+      # Derive each dashboard's folder from the directory it sits in, so the JSON under
+      # dashboards/Default/ lands in a "Default" folder. This is done via the on-disk tree
+      # rather than a static `folder:` key because, unlike that key, it also re-homes a
+      # dashboard that a previous image version had provisioned into the root folder: on the
+      # next scan Grafana moves it into the folder its directory implies. A JSON placed
+      # directly in `path` (no subfolder) would instead land in the root "General" folder.
       foldersFromFilesStructure: true

@@ -92,23 +92,22 @@ class TestGrafanaAccess:
                f'INSERT INTO {SERVER_STATS_SCHEMA}.host_sample (cpu_usage_usec) VALUES (1)')
 
 
-def run_collector():
+def run_collector(**extra_env):
     """Run the host collector once, asserting it exits cleanly.
 
     POSTGRES_USER lets it authenticate as the superuser inside the container; the schema
     name matches what the suite was told. RUNTIME_ENV=/dev/null skips the runtime.env
     lookup so the default interval applies. HOME/PATH are passed through because the
-    collector resolves its state dir under HOME and runs podman from PATH.
+    collector resolves its state dir under HOME and runs podman from PATH. extra_env adds
+    or overrides variables (e.g. forcing the disk-size probe on for a single run).
     """
     if not COLLECTOR:
         pytest.skip("no collector path provided (GEFIEDER_COLLECTOR unset)")
-    proc = subprocess.run(
-        [COLLECTOR],
-        env={"POSTGRES_USER": SUPERUSER_NAME, "SERVER_STATS_SCHEMA": SERVER_STATS_SCHEMA,
-             "RUNTIME_ENV": "/dev/null", "HOME": os.environ["HOME"],
-             "PATH": os.environ.get("PATH", "/usr/bin:/bin")},
-        capture_output=True, text=True,
-    )
+    env = {"POSTGRES_USER": SUPERUSER_NAME, "SERVER_STATS_SCHEMA": SERVER_STATS_SCHEMA,
+           "RUNTIME_ENV": "/dev/null", "HOME": os.environ["HOME"],
+           "PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+    env.update(extra_env)
+    proc = subprocess.run([COLLECTOR], env=env, capture_output=True, text=True)
     assert proc.returncode == 0, f"collector failed: {proc.stderr}\n{proc.stdout}"
 
 
@@ -124,6 +123,17 @@ def collected(admin_db):
         after = q(cur, f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.host_sample')[0]
     assert after == before + 1, "the collector did not insert exactly one host sample"
     return after
+
+
+@pytest.fixture(scope="module")
+def sized(admin_db):
+    """Run the collector once with the disk-size probe forced on.
+
+    The sizes are normally probed only every SERVER_STATS_DISK_PROBE_SECONDS, so a plain run
+    may skip them; setting it to 0 makes this run take them, giving the size assertions a
+    row to check regardless of when the previous probe happened.
+    """
+    run_collector(SERVER_STATS_DISK_PROBE_SECONDS="0")
 
 
 class TestHostCollector:
@@ -161,6 +171,43 @@ class TestHostCollector:
             tables = q(cur, f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.table_sample')[0]
         assert queries > 0, "no query statistics were snapshotted"
         assert tables > 0, "no table statistics were snapshotted"
+
+    # The counter columns that a collector run must fill on any supported host: they come
+    # from the cgroup CPU/memory files and the host network interface, all readable for a
+    # rootless-podman pod. The disk IOPS/throughput columns (io_*) are deliberately excluded
+    # because they need the cgroup io controller delegated to the user slice, which some
+    # kernels (e.g. WSL2) do not provide -- there those columns are legitimately NULL.
+    PER_SAMPLE_COLUMNS = [
+        "cpu_usage_usec", "host_nproc",
+        "mem_current_bytes", "mem_peak_bytes", "host_mem_total_bytes",
+        "net_tx_bytes", "net_rx_bytes",
+    ]
+
+    @pytest.mark.parametrize("column", PER_SAMPLE_COLUMNS)
+    def test_the_sample_shall_carry_every_non_io_counter(self, admin_db, collected, column):
+        # Assert on the row this run inserted: each non-io counter must be recorded (non-null
+        # and non-negative), so data really is collected rather than the sample being empty.
+        with admin_db.cursor() as cur:
+            value = q(cur,
+                f"SELECT {column} FROM {SERVER_STATS_SCHEMA}.host_sample "
+                f"ORDER BY sampled_at DESC LIMIT 1")[0]
+        assert value is not None, f"{column} was not recorded"
+        assert value >= 0, f"{column} is negative ({value})"
+
+    def test_the_disk_and_volume_sizes_shall_be_collected(self, admin_db, sized):
+        # The database, volume and temp/spill sizes are the disk-space sizing inputs. They
+        # are probed on a slower sub-cadence (SERVER_STATS_DISK_PROBE_SECONDS); the `sized`
+        # fixture forces that probe on, so a row carrying them exists. Assert over the whole
+        # table so it does not matter which row got the probe. This does NOT depend on the
+        # io controller, so unlike IOPS it must work everywhere.
+        with admin_db.cursor() as cur:
+            db_size, vol_size, temp_size = q(cur,
+                f"SELECT max(db_size_bytes), max(volume_size_bytes), max(temp_size_bytes) "
+                f"FROM {SERVER_STATS_SCHEMA}.host_sample")
+        assert db_size is not None and db_size > 0, "db_size_bytes never collected"
+        assert vol_size is not None and vol_size > 0, "volume_size_bytes never collected"
+        # Temp/spill can legitimately be 0 (no query has spilled), so only require non-null.
+        assert temp_size is not None, "temp_size_bytes never collected"
 
 
 class TestRollup:
