@@ -169,13 +169,14 @@ create_secret crudman_password  "$(openssl rand -hex 32)"
 create_secret sqlmesh_password  "$(openssl rand -hex 32)"
 create_secret grafana_password  "$(openssl rand -hex 32)"
 
-# The superuser login is a fixed, well-known value ("admin") so the stack comes up
-# unattended and the printed credentials are always correct. Unlike the secrets above it
-# is set on every run (replacing any earlier value, e.g. one a previous install prompted
-# for), because the crudman entrypoint resets the superuser password to this secret on
-# start. This is a dev-only convenience and not for production.
+# The superuser login is a fixed, well-known value (SUPERUSER_DEFAULT_PASSWORD from
+# buildtime.env) so the stack comes up unattended and the printed credentials are always
+# correct. Unlike the secrets above it is set on every run (replacing any earlier value,
+# e.g. one a previous install prompted for), because the crudman entrypoint resets the
+# superuser password to this secret on start. This is a dev-only convenience and not for
+# production.
 podman secret rm superuser_password >/dev/null 2>&1 || true
-printf '%s' "admin" | podman secret create superuser_password - >/dev/null
+printf '%s' "$SUPERUSER_DEFAULT_PASSWORD" | podman secret create superuser_password - >/dev/null
 
 # --- volumes --------------------------------------------------------------------------
 # Created up front so the rootless user owns their contents from the start (same reason as
@@ -264,7 +265,7 @@ ${APP_NAME} is starting in development mode (plain HTTP, no certificate).
 
   Admin panel:  http://${HOST_ADDR}:${HTTP_PORT}/${CRUDMAN_PATH}/
   Grafana:      http://${HOST_ADDR}:${HTTP_PORT}/${GRAFANA_PATH}/
-  Login:        ${SUPERUSER_NAME} / admin
+  Login:        ${SUPERUSER_NAME} / ${SUPERUSER_DEFAULT_PASSWORD}
 
   PostgreSQL:   host=${HOST_ADDR} port=${PG_PORT} dbname=${PG_DB} user=${PG_USER}
                 (password = the superuser password, same as the admin login)

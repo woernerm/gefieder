@@ -3,7 +3,7 @@
 #
 # Run it straight from a release without a checkout:
 #
-#   curl -fsSL https://github.com/woernerm/gefieder/releases/latest/download/install.sh | bash
+#   curl -fsSL ${REPO}/releases/latest/download/install.sh | bash
 #
 # It downloads each release asset with its own curl command, loads the image tarballs
 # into rootless podman, installs the rendered quadlets, creates the machine secrets, and
@@ -12,14 +12,17 @@
 set -e
 
 # --- where the release lives ----------------------------------------------------------
-# Default to the latest release of the upstream repository; override REPO/TAG to install
-# a fork or a pinned version, e.g. REPO=myorg/gefieder TAG=v1.2.0 ./install.sh
-REPO="${REPO:-woernerm/gefieder}"
+# REPO is the full URL of the repository the release lives in; it is baked in from
+# buildtime.env when the release is built, so this installer works against an enterprise
+# GitHub instance as well as github.com. Override REPO/TAG to install a different
+# repository or a pinned version, e.g.
+#   REPO=https://github.example.com/myorg/gefieder TAG=v1.2.0 ./install.sh
+REPO="${REPO:-https://github.com/your-org/gefieder}"
 TAG="${TAG:-latest}"
 if [ "$TAG" = "latest" ]; then
-  BASE="https://github.com/${REPO}/releases/latest/download"
+  BASE="${REPO}/releases/latest/download"
 else
-  BASE="https://github.com/${REPO}/releases/download/${TAG}"
+  BASE="${REPO}/releases/download/${TAG}"
 fi
 
 QUADLET_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/containers/systemd"
@@ -181,7 +184,7 @@ Reset the runtime configuration to its shipped default (next install restores it
   rm -f \$HOME/.config/${APP_NAME}/runtime.env
 
 Update to the latest version (re-runs this installer; keeps your config and secrets):
-  curl -fsSL https://github.com/${REPO}/releases/latest/download/install.sh | bash
+  curl -fsSL ${REPO}/releases/latest/download/install.sh | bash
 
 Server-statistics sampling (resource usage for sizing, query stats for indexing):
   systemctl --user status server-stats.timer        # is sampling active?

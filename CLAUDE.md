@@ -62,7 +62,7 @@
 - All build artifacts, the quadlet files, as well as the install script shall be 
   uploaded as github release.
 - The system shall be installable from a github release using a curl command similar to 
-  this: `curl -fsSL https://github.com/woernerm/gefieder/releases/latest/install.sh | bash`
+  this: `curl -fsSL https://github.com/your-org/gefieder/releases/latest/install.sh | bash`
 - The system shall use the entrypoint.sh scripts to write persistent logs to the volume
   (e.g. using `awk`). The logs shall be owned by the rootless podman user.
 - The persistent logs shall contain one (and only one) timestamp at the beginning of 
@@ -142,3 +142,34 @@
 - The example tenants are intended to be deleted by the user when developing for
   production.
 - There is some example seed data for both example tenants.
+
+# Data Sources
+- The system is designed to be used with multiple data sources.
+- The system shall support file uploads using the web browser or sftp.
+    - Files are not random uploads. Each file has a specific purpose and is expected to 
+      be in a specific format (e.g. Excel columns have been discussed with the 
+      prducing user and agreed upon). Therefore, each kind of files has its own 
+      dropzone (i.e. folder, API endpoint, sftp directory) and its own processing 
+      script. The name of the files on disk does not matter. It can be named 
+      after the uploaded files with a timestamp or (maybe partial) uuid or both.
+    - An upload may consist of multiple files.
+    - The user shall use crudman to define dropzones. A dropzone uniquely identifies
+      the source's purpose, the file format (e.g. Excel, CSV, Parquet) and the method
+      of upload (e.g. Post to API endpoint, sftp directory, browser file upload).
+    - Crudman shall have a model for a dropzone. It contains at least its name, 
+      description, file format, file path, upload method, processing function to be 
+      used and authentication details (e.g. sftp username and password, API token, 
+      etc.).
+    - The web browser file upload shall be implemented as a drag-and-drop area 
+      (dropzone) in the crudman interface. It shall be possible to upload multiple files 
+      at once.
+    - Each drop zone shall have its own URL (e.g. API entpoint, browser upload URL, 
+      sftp address) to connect to.
+    - If the method of upload allows, the user shall be able to select a validity period
+      for the file upload. It determines the start and end dates, the content of the 
+      file where valid for a project. 
+    - There shall be a model for a file upload. It has at least the foreign key to the 
+      dropzone, the file path, the upload timestamp and the validity period. 
+    - Files shall be stored using django FileField. The file path shall be stored in the 
+      database. The file itself shall be stored in a volume.
+      

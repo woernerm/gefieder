@@ -79,10 +79,12 @@ sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
 
 **3. Install from the release.** The installer downloads each asset, loads the image
 tarballs into rootless podman, installs the quadlets, creates the machine secrets
-(prompting once for the superuser password), and prints a control cheat sheet:
+(prompting once for the superuser password), and prints a control cheat sheet. Point the
+command at your own repository (the `REPO` you set in `buildtime.env`, which may be an
+enterprise GitHub instance):
 
 ```bash
-curl -fsSL https://github.com/woernerm/gefieder/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/your-org/gefieder/releases/latest/download/install.sh | bash
 ```
 
 Then start the pod and verify in a browser that `http://` redirects to `https://`:

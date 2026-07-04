@@ -60,7 +60,7 @@
 - All build artifacts, the quadlet files, as well as the install script shall be 
   uploaded as github release.
 - The system shall be installable from a github release using a curl command similar to 
-  this: `curl -fsSL https://github.com/woernerm/gefieder/releases/latest/install.sh | bash`
+  this: `curl -fsSL https://github.com/your-org/gefieder/releases/latest/install.sh | bash`
 - The system shall use the entrypoint.sh scripts to write persistent logs to the volume
   (e.g. using `tee`). The logs shall be owned by the rootless podman user.
 

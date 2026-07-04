@@ -80,7 +80,10 @@ jobs:
             echo "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}"
           } > dist/manifest.env
 
-          cp install.sh dist/install.sh
+          # Bake the repository URL into the installer so the curl one-liner points at this
+          # repository (github.com or an enterprise instance). Only ${REPO} is substituted;
+          # the installer's own shell variables ($WORK, $BASE, ...) are left untouched.
+          envsubst '${REPO}' < install.sh > dist/install.sh
 
       - name: Publish the GitHub release
         env:

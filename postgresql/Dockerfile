@@ -1,4 +1,4 @@
-FROM pgduckdb/pgduckdb:17-main
+FROM docker.io/pgduckdb/pgduckdb:17-main
 
 # The base PostgreSQL image reads POSTGRES_PASSWORD_FILE to load the password from
 # the mounted Podman secret file at runtime.
