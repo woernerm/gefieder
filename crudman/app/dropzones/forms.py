@@ -30,9 +30,9 @@ class UploadForm(forms.Form):
     UNTIL_REPLACED = "until_replaced"
     PERIOD = "period"
     VALIDITY_CHOICES = [
-        (UNTIL_REPLACED, "Valid until replaced by a later upload"),
-        (ALWAYS, "Always valid"),
-        (PERIOD, "Valid for a fixed period"),
+        (UNTIL_REPLACED, "Valid from now on until replacement"),
+        (ALWAYS, "Valid for past and future until replacement"),
+        (PERIOD, "Valid for a given time period"),
     ]
 
     files = MultipleFileField(label="Files")
@@ -72,17 +72,20 @@ class UploadForm(forms.Form):
             cleaned["valid_from"] = None
             cleaned["valid_until"] = None
         elif mode == self.UNTIL_REPLACED:
-            # An open end; the start defaults to "now" so a later upload clips it here.
-            cleaned["valid_from"] = cleaned.get("valid_from") or timezone.now()
+            # "From now on": the start is the moment of the upload, so a later upload
+            # clips it here. The date fields are hidden for this mode, and a stray
+            # submitted value is ignored rather than trusted.
+            cleaned["valid_from"] = timezone.now()
             cleaned["valid_until"] = None
         elif mode == self.PERIOD:
-            start, end = cleaned.get("valid_from"), cleaned.get("valid_until")
-            if not start or not end:
-                raise forms.ValidationError(
-                    "A fixed period needs both a start and an end date."
-                )
-            if end <= start:
+            # An empty start means "now", an empty end means forever (open end, so a
+            # later upload still clips it).
+            start = cleaned.get("valid_from") or timezone.now()
+            end = cleaned.get("valid_until")
+            if end and end <= start:
                 raise forms.ValidationError(
                     "The end of the validity period must be after its start."
                 )
+            cleaned["valid_from"] = start
+            cleaned["valid_until"] = end
         return cleaned

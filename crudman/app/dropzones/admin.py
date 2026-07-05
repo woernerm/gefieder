@@ -79,24 +79,22 @@ class UploadFileInline(TabularInline):
     model = UploadFile
     extra = 0
     can_delete = False
-    # The bare file name plus a link to the authenticated download view, rather than
+    # A single column per file, linking to the authenticated download view rather than
     # the raw FileField, whose default display would point at an unserved MEDIA URL.
-    fields = ("file_name", "download_link")
-    readonly_fields = ("file_name", "download_link")
+    # text-link is the class Unfold puts on its own readonly links (e.g. the uploaded_by
+    # user), so the link matches the admin's link styling.
+    fields = ("file_link",)
+    readonly_fields = ("file_link",)
 
     def has_add_permission(self, request, obj=None):
         return False
 
     @admin.display(description="file")
-    def file_name(self, obj):
-        return str(obj) if obj.pk else ""
-
-    @admin.display(description="download")
-    def download_link(self, obj):
+    def file_link(self, obj):
         if not obj.pk:
             return ""
         return format_html(
-            '<a href="{}">Click to download</a>',
+            '<a href="{}" class="text-link">Click to download ⤓</a>',
             reverse("dropzones:download", kwargs={"pk": obj.pk}),
         )
 
@@ -113,6 +111,7 @@ class UploadAdmin(ModelAdmin):
         "valid_from",
         "valid_until",
         "short_hash",
+        "delete_link",
     )
     list_filter = ("dropzone",)
     readonly_fields = ("dropzone", "uploaded_at", "uploaded_by", "directory", "sha256")
@@ -130,6 +129,15 @@ class UploadAdmin(ModelAdmin):
     @admin.display(description="sha256", ordering="sha256")
     def short_hash(self, obj):
         return obj.sha256[:12]
+
+    @admin.display(description="delete")
+    def delete_link(self, obj):
+        # Django's own delete view, so the confirmation page and the permission
+        # checks stay in charge; this only saves opening the upload first.
+        return format_html(
+            '<a href="{}">Delete</a>',
+            reverse("admin:dropzones_upload_delete", args=[obj.pk]),
+        )
 
     def has_add_permission(self, request):
         return False

@@ -517,18 +517,29 @@ class UploadFormTests(SimpleTestCase):
         self.assertGreaterEqual(form.cleaned_data["valid_from"], before)
         self.assertIsNone(form.cleaned_data["valid_until"])
 
-    def test_until_replaced_keeps_a_chosen_start(self):
+    def test_until_replaced_ignores_a_submitted_start(self):
+        # The option reads "from now on" and hides the date fields, so a stray
+        # submitted value must not sneak in as the start.
+        before = timezone.now()
         form = self.form(
-            {"validity": UploadForm.UNTIL_REPLACED, "valid_from": "2026-07-01T08:00"}
+            {"validity": UploadForm.UNTIL_REPLACED, "valid_from": "2020-01-01T08:00"}
         )
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertGreaterEqual(form.cleaned_data["valid_from"], before)
+        self.assertIsNone(form.cleaned_data["valid_until"])
+
+    def test_period_empty_end_means_forever(self):
+        form = self.form({"validity": UploadForm.PERIOD, "valid_from": "2026-07-01T08:00"})
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.cleaned_data["valid_from"].year, 2026)
         self.assertIsNone(form.cleaned_data["valid_until"])
 
-    def test_period_requires_both_dates(self):
-        form = self.form({"validity": UploadForm.PERIOD, "valid_from": "2026-07-01T08:00"})
-        self.assertFalse(form.is_valid())
-        self.assertIn("both a start and an end", str(form.errors))
+    def test_period_empty_start_defaults_to_now(self):
+        before = timezone.now()
+        form = self.form({"validity": UploadForm.PERIOD, "valid_until": "2200-01-01T00:00"})
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertGreaterEqual(form.cleaned_data["valid_from"], before)
+        self.assertEqual(form.cleaned_data["valid_until"].year, 2200)
 
     def test_period_requires_end_after_start(self):
         form = self.form(
@@ -671,11 +682,36 @@ class UploadViewTests(TempMediaMixin, TestCase):
 
     def test_invalid_form_is_re_rendered(self):
         response = self.client.post(
-            self.url(), {"files": upload_file(), "validity": UploadForm.PERIOD}
+            self.url(),
+            {
+                "files": upload_file(),
+                "validity": UploadForm.PERIOD,
+                "valid_from": "2026-07-02T08:00",
+                "valid_until": "2026-07-01T08:00",
+            },
         )
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "both a start and an end")
+        self.assertContains(response, "after its start")
         self.assertEqual(Upload.objects.count(), 0)
+
+    def test_page_headline_is_the_app_name(self):
+        from django.conf import settings as project_settings
+
+        # The headline block mirrors the Unfold login screen: the app name carries the
+        # login title's utility classes, the dropzone name sits below it.
+        response = self.client.get(self.url())
+        self.assertContains(
+            response,
+            '<span class="block font-semibold text-primary-600 tracking-tight '
+            f'text-xl dark:text-primary-500">{project_settings.APP_NAME}</span>',
+            html=True,
+        )
+        self.assertContains(
+            response,
+            '<span class="block mt-3 text-font-important-light '
+            'dark:text-font-important-dark">open-zone</span>',
+            html=True,
+        )
 
 
 class DownloadTests(TempMediaMixin, TestCase):
@@ -728,11 +764,14 @@ class DownloadTests(TempMediaMixin, TestCase):
         page = self.client.get(
             reverse("admin:dropzones_upload_change", args=[self.upload.pk])
         )
-        self.assertContains(page, self.url)
-        # Each file shows as its bare name plus a "Click to download" link; the full
-        # storage path appears nowhere (the directory has its own field).
-        self.assertContains(page, "Click to download")
-        self.assertContains(page, "report.xlsx")
+        # A single download link per file, styled with the same text-link class Unfold
+        # uses for its own readonly links (e.g. the uploaded_by user); the full storage
+        # path appears nowhere (the directory has its own field).
+        self.assertContains(
+            page,
+            f'<a href="{self.url}" class="text-link">Click to download ⤓</a>',
+            html=True,
+        )
         self.assertNotContains(page, self.stored.file.name)
 
 
@@ -771,6 +810,14 @@ class AdminTests(TempMediaMixin, TestCase):
             admin_instance.upload_link(None), "Available after saving."
         )
         self.assertIn(str(self.zone.token), admin_instance.upload_link(self.zone))
+
+    def test_upload_changelist_offers_a_delete_button_per_row(self):
+        process_upload(self.zone, [upload_file()])
+        upload = Upload.objects.get()
+        page = self.client.get(reverse("admin:dropzones_upload_changelist"))
+        self.assertContains(
+            page, reverse("admin:dropzones_upload_delete", args=[upload.pk])
+        )
 
     def test_admin_pages_render(self):
         process_upload(self.zone, [upload_file()])

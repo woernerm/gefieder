@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied
@@ -50,7 +51,11 @@ def upload(request, token):
                 # Redirect after POST, so refreshing cannot re-submit the files.
                 return redirect(request.path)
     return render(
-        request, "dropzones/upload.html", {"dropzone": dropzone, "form": form}
+        request,
+        "dropzones/upload.html",
+        # APP_NAME (from buildtime.env) is the page's headline, like everywhere else
+        # in the system; the dropzone name becomes the subheading.
+        {"dropzone": dropzone, "form": form, "app_name": settings.APP_NAME},
     )
 
 
