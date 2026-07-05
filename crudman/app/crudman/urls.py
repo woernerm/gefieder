@@ -17,7 +17,7 @@ Including another URLconf
 import os
 
 from django.contrib import admin
-from django.urls import path
+from django.urls import include, path
 
 # The base path under which the administration panel is served. It must match
 # CRUDMAN_PATH of the proxy service. The proxy forwards this path unchanged, so that
@@ -25,6 +25,9 @@ from django.urls import path
 CRUDMAN_PATH = os.environ.get("CRUDMAN_PATH", "crudman")
 
 urlpatterns = [
+    # The dropzone upload pages. Under CRUDMAN_PATH so the proxy needs no extra route,
+    # but listed before the admin so its prefix pattern does not swallow them.
+    path(f"{CRUDMAN_PATH}/dropzones/", include("dropzones.urls")),
     path(f"{CRUDMAN_PATH}/", admin.site.urls),
     # Other URL paths
 ]

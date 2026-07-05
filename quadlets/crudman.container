@@ -25,6 +25,10 @@ Environment=POSTGRES_USER=crudman
 # Data volume; the entrypoint tees its output to /var/log/gefieder here so a crash
 # leaves a log on disk rather than only in the container's stdout.
 Volume=crudman_data.volume:/var/log/gefieder
+# The dropzones uploads. Shared read-only with the sqlmesh container at the same path,
+# so the file paths stored in the database resolve there too.
+Environment=UPLOADS_DIR=/var/lib/gefieder/uploads
+Volume=uploads_data.volume:/var/lib/gefieder/uploads
 Secret=django_secret_key
 Secret=crudman_password
 Secret=superuser_password

@@ -82,9 +82,11 @@ CONTAINERS = ["postgresql", "crudman", "sqlmesh", "grafana", "proxy"]
 # The systemd unit that owns the pod (the quadlet file is named main.pod).
 POD_SERVICE = "main-pod.service"
 
-# The named data volumes the quadlets declare, one per service.
+# The named data volumes the quadlets declare: one per service, plus the uploads
+# volume crudman and sqlmesh share for the dropzones files.
 DATA_VOLUMES = [
     "postgresql_data", "grafana_data", "crudman_data", "sqlmesh_data", "proxy_data",
+    "uploads_data",
 ]
 
 # Where each service writes its persistent log, as (container, volume, path-in-volume).

@@ -195,6 +195,8 @@ user owns their contents):
 
 - `postgresql_data` — the database (all engineering, analytics and application data)
 - `grafana_data` — the Grafana dashboards, users and settings
+- `uploads_data` — the files uploaded through dropzones (see
+  [Uploading files](#uploading-files-with-dropzones))
 - `crudman_data`, `sqlmesh_data`, `proxy_data` — currently the persistent logs of each
   service (see [Logs](#logs))
 
@@ -248,6 +250,28 @@ The sampling interval is the `SERVER_STATS_INTERVAL` value in `runtime.env`; the
 of 60 seconds is plenty for sizing. Disk read/write speed and IOPS need the `io` control
 group, which the installer delegates for you (it asks for `sudo` once); without it those
 two figures stay blank while everything else is still recorded.
+
+## Uploading files with dropzones
+Not all data arrives through tools writing to the database. For files that people
+produce by hand — a mapping someone maintains in Excel, a CSV export from another
+system — create a *dropzone* in the admin panel (Dropzones → Add). A dropzone stands
+for one kind of file: what it is for, which format it comes in, who may upload it, and
+what happens right after the upload: an optional check that rejects bad files, and an
+optional conversion (say, CSV to Parquet). Rejected files are never stored; the
+uploader sees the reason immediately and can fix the files and try again.
+
+Every dropzone has a secret upload link, shown on its admin page. Hand it to the person
+providing the files: they get a simple page where they drop one or more files and state
+how long the set is valid — always, until they replace it with a new upload, or for a
+fixed period. When a replacement arrives, the previous upload's validity is shortened
+to end where the new one begins.
+
+Each upload is recorded in the `crudman.dropzones_upload` table together with its file
+paths, and the files land on the `uploads_data` volume, which the analytics engine sees
+read-only under the same path. An analytics model therefore just selects the upload
+valid at the timestamp it is computing and reads the files. The check and convert
+functions are plain Python functions in `crudman/app/dropzones/functions/`; the
+examples in that folder show the pattern and are meant to be replaced with your own.
 
 ## Scripts
 | Script | What it does |

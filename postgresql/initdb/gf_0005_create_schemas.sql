@@ -87,9 +87,12 @@ BEGIN
         WHERE command_tag = 'CREATE TABLE'
           AND schema_name = 'crudman'
     LOOP
-        -- Skip Django's own tables.
+        -- Skip Django's own tables, and the dropzone table because it holds the
+        -- secret upload-link tokens (grafana keeps read access to the upload/file
+        -- tables, which are the ones dashboards need).
         IF obj.object_identity LIKE 'crudman.auth\_%'
-           OR obj.object_identity LIKE 'crudman.django\_%' THEN
+           OR obj.object_identity LIKE 'crudman.django\_%'
+           OR obj.object_identity = 'crudman.dropzones_dropzone' THEN
             CONTINUE;
         END IF;
 

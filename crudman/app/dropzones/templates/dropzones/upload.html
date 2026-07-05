@@ -1,0 +1,156 @@
+{# The upload page behind a dropzone's secret link. Self-contained (inline styles and #}
+{# script, no admin chrome) because anonymous uploaders see it too. #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Upload — {{ dropzone.name }}</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f4f5f7; --card: #ffffff; --text: #1f2937; --muted: #6b7280;
+    --line: #d1d5db; --accent: #2563eb; --accent-soft: #eff6ff;
+    --ok-bg: #ecfdf5; --ok-text: #065f46; --err-bg: #fef2f2; --err-text: #991b1b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111827; --card: #1f2937; --text: #f3f4f6; --muted: #9ca3af;
+      --line: #4b5563; --accent: #60a5fa; --accent-soft: #1e3a5f;
+      --ok-bg: #064e3b; --ok-text: #d1fae5; --err-bg: #7f1d1d; --err-text: #fee2e2;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; justify-content: center; padding: 3rem 1rem;
+  }
+  main { width: 100%; max-width: 34rem; }
+  .card { background: var(--card); border-radius: 0.75rem; padding: 2rem;
+          box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+  h1 { margin: 0 0 .25rem; font-size: 1.4rem; }
+  .description { color: var(--muted); margin: 0 0 1.5rem; white-space: pre-line; }
+  .msg { border-radius: .5rem; padding: .75rem 1rem; margin: 0 0 1rem; }
+  .msg.success { background: var(--ok-bg); color: var(--ok-text); }
+  .msg.error { background: var(--err-bg); color: var(--err-text); }
+  .droparea {
+    border: 2px dashed var(--line); border-radius: .75rem; padding: 2.5rem 1rem;
+    text-align: center; color: var(--muted); cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .droparea.dragover { border-color: var(--accent); background: var(--accent-soft); }
+  .droparea strong { color: var(--text); }
+  #filelist { list-style: none; margin: .75rem 0 0; padding: 0; font-size: .9rem; }
+  #filelist li { padding: .25rem .5rem; border-bottom: 1px solid var(--line); }
+  fieldset { border: 0; margin: 1.5rem 0 0; padding: 0; }
+  legend { font-weight: 600; padding: 0; margin-bottom: .5rem; }
+  fieldset ul { list-style: none; margin: 0; padding: 0; }
+  fieldset li { margin: .25rem 0; }
+  .dates { display: flex; gap: 1rem; margin-top: .75rem; flex-wrap: wrap; }
+  .dates label { display: block; font-size: .85rem; color: var(--muted); }
+  .dates input { padding: .4rem .5rem; border: 1px solid var(--line);
+                 border-radius: .375rem; background: var(--card); color: var(--text); }
+  button[type=submit] {
+    margin-top: 1.5rem; width: 100%; padding: .75rem; border: 0;
+    border-radius: .5rem; background: var(--accent); color: #fff;
+    font-size: 1rem; font-weight: 600; cursor: pointer;
+  }
+  button[type=submit]:hover { filter: brightness(1.1); }
+  .hidden { display: none; }
+  input[type=file] { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>{{ dropzone.name }}</h1>
+    {% if dropzone.description %}<p class="description">{{ dropzone.description }}</p>{% endif %}
+    {% if dropzone.file_format %}<p class="description">Expected format: {{ dropzone.file_format }}</p>{% endif %}
+
+    {% for message in messages %}
+      <p class="msg {{ message.tags }}">{{ message }}</p>
+    {% endfor %}
+    {% for error in form.non_field_errors %}
+      <p class="msg error">{{ error }}</p>
+    {% endfor %}
+    {% for error in form.files.errors %}
+      <p class="msg error">{{ error }}</p>
+    {% endfor %}
+
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+      <div class="droparea" id="droparea">
+        <strong>Drop files here</strong><br>or click to choose. Several files at once are fine.
+      </div>
+      {{ form.files }}
+      <ul id="filelist"></ul>
+
+      <fieldset>
+        <legend>{{ form.validity.label }}</legend>
+        {{ form.validity }}
+        <div class="dates">
+          <span id="from-wrap" class="hidden">
+            <label for="{{ form.valid_from.id_for_label }}">Valid from (empty = now)</label>
+            {{ form.valid_from }}
+          </span>
+          <span id="until-wrap" class="hidden">
+            <label for="{{ form.valid_until.id_for_label }}">Valid until</label>
+            {{ form.valid_until }}
+          </span>
+        </div>
+      </fieldset>
+
+      <button type="submit">Upload</button>
+    </form>
+  </div>
+</main>
+<script>
+  const droparea = document.getElementById("droparea");
+  const input = document.querySelector("input[type=file]");
+  const filelist = document.getElementById("filelist");
+
+  function showFiles() {
+    filelist.textContent = "";
+    for (const file of input.files) {
+      const item = document.createElement("li");
+      item.textContent = file.name;
+      filelist.appendChild(item);
+    }
+  }
+
+  droparea.addEventListener("click", () => input.click());
+  input.addEventListener("change", showFiles);
+  droparea.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    droparea.classList.add("dragover");
+  });
+  droparea.addEventListener("dragleave", () => droparea.classList.remove("dragover"));
+  droparea.addEventListener("drop", (event) => {
+    event.preventDefault();
+    droparea.classList.remove("dragover");
+    // Merge with the files already chosen, so files can be dropped one by one.
+    const merged = new DataTransfer();
+    for (const file of input.files) merged.items.add(file);
+    for (const file of event.dataTransfer.files) merged.items.add(file);
+    input.files = merged.files;
+    showFiles();
+  });
+
+  // Show only the date fields the chosen validity mode uses.
+  const fromWrap = document.getElementById("from-wrap");
+  const untilWrap = document.getElementById("until-wrap");
+  function updateDates() {
+    const mode = document.querySelector("input[name=validity]:checked")?.value;
+    fromWrap.classList.toggle("hidden", mode === "always");
+    untilWrap.classList.toggle("hidden", mode !== "period");
+  }
+  for (const radio of document.querySelectorAll("input[name=validity]")) {
+    radio.addEventListener("change", updateDates);
+  }
+  updateDates();
+  showFiles();
+</script>
+</body>
+</html>

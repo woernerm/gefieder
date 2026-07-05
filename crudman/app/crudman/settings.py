@@ -88,6 +88,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'example.apps.ExampleConfig',
     'tenants.apps.TenantsConfig',
+    'dropzones.apps.DropzonesConfig',
 ]
 
 MIDDLEWARE = [
@@ -183,6 +184,12 @@ USE_TZ = True
 
 STATIC_URL = f'/{CRUDMAN_PATH}/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Where the dropzones app stores uploaded files. In the deployment this is the uploads
+# volume, which the sqlmesh container mounts read-only at the same path so analytics
+# models can open the files under the very paths the database rows point at. Without
+# UPLOADS_DIR (local development, unit tests) a directory next to the app is used.
+MEDIA_ROOT = Path(os.environ.get('UPLOADS_DIR', BASE_DIR / 'media'))
 
 STORAGES = {
     'default': {

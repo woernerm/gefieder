@@ -34,7 +34,7 @@ trap 'rm -rf "$WORK"' EXIT
 IMAGES="postgresql crudman sqlmesh proxy grafana"
 QUADLETS="main.pod postgresql.container crudman.container sqlmesh.container \
   grafana.container proxy.container postgresql_data.volume grafana_data.volume \
-  crudman_data.volume sqlmesh_data.volume proxy_data.volume"
+  crudman_data.volume sqlmesh_data.volume proxy_data.volume uploads_data.volume"
 
 # --- preflight: rootless podman needs a usable subuid/subgid range ---------------------
 command -v podman >/dev/null || { echo "podman is not installed." >&2; exit 1; }
@@ -100,7 +100,7 @@ fi
 # One data volume per service, matching the VolumeName= in the *.volume quadlets. The
 # crudman/sqlmesh/proxy volumes currently hold only the log the entrypoint tees, but are
 # general per-service data volumes.
-for vol in postgresql_data grafana_data crudman_data sqlmesh_data proxy_data; do
+for vol in postgresql_data grafana_data crudman_data sqlmesh_data proxy_data uploads_data; do
   podman volume exists "$vol" || podman volume create "$vol" >/dev/null
 done
 
@@ -176,6 +176,7 @@ Follow the live log of a single component:
 Volume paths (cd into them to inspect data):
   postgresql: \$(podman volume inspect ${PG_VOL} -f '{{.Mountpoint}}')
   grafana:    \$(podman volume inspect ${GF_VOL} -f '{{.Mountpoint}}')
+  uploads:    \$(podman volume inspect uploads_data -f '{{.Mountpoint}}')
 
 Edit the runtime configuration in your default editor:
   ${EDITOR_CMD} \$HOME/.config/${APP_NAME}/runtime.env

@@ -128,7 +128,7 @@ WantedBy=default.target
 EOF
 
 UNITS="postgresql crudman sqlmesh grafana proxy"
-VOLUMES="postgresql_data grafana_data crudman_data sqlmesh_data proxy_data"
+VOLUMES="postgresql_data grafana_data crudman_data sqlmesh_data proxy_data uploads_data"
 
 # Install the server-statistics collector the way the release installer does, so the
 # suite exercises the real host-side sampler: render its units into the systemd user dir

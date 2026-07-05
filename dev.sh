@@ -181,7 +181,7 @@ printf '%s' "$SUPERUSER_DEFAULT_PASSWORD" | podman secret create superuser_passw
 # --- volumes --------------------------------------------------------------------------
 # Created up front so the rootless user owns their contents from the start (same reason as
 # install.sh), one per service matching the *.volume quadlets.
-for vol in postgresql_data grafana_data crudman_data sqlmesh_data proxy_data; do
+for vol in postgresql_data grafana_data crudman_data sqlmesh_data proxy_data uploads_data; do
   podman volume exists "$vol" || podman volume create "$vol" >/dev/null
 done
 
@@ -220,7 +220,9 @@ podman run -d --pod "$POD" --name crudman --restart always \
   -e "CSRF_TRUSTED_ORIGINS=http://${HOST_ADDR}:${HTTP_PORT}" \
   -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 \
   -e POSTGRES_DB=postgres -e POSTGRES_USER=crudman \
+  -e UPLOADS_DIR=/var/lib/gefieder/uploads \
   -v crudman_data:/var/log/gefieder \
+  -v uploads_data:/var/lib/gefieder/uploads \
   --secret django_secret_key --secret crudman_password --secret superuser_password \
   "${REGISTRY}/crudman:${IMAGE_TAG}" >/dev/null
 
@@ -228,6 +230,7 @@ podman run -d --pod "$POD" --name sqlmesh --restart always \
   -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 -e POSTGRES_DB=postgres \
   -e SQLMESH_RUN_INTERVAL=10 \
   -v sqlmesh_data:/var/log/gefieder \
+  -v uploads_data:/var/lib/gefieder/uploads:ro \
   --secret sqlmesh_password \
   "${REGISTRY}/sqlmesh:${IMAGE_TAG}" >/dev/null
 
