@@ -1,7 +1,7 @@
 [project]
-name = "gefieder-tests"
+name = "integration-tests"
 version = "0.1.0"
-description = "Integration tests for the Gefieder container system."
+description = "Integration tests for the analytics platform."
 requires-python = ">=3.13"
 dependencies = [
     "pytest",

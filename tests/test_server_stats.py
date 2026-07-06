@@ -14,7 +14,7 @@ import httpx
 import pytest
 
 from conftest import (
-    BASE_URL, COLLECTOR, CRUDMAN_PATH, GRAFANA_PATH, SERVER_STATS_SCHEMA,
+    APP_NAME, BASE_URL, COLLECTOR, CRUDMAN_PATH, GRAFANA_PATH, SERVER_STATS_SCHEMA,
     SUPERUSER_NAME, VERIFY_TLS, denied,
 )
 
@@ -98,13 +98,14 @@ def run_collector(**extra_env):
     POSTGRES_USER lets it authenticate as the superuser inside the container; the schema
     name matches what the suite was told. RUNTIME_ENV=/dev/null skips the runtime.env
     lookup so the default interval applies. HOME/PATH are passed through because the
-    collector resolves its state dir under HOME and runs podman from PATH. extra_env adds
-    or overrides variables (e.g. forcing the disk-size probe on for a single run).
+    collector resolves its state dir under HOME and APP_NAME and runs podman from PATH.
+    extra_env adds or overrides variables (e.g. forcing the disk-size probe on for a
+    single run).
     """
     if not COLLECTOR:
-        pytest.skip("no collector path provided (GEFIEDER_COLLECTOR unset)")
+        pytest.skip("no collector path provided (TEST_COLLECTOR unset)")
     env = {"POSTGRES_USER": SUPERUSER_NAME, "SERVER_STATS_SCHEMA": SERVER_STATS_SCHEMA,
-           "RUNTIME_ENV": "/dev/null", "HOME": os.environ["HOME"],
+           "APP_NAME": APP_NAME, "RUNTIME_ENV": "/dev/null", "HOME": os.environ["HOME"],
            "PATH": os.environ.get("PATH", "/usr/bin:/bin")}
     env.update(extra_env)
     proc = subprocess.run([COLLECTOR], env=env, capture_output=True, text=True)

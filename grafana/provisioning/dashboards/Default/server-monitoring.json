@@ -1,5 +1,5 @@
 {
-    "__comment": "Server monitoring dashboard shipped with Gefieder, provisioned from grafana/provisioning/dashboards. It charts the host counters the server-stats collector writes into the ${SERVER_STATS_SCHEMA} schema (see postgresql/initdb/gf_0007_create_server_stats.sh) to help size a future server. Layout: a top row of stat numbers (available CPU cores and memory, plus the network traffic sent/received totalled over the selected window), then time-series trends for CPU, memory, disk throughput, network throughput and storage. The ${APP_NAME}-postgresql datasource uid and the schema name are substituted at build time by grafana/render.sh, so this file is a template: do not load it into Grafana directly.",
+    "__comment": "Server monitoring dashboard shipped with the system, provisioned from grafana/provisioning/dashboards. It charts the host counters the server-stats collector writes into the ${SERVER_STATS_SCHEMA} schema (see postgresql/initdb/gf_0007_create_server_stats.sh) to help size a future server. Layout: a top row of stat numbers (available CPU cores and memory, plus the network traffic sent/received totalled over the selected window), then time-series trends for CPU, memory, disk throughput, network throughput and storage. The ${APP_NAME}-postgresql datasource uid and the schema name are substituted at build time by grafana/render.sh, so this file is a template: do not load it into Grafana directly.",
     "annotations": {
         "list": [
             {
@@ -631,7 +631,7 @@
     "refresh": "1m",
     "schemaVersion": 39,
     "tags": [
-        "gefieder",
+        "${APP_NAME}",
         "server"
     ],
     "templating": {
@@ -644,7 +644,7 @@
     "timepicker": {},
     "timezone": "",
     "title": "Server monitoring",
-    "uid": "gefieder-server-monitoring",
+    "uid": "${APP_NAME}-server-monitoring",
     "version": 1,
     "weekStart": ""
 }

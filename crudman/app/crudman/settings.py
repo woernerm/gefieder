@@ -16,7 +16,7 @@ from pathlib import Path
 
 from django.urls import Resolver404, resolve
 
-APP_NAME = os.environ.get("APP_NAME", "gefieder").capitalize()
+APP_NAME = os.environ.get("APP_NAME", "app").capitalize()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent

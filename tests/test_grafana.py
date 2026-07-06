@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from conftest import (
-    BASE_URL, GRAFANA_PATH, SUPERUSER_NAME, SUPERUSER_PASSWORD, VERIFY_TLS,
+    APP_NAME, BASE_URL, GRAFANA_PATH, SUPERUSER_NAME, SUPERUSER_PASSWORD, VERIFY_TLS,
 )
 
 
@@ -46,7 +46,7 @@ class TestDashboardProvisioning:
         resp = grafana_api.get("/api/search", params={"type": "dash-db"})
         assert resp.status_code == 200, f"grafana search failed: {resp.status_code}"
         dashboards = resp.json()
-        monitoring = [d for d in dashboards if d.get("uid") == "gefieder-server-monitoring"]
+        monitoring = [d for d in dashboards if d.get("uid") == f"{APP_NAME}-server-monitoring"]
         assert monitoring, "the server-monitoring dashboard is not provisioned"
         folder = monitoring[0].get("folderTitle")
         assert folder == "Default", (

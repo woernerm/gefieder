@@ -4,7 +4,7 @@
 # while the expensive size probe runs every few minutes. To change the sampling rate edit
 # this OnUnitActiveSec (a rebuild is not needed; reload with `systemctl --user daemon-reload`).
 [Unit]
-Description=Gefieder server-statistics sampling timer
+Description=${APP_NAME} server-statistics sampling timer
 
 [Timer]
 # Take the first sample shortly after boot, then one per minute. Persistent=true runs a

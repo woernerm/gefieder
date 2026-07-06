@@ -72,7 +72,7 @@ from other systems, files agreed upon with their producers.
   uploads are recorded with no user, like a secret-link browser upload.
 
 # SFTP upload
-- Dropzones with the SFTP method are served by an SFTP server Gefieder runs itself
+- Dropzones with the SFTP method are served by an SFTP server the application runs itself
   (`manage.py sftpserver` in `dropzones/sftp.py`, run by the `sftp` container and
   published on port 2222). Owning the server is what keeps the uploader's side free of
   conventions: no marker files, no manifest, no rename dance — connect, `put` one or

@@ -39,7 +39,7 @@ map "$visit_is_get:$visit_app" $visit_log {
 # lives on the proxy's own volume, owned by the rootless podman user -- and the collector
 # hashes it before storing, so the raw value is never persisted in the database. $remote_addr
 # is the direct client; $http_x_forwarded_for carries the original client behind any proxy.
-log_format gefieder_visit escape=json
+log_format visit_json escape=json
     '{"ts":"$time_iso8601","app":"$visit_app","path":"$uri",'
     '"status":$status,"ip":"$remote_addr","xff":"$http_x_forwarded_for",'
     '"ua":"$http_user_agent",'
@@ -53,7 +53,7 @@ server {
     location /${CRUDMAN_PATH}/ {
         # Record page visits (the map drops assets/non-GET); other requests are not logged
         # here. The human access log still captures everything in proxy.log.
-        access_log /var/log/gefieder/visits.log gefieder_visit if=$visit_log;
+        access_log /var/log/app/visits.log visit_json if=$visit_log;
         # Dropzone file uploads pass through here; nginx's 1m default would reject them.
         client_max_body_size 512m;
         proxy_pass http://crudman:8000;
@@ -65,7 +65,7 @@ server {
     # Grafana is configured to serve from /${GRAFANA_PATH} (see GF_SERVER_*), so the
     # path is forwarded unchanged.
     location /${GRAFANA_PATH}/ {
-        access_log /var/log/gefieder/visits.log gefieder_visit if=$visit_log;
+        access_log /var/log/app/visits.log visit_json if=$visit_log;
         proxy_pass http://grafana:3000;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

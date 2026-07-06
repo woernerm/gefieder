@@ -8,7 +8,7 @@
 # units, so `systemctl --user` and `journalctl --user` manage and show it like the rest.
 # ${APP_NAME} is rendered by the installer (envsubst), the same way the quadlets are.
 [Unit]
-Description=Gefieder server-statistics sample
+Description=${APP_NAME} server-statistics sample
 # The sample reaches the database through the postgresql container, so only attempt it
 # once the pod is up. This is a hint, not a hard dependency: a tick that runs while the
 # database is down simply fails and the next one succeeds.
@@ -17,4 +17,6 @@ Wants=main-pod.service
 
 [Service]
 Type=oneshot
+# The collector derives its config and state paths from the app name.
+Environment=APP_NAME=${APP_NAME}
 ExecStart=%h/.config/${APP_NAME}/serverstats/collect.sh

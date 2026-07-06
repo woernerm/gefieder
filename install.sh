@@ -1,5 +1,5 @@
 #!/bin/sh
-# Gefieder installer for a GitHub release.
+# Installer for a GitHub release.
 #
 # Run it straight from a release without a checkout:
 #
@@ -16,7 +16,7 @@ set -e
 # buildtime.env when the release is built, so this installer works against an enterprise
 # GitHub instance as well as github.com. Override REPO/TAG to install a different
 # repository or a pinned version, e.g.
-#   REPO=https://github.example.com/myorg/gefieder TAG=v1.2.0 ./install.sh
+#   REPO=https://github.example.com/myorg/myrepo TAG=v1.2.0 ./install.sh
 REPO="${REPO:-https://github.com/your-org/gefieder}"
 TAG="${TAG:-latest}"
 if [ "$TAG" = "latest" ]; then
@@ -130,7 +130,7 @@ fi
 # without this. The drop-in needs root; attempt it with sudo and carry on if unavailable
 # (the collector then records those two metrics as NULL, the others still work). A kernel
 # that does not expose per-cgroup io at all (some WSL2 builds) is unaffected by this.
-IO_DROPIN=/etc/systemd/system/user@.service.d/10-gefieder-delegate-io.conf
+IO_DROPIN=/etc/systemd/system/user@.service.d/10-${APP_NAME}-delegate-io.conf
 if [ ! -f "$IO_DROPIN" ] && command -v sudo >/dev/null 2>&1; then
   if sudo -n true 2>/dev/null || [ -t 0 ]; then
     sudo mkdir -p "$(dirname "$IO_DROPIN")" 2>/dev/null \
@@ -158,7 +158,7 @@ PG_VOL="postgresql_data"
 GF_VOL="grafana_data"
 
 cat > "$HELP" <<EOF
-Gefieder control cheat sheet
+${APP_NAME} control cheat sheet
 ============================
 
 Start the system now:

@@ -6,7 +6,7 @@
 # the entrypoint's own wait) makes sure the database migrations are applied first.
 # Notify=healthy marks the service started only once the port answers.
 [Unit]
-Description=Gefieder sftp (dropzones SFTP endpoint)
+Description=${APP_NAME} sftp (dropzones SFTP endpoint)
 After=crudman.service
 
 [Container]
@@ -24,11 +24,11 @@ Environment=POSTGRES_DB=postgres
 Environment=POSTGRES_USER=crudman
 # The log volume is crudman's: the endpoint is part of the same Django application,
 # so its sftp.log sits next to crudman.log. The host key lives on its own volume.
-Volume=crudman_data.volume:/var/log/gefieder
-Environment=UPLOADS_DIR=/var/lib/gefieder/uploads
-Volume=uploads_data.volume:/var/lib/gefieder/uploads
-Environment=SFTP_DIR=/var/lib/gefieder/sftp
-Volume=sftp_data.volume:/var/lib/gefieder/sftp
+Volume=crudman_data.volume:/var/log/app
+Environment=UPLOADS_DIR=/var/lib/app/uploads
+Volume=uploads_data.volume:/var/lib/app/uploads
+Environment=SFTP_DIR=/var/lib/app/sftp
+Volume=sftp_data.volume:/var/lib/app/sftp
 Secret=django_secret_key
 Secret=crudman_password
 HealthCmd=python -c 'import socket; socket.create_connection(("127.0.0.1", 2222), 5).close()'

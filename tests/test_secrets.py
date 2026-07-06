@@ -14,10 +14,10 @@ from conftest import CONTAINERS, SUPERUSER_NAME, podman
 
 # The actual secret values, from the same env the suite uses for its DB connections.
 SECRET_VALUES = {
-    "superuser_password": os.environ["GEFIEDER_SUPERUSER_PASSWORD"],
-    "crudman_password": os.environ["GEFIEDER_CRUDMAN_PASSWORD"],
-    "sqlmesh_password": os.environ["GEFIEDER_SQLMESH_PASSWORD"],
-    "grafana_password": os.environ["GEFIEDER_GRAFANA_PASSWORD"],
+    "superuser_password": os.environ["TEST_SUPERUSER_PASSWORD"],
+    "crudman_password": os.environ["TEST_CRUDMAN_PASSWORD"],
+    "sqlmesh_password": os.environ["TEST_SQLMESH_PASSWORD"],
+    "grafana_password": os.environ["TEST_GRAFANA_PASSWORD"],
 }
 
 # Config values the quadlets are meant to contain in plain text. The dev profile sets the

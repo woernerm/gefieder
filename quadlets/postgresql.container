@@ -4,7 +4,7 @@
 # Notify=healthy ties "service started" to the healthcheck below, so units ordered after
 # this one wait for the database to actually accept connections.
 [Unit]
-Description=Gefieder PostgreSQL database
+Description=${APP_NAME} PostgreSQL database
 
 [Container]
 ContainerName=postgresql

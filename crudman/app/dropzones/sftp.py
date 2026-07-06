@@ -1,6 +1,6 @@
 """The dropzones SFTP endpoint (run by ``manage.py sftpserver``).
 
-Gefieder runs its own SFTP server instead of watching a directory, so an uploader
+The application runs its own SFTP server instead of watching a directory, so an uploader
 needs no convention at all — no marker files, no manifest, no rename dance: connect
 with the dropzone's name and secret, ``put`` one or more files, disconnect. The
 server sees the transfer itself, so completeness needs no signalling: everything the

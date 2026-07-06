@@ -1,5 +1,5 @@
 #!/bin/sh
-# Gefieder server-statistics collector.
+# Server-statistics collector.
 #
 # Runs on the host as the rootless-podman user (a systemd user timer fires it every
 # SERVER_STATS_INTERVAL seconds), NOT inside a container: only the host can see the pod's
@@ -20,7 +20,7 @@ set -eu
 # created); the interval is read from runtime.env so it can change without a rebuild. The
 # collector itself runs once per invocation; the timer owns the cadence, but the disk
 # sub-cadence below uses the interval to decide how often to run the expensive size probes.
-APP_NAME="${APP_NAME:-gefieder}"
+APP_NAME="${APP_NAME:?APP_NAME must be set (server-stats.service and dev.sh provide it)}"
 SCHEMA="${SERVER_STATS_SCHEMA:-server_stats}"
 RUNTIME_ENV="${RUNTIME_ENV:-$HOME/.config/${APP_NAME}/runtime.env}"
 [ -f "$RUNTIME_ENV" ] && . "$RUNTIME_ENV"
@@ -126,7 +126,7 @@ if [ $(( now_epoch - last_probe )) -ge "$DISK_PROBE_SECONDS" ]; then
     # the server; pg_database_size and a directory-size sum are both cheap server-side.
     DB_SIZE="$(psql_exec -c "SELECT pg_database_size(current_database())" 2>/dev/null || echo "")"
     TEMP_SIZE="$(psql_exec -c "SELECT coalesce(sum((pg_ls_dir).size),0) FROM pg_ls_tmpdir() AS pg_ls_dir" 2>/dev/null || echo "")"
-    # Total on-disk size of every Gefieder data volume, summed over their mountpoints.
+    # Total on-disk size of every data volume of the stack, summed over their mountpoints.
     vs=0
     for vol in $(podman volume ls --format '{{.Name}}' 2>/dev/null | grep -E '_data$' || true); do
         mp="$(podman volume inspect "$vol" --format '{{.Mountpoint}}' 2>/dev/null || true)"
@@ -190,7 +190,7 @@ SQL
 # kept in the state dir is the cursor -- and load them. If the file shrank since last time
 # (rotated/truncated), restart from the beginning. Parsing, the cookie hashing and the
 # dashboard-uid extraction are all done server-side in SQL below, so this just moves bytes.
-VISIT_LOG="${SERVER_STATS_VISIT_LOG:-/var/log/gefieder/visits.log}"
+VISIT_LOG="${SERVER_STATS_VISIT_LOG:-/var/log/app/visits.log}"
 VISIT_CONTAINER="${SERVER_STATS_PROXY_CONTAINER:-proxy}"
 OFFSET_FILE="$STATE_DIR/serverstats-visit-offset"
 

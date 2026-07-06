@@ -1,7 +1,7 @@
 [project]
-name = "gefieder-sqlmesh"
+name = "sqlmesh-service"
 version = "0.1.0"
-description = "The SQLMesh analytics engine for Gefieder."
+description = "The SQLMesh analytics engine for the analytics platform."
 requires-python = ">=3.13"
 # The postgres extra of sqlmesh is intentionally not used: it depends on psycopg2,
 # which must be compiled against libpq. psycopg2-binary provides the same module as

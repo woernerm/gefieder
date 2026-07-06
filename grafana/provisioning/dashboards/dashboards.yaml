@@ -3,7 +3,7 @@
 apiVersion: 1
 
 providers:
-  - name: gefieder
+  - name: ${APP_NAME}
     type: file
     # Let users save changes without Grafana reverting them on the next scan; the files on
     # disk remain the defaults restored when the image is reinstalled.

@@ -1,4 +1,4 @@
-"""Shared fixtures for the Gefieder integration tests.
+"""Shared fixtures for the integration tests.
 
 The tests run against a throwaway stack that run-tests.sh has already started. The
 stack is reached over the published ports; which ports and protocol depend on the
@@ -51,15 +51,15 @@ def denied(conn, sql):
         with pytest.raises(psycopg2.errors.InsufficientPrivilege):
             cur.execute(sql)
 
-PROFILE = os.environ.get("GEFIEDER_PROFILE", "dev")
-BASE_URL = os.environ["GEFIEDER_BASE_URL"]            # e.g. http://localhost:8080
-HTTP_BASE_URL = os.environ["GEFIEDER_HTTP_BASE_URL"]  # the plain-HTTP base, for the redirect test
-PG_PORT = os.environ.get("GEFIEDER_PG_PORT", "5432")
-SFTP_PORT = int(os.environ.get("GEFIEDER_SFTP_PORT", "2222"))
-GRAFANA_PASSWORD = os.environ["GEFIEDER_GRAFANA_PASSWORD"]
-SUPERUSER_PASSWORD = os.environ["GEFIEDER_SUPERUSER_PASSWORD"]
-CRUDMAN_PASSWORD = os.environ["GEFIEDER_CRUDMAN_PASSWORD"]
-SQLMESH_PASSWORD = os.environ["GEFIEDER_SQLMESH_PASSWORD"]
+PROFILE = os.environ.get("TEST_PROFILE", "dev")
+BASE_URL = os.environ["TEST_BASE_URL"]            # e.g. http://localhost:8080
+HTTP_BASE_URL = os.environ["TEST_HTTP_BASE_URL"]  # the plain-HTTP base, for the redirect test
+PG_PORT = os.environ.get("TEST_PG_PORT", "5432")
+SFTP_PORT = int(os.environ.get("TEST_SFTP_PORT", "2222"))
+GRAFANA_PASSWORD = os.environ["TEST_GRAFANA_PASSWORD"]
+SUPERUSER_PASSWORD = os.environ["TEST_SUPERUSER_PASSWORD"]
+CRUDMAN_PASSWORD = os.environ["TEST_CRUDMAN_PASSWORD"]
+SQLMESH_PASSWORD = os.environ["TEST_SQLMESH_PASSWORD"]
 
 # Values taken from the .env file by run-tests.sh, so the suite tests the configured
 # stack rather than the defaults.
@@ -70,8 +70,8 @@ GRAFANA_PATH = os.environ["GRAFANA_PATH"]
 
 # The server-statistics schema name and the host-side collector run-tests.sh installed,
 # so the server-stats tests can trigger a real sample and read its rows back.
-SERVER_STATS_SCHEMA = os.environ.get("GEFIEDER_SERVER_STATS_SCHEMA", "server_stats")
-COLLECTOR = os.environ.get("GEFIEDER_COLLECTOR", "")
+SERVER_STATS_SCHEMA = os.environ.get("TEST_SERVER_STATS_SCHEMA", "server_stats")
+COLLECTOR = os.environ.get("TEST_COLLECTOR", "")
 
 # The URL paths the apps are served under, derived from the configured base paths.
 CRUDMAN_LOGIN = f"/{CRUDMAN_PATH}/login/"

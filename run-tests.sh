@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bring up a throwaway Gefieder stack from the quadlets, run the integration test suite
+# Bring up a throwaway stack from the quadlets, run the integration test suite
 # against it and tear it down again. Meant to run in isolation, far from any production
 # system: it builds fresh images, starts a stack with an empty database under the project
 # pod name and isolated ports, and removes it afterwards.
@@ -171,19 +171,19 @@ systemctl --user daemon-reload
 echo "Starting the test stack and waiting for every service to become healthy ..."
 for u in $UNITS; do systemctl --user start "${u}.service"; done
 
-export GEFIEDER_PROFILE="$PROFILE"
-export GEFIEDER_BASE_URL="$SCHEME://localhost:$APP_PORT"
-export GEFIEDER_HTTP_BASE_URL="http://localhost:$HTTP_PORT"
-export GEFIEDER_PG_PORT="$PG_PORT"
-export GEFIEDER_SFTP_PORT="$SFTP_PORT"
-export GEFIEDER_GRAFANA_PASSWORD="$GRAFANA_PASSWORD"
-export GEFIEDER_SUPERUSER_PASSWORD="$SUPERUSER_PASSWORD"
-export GEFIEDER_CRUDMAN_PASSWORD="$CRUDMAN_PASSWORD"
-export GEFIEDER_SQLMESH_PASSWORD="$SQLMESH_PASSWORD"
+export TEST_PROFILE="$PROFILE"
+export TEST_BASE_URL="$SCHEME://localhost:$APP_PORT"
+export TEST_HTTP_BASE_URL="http://localhost:$HTTP_PORT"
+export TEST_PG_PORT="$PG_PORT"
+export TEST_SFTP_PORT="$SFTP_PORT"
+export TEST_GRAFANA_PASSWORD="$GRAFANA_PASSWORD"
+export TEST_SUPERUSER_PASSWORD="$SUPERUSER_PASSWORD"
+export TEST_CRUDMAN_PASSWORD="$CRUDMAN_PASSWORD"
+export TEST_SQLMESH_PASSWORD="$SQLMESH_PASSWORD"
 
 # The server-statistics schema name and the path of the collector the suite triggers.
-export GEFIEDER_SERVER_STATS_SCHEMA="${SERVER_STATS_SCHEMA:-server_stats}"
-export GEFIEDER_COLLECTOR="$APP_CONFIG_DIR/serverstats/collect.sh"
+export TEST_SERVER_STATS_SCHEMA="${SERVER_STATS_SCHEMA:-server_stats}"
+export TEST_COLLECTOR="$APP_CONFIG_DIR/serverstats/collect.sh"
 
 # Run the suite. uv provides the test dependencies from tests/pyproject.toml.
 uv run --project tests pytest tests/ -v

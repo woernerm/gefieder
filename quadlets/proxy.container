@@ -3,7 +3,7 @@
 # HTTPS based on the DEBUG value rendered below (empty = production). The certificate is
 # the only host-local piece, bind-mounted from ~/.config/${APP_NAME}/certs.
 [Unit]
-Description=Gefieder nginx reverse proxy
+Description=${APP_NAME} nginx reverse proxy
 After=crudman.service grafana.service
 
 [Container]
@@ -14,9 +14,9 @@ Environment=DEBUG=${DEBUG}
 Environment=CRUDMAN_PATH=${CRUDMAN_PATH}
 Environment=GRAFANA_PATH=${GRAFANA_PATH}
 Volume=%h/.config/${APP_NAME}/certs:/etc/nginx/proxy/certs:ro,z
-# Data volume; the entrypoint tees its output to /var/log/gefieder here so a crash
+# Data volume; the entrypoint tees its output to /var/log/app here so a crash
 # leaves a log on disk rather than only in the container's stdout.
-Volume=proxy_data.volume:/var/log/gefieder
+Volume=proxy_data.volume:/var/log/app
 HealthCmd=pgrep -x nginx
 HealthInterval=10s
 HealthTimeout=5s

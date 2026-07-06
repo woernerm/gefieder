@@ -223,9 +223,9 @@ podman run -d --pod "$POD" --name crudman --restart always \
   -e "CSRF_TRUSTED_ORIGINS=http://${HOST_ADDR}:${HTTP_PORT}" \
   -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 \
   -e POSTGRES_DB=postgres -e POSTGRES_USER=crudman \
-  -e UPLOADS_DIR=/var/lib/gefieder/uploads \
-  -v crudman_data:/var/log/gefieder \
-  -v uploads_data:/var/lib/gefieder/uploads \
+  -e UPLOADS_DIR=/var/lib/app/uploads \
+  -v crudman_data:/var/log/app \
+  -v uploads_data:/var/lib/app/uploads \
   --secret django_secret_key --secret crudman_password --secret superuser_password \
   "${REGISTRY}/crudman:${IMAGE_TAG}" >/dev/null
 
@@ -234,19 +234,19 @@ podman run -d --pod "$POD" --name crudman --restart always \
 podman run -d --pod "$POD" --name sftp --restart always \
   -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 \
   -e POSTGRES_DB=postgres -e POSTGRES_USER=crudman \
-  -e UPLOADS_DIR=/var/lib/gefieder/uploads \
-  -e SFTP_DIR=/var/lib/gefieder/sftp \
-  -v crudman_data:/var/log/gefieder \
-  -v uploads_data:/var/lib/gefieder/uploads \
-  -v sftp_data:/var/lib/gefieder/sftp \
+  -e UPLOADS_DIR=/var/lib/app/uploads \
+  -e SFTP_DIR=/var/lib/app/sftp \
+  -v crudman_data:/var/log/app \
+  -v uploads_data:/var/lib/app/uploads \
+  -v sftp_data:/var/lib/app/sftp \
   --secret django_secret_key --secret crudman_password \
   "${REGISTRY}/crudman:${IMAGE_TAG}" /crudman/entrypoint.sh sftp >/dev/null
 
 podman run -d --pod "$POD" --name sqlmesh --restart always \
   -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 -e POSTGRES_DB=postgres \
   -e SQLMESH_RUN_INTERVAL=10 \
-  -v sqlmesh_data:/var/log/gefieder \
-  -v uploads_data:/var/lib/gefieder/uploads:ro \
+  -v sqlmesh_data:/var/log/app \
+  -v uploads_data:/var/lib/app/uploads:ro \
   --secret sqlmesh_password \
   "${REGISTRY}/sqlmesh:${IMAGE_TAG}" >/dev/null
 
@@ -268,7 +268,7 @@ podman run -d --pod "$POD" --name proxy --restart always \
   -e DEBUG=true \
   -e "CRUDMAN_PATH=${CRUDMAN_PATH}" \
   -e "GRAFANA_PATH=${GRAFANA_PATH}" \
-  -v proxy_data:/var/log/gefieder \
+  -v proxy_data:/var/log/app \
   "${REGISTRY}/proxy:${IMAGE_TAG}" >/dev/null
 
 # --- background server-statistics sampling --------------------------------------------

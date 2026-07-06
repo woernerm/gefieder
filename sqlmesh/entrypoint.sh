@@ -5,15 +5,15 @@ set -e
 # still echoing to stdout, so "podman logs"/journald keep working and a crash also leaves
 # its cause on disk. Process substitution is a bashism unavailable in this dash /bin/sh,
 # so on first entry the script re-runs itself with stdout+stderr piped through tee -a
-# (which appends, so logs survive restarts); GEFIEDER_LOGGING guards against looping. A
+# (which appends, so logs survive restarts); ENTRYPOINT_LOGGING guards against looping. A
 # pipeline cannot be exec'd and its status would be tee's, so the real exit status is
 # captured via a status file and re-raised, keeping the container's exit code (and thus
 # Restart=) honest on a crash. The SIGTERM trap below still fires: it runs in the re-run
 # child, which is the foreground process here. The volume is owned by the podman user.
-LOG_DIR=/var/log/gefieder
-if [ -z "$GEFIEDER_LOGGING" ]; then
+LOG_DIR=/var/log/app
+if [ -z "$ENTRYPOINT_LOGGING" ]; then
   mkdir -p "$LOG_DIR"
-  export GEFIEDER_LOGGING=1
+  export ENTRYPOINT_LOGGING=1
   STATUS_FILE="$(mktemp)"
   # Prefix every line with an ISO-8601 timestamp before persisting it, so each line on
   # disk can be placed in time. This script's echoes and sqlmesh's plan/run output are
