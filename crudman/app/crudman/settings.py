@@ -14,6 +14,8 @@ import os
 import secrets
 from pathlib import Path
 
+from django.urls import Resolver404, resolve
+
 APP_NAME = os.environ.get("APP_NAME", "gefieder").capitalize()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -201,11 +203,27 @@ STORAGES = {
 }
 
 
+def _site_url(request):
+    """Target for Unfold's "Return to site" link, or None to hide it.
+
+    We currently serve no site root, so the default "/" would lead to a broken page.
+    Returning None hides the link; it re-enables itself once a root route exists,
+    because "/" then resolves. Unfold evaluates this per request.
+    """
+    try:
+        resolve("/")
+        return "/"
+    except Resolver404:
+        return None
+
+
 UNFOLD = {
     # Browser tab title
     "SITE_TITLE": f"{APP_NAME} Administration",
-    
+
     # Header text in the admin
     "SITE_HEADER": APP_NAME,
 
+    # The "Return to site" link, hidden until there is a site root to return to.
+    "SITE_URL": _site_url,
 }
