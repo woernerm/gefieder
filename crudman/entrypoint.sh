@@ -1,6 +1,16 @@
 #!/bin/sh
 set -e
 
+# The one crudman image serves two roles: the admin panel (the default) and the
+# dropzones SFTP endpoint ("sftp" argument, used by sftp.container). They share the
+# database wait and the logging preamble below; each writes its own persistent log.
+ROLE="${1:-web}"
+case "$ROLE" in
+  web)  LOG_FILE=crudman.log ;;
+  sftp) LOG_FILE=sftp.log ;;
+  *)    echo "unknown role: $ROLE" >&2; exit 1 ;;
+esac
+
 # Persist everything this script and the server print into the mounted log volume while
 # still echoing to stdout, so "podman logs"/journald keep working and a crash also leaves
 # its cause on disk. Process substitution is a bashism unavailable in this dash /bin/sh,
@@ -24,7 +34,7 @@ if [ -z "$GEFIEDER_LOGGING" ]; then
   { "$0" "$@"; echo $? > "$STATUS_FILE"; } 2>&1 \
     | while IFS= read -r line || [ -n "$line" ]; do
         printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$line"
-      done | tee -a "$LOG_DIR/crudman.log" || true
+      done | tee -a "$LOG_DIR/$LOG_FILE" || true
   status="$(cat "$STATUS_FILE" 2>/dev/null || echo 1)"; rm -f "$STATUS_FILE"
   exit "$status"
 fi
@@ -36,6 +46,16 @@ until uv run --project /crudman python manage.py shell -c \
   echo "Waiting for the database to become available..."
   sleep 2
 done
+
+# The SFTP endpoint only serves; the web role owns the migrations and the static
+# files, so wait here until it has applied the migrations rather than racing it.
+if [ "$ROLE" = "sftp" ]; then
+  until uv run --project /crudman python manage.py migrate --check >/dev/null 2>&1; do
+    echo "Waiting for crudman to apply the database migrations..."
+    sleep 2
+  done
+  exec uv run --project /crudman python manage.py sftpserver
+fi
 
 # Apply the committed database migrations before starting the application server.
 # Migrations are generated and committed during development, not authored here against

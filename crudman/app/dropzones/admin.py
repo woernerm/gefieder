@@ -1,4 +1,5 @@
 from django import forms
+from django.conf import settings
 from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
@@ -38,6 +39,26 @@ class DropzoneForm(forms.ModelForm):
         model = Dropzone
         fields = "__all__"
 
+    def clean(self):
+        cleaned = super().clean()
+        # An SFTP login has no unguessable URL token standing in for a credential, so
+        # a dropzone with the SFTP method needs its secret (the password) up front.
+        if cleaned.get("upload_method") == Dropzone.Method.SFTP and not cleaned.get(
+            "secret"
+        ):
+            self.add_error("secret", "The SFTP upload needs a secret as its password.")
+        # A time period needs its dates from the uploader, and only the browser upload
+        # has a form to enter them on.
+        if (
+            cleaned.get("default_validity") == Dropzone.Validity.PERIOD
+            and cleaned.get("upload_method") != Dropzone.Method.BROWSER
+        ):
+            self.add_error(
+                "default_validity",
+                "A given time period is only available for the browser upload.",
+            )
+        return cleaned
+
 
 @admin.register(Dropzone)
 class DropzoneAdmin(ModelAdmin):
@@ -61,9 +82,10 @@ class DropzoneAdmin(ModelAdmin):
         "file_format",
         "checker",
         "converter",
+        "default_validity",
         "require_login",
         "allowed_users",
-        "api_token",
+        "secret",
         "enabled",
         "upload_link",
     )
@@ -71,17 +93,27 @@ class DropzoneAdmin(ModelAdmin):
     @admin.display(description="secret upload link")
     def upload_link(self, obj):
         # What to hand to uploaders: the secret page for a browser dropzone, the POST
-        # endpoint (with a ready-to-run curl line) for an API dropzone. The token exists
-        # only once the row is saved.
+        # endpoint (with a ready-to-run curl line) for an API dropzone, the SFTP
+        # address (with a ready-to-run sftp line) for an SFTP dropzone. The token
+        # exists only once the row is saved.
         if obj is None or not obj.pk:
             return "Available after saving."
         if obj.upload_method == Dropzone.Method.API:
-            auth = ' -H "Authorization: Bearer <api_token>"' if obj.api_token else ""
+            auth = ' -H "Authorization: Bearer <secret>"' if obj.secret else ""
             return format_html(
                 '{}<br><code>curl{} -F files=@yourfile {}</code>',
                 obj.api_upload_url(),
                 auth,
                 obj.api_upload_url(),
+            )
+        if obj.upload_method == Dropzone.Method.SFTP:
+            return format_html(
+                "{}<br><code>sftp -P {} {}@{}</code>, then <code>put</code> the "
+                "file(s) and disconnect; the secret is the password.",
+                obj.sftp_address(),
+                settings.SFTP_PORT,
+                obj.name,
+                settings.SERVER_NAME,
             )
         return format_html('<a href="{}">{}</a>', obj.upload_path(), obj.upload_url())
 

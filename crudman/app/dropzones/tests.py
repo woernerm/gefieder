@@ -12,7 +12,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from . import registry, services
+from . import registry, services, sftp
 from .admin import DropzoneAdmin, DropzoneForm, UploadAdmin
 from .forms import UploadForm
 from .models import Dropzone, Upload, UploadFile, remove_upload_directory
@@ -141,21 +141,41 @@ class DropzoneModelTests(TestCase):
         boss = User.objects.create_superuser("boss")
         self.assertTrue(zone.user_may_upload(boss))
 
-    def test_api_token_open_when_no_login_required_and_no_token(self):
-        zone = Dropzone(require_login=False, api_token="")
-        self.assertTrue(zone.api_token_matches(""))
-        self.assertTrue(zone.api_token_matches("anything"))
+    def test_api_secret_open_when_no_login_required_and_no_secret(self):
+        zone = Dropzone(require_login=False, secret="")
+        self.assertTrue(zone.api_secret_matches(""))
+        self.assertTrue(zone.api_secret_matches("anything"))
 
-    def test_api_token_must_match_when_login_required(self):
-        zone = Dropzone(require_login=True, api_token="right")
-        self.assertTrue(zone.api_token_matches("right"))
-        self.assertFalse(zone.api_token_matches("wrong"))
-        self.assertFalse(zone.api_token_matches(""))
+    def test_api_secret_must_match_when_login_required(self):
+        zone = Dropzone(require_login=True, secret="right")
+        self.assertTrue(zone.api_secret_matches("right"))
+        self.assertFalse(zone.api_secret_matches("wrong"))
+        self.assertFalse(zone.api_secret_matches(""))
 
-    def test_api_token_fails_closed_when_login_required_but_unset(self):
-        zone = Dropzone(require_login=True, api_token="")
-        self.assertFalse(zone.api_token_matches(""))
-        self.assertFalse(zone.api_token_matches("anything"))
+    def test_api_secret_fails_closed_when_login_required_but_unset(self):
+        zone = Dropzone(require_login=True, secret="")
+        self.assertFalse(zone.api_secret_matches(""))
+        self.assertFalse(zone.api_secret_matches("anything"))
+
+    def test_sftp_secret_must_match(self):
+        zone = Dropzone(secret="right")
+        self.assertTrue(zone.sftp_secret_matches("right"))
+        self.assertFalse(zone.sftp_secret_matches("wrong"))
+        self.assertFalse(zone.sftp_secret_matches(""))
+
+    def test_sftp_secret_fails_closed_when_unset(self):
+        # Unlike the API there is no unguessable URL token, so an empty secret must
+        # never mean "open" — not even without a login requirement.
+        zone = Dropzone(require_login=False, secret="")
+        self.assertFalse(zone.sftp_secret_matches(""))
+        self.assertFalse(zone.sftp_secret_matches("anything"))
+
+    @override_settings(SERVER_NAME="reports.example.com", SFTP_PORT=2222)
+    def test_sftp_address_uses_name_and_port(self):
+        zone = Dropzone(name="bank-exports")
+        self.assertEqual(
+            zone.sftp_address(), "sftp://bank-exports@reports.example.com:2222"
+        )
 
     @override_settings(DEBUG=False, SERVER_NAME="reports.example.com")
     def test_api_upload_url_uses_https_and_server_name(self):
@@ -587,6 +607,11 @@ class UploadFormTests(SimpleTestCase):
         self.assertTrue(form.is_valid(), form.errors)
         self.assertLess(form.cleaned_data["valid_from"], form.cleaned_data["valid_until"])
 
+    def test_dropzone_default_validity_preselects_the_mode(self):
+        zone = Dropzone(default_validity=Dropzone.Validity.ALWAYS)
+        form = UploadForm(dropzone=zone)
+        self.assertEqual(form.fields["validity"].initial, Dropzone.Validity.ALWAYS)
+
     def test_multiple_files_clean_to_a_list(self):
         form = self.form({"validity": UploadForm.ALWAYS}, files=self.multi_file_data())
         self.assertTrue(form.is_valid(), form.errors)
@@ -751,7 +776,7 @@ class APIUploadTests(TempMediaMixin, TestCase):
             name="secured-api",
             upload_method=Dropzone.Method.API,
             require_login=True,
-            api_token="s3cret-token",
+            secret="s3cret-token",
         )
 
     def url(self, zone):
@@ -788,7 +813,7 @@ class APIUploadTests(TempMediaMixin, TestCase):
         self.assertEqual(Upload.objects.count(), 0)
 
     def test_login_required_without_a_token_configured_rejects_everyone(self):
-        # A misconfiguration (require_login but no api_token) must fail closed, not open.
+        # A misconfiguration (require_login but no secret) must fail closed, not open.
         zone = Dropzone.objects.create(
             name="misconfigured", upload_method=Dropzone.Method.API, require_login=True
         )
@@ -845,6 +870,31 @@ class APIUploadTests(TempMediaMixin, TestCase):
         self.post(self.open_zone, validity=UploadForm.ALWAYS)
         upload = Upload.objects.get()
         self.assertIsNone(upload.valid_from)
+        self.assertIsNone(upload.valid_until)
+
+    def test_dropzone_default_validity_applies_without_an_explicit_mode(self):
+        zone = Dropzone.objects.create(
+            name="always-api",
+            upload_method=Dropzone.Method.API,
+            require_login=False,
+            default_validity=Dropzone.Validity.ALWAYS,
+        )
+        self.post(zone)
+        upload = Upload.objects.get()
+        self.assertIsNone(upload.valid_from)
+        self.assertIsNone(upload.valid_until)
+
+    def test_an_explicit_mode_overrides_the_dropzone_default(self):
+        zone = Dropzone.objects.create(
+            name="always-api-overridden",
+            upload_method=Dropzone.Method.API,
+            require_login=False,
+            default_validity=Dropzone.Validity.ALWAYS,
+        )
+        before = timezone.now()
+        self.post(zone, validity=UploadForm.UNTIL_REPLACED)
+        upload = Upload.objects.get()
+        self.assertGreaterEqual(upload.valid_from, before)
         self.assertIsNone(upload.valid_until)
 
     def test_period_validity_parses_iso_dates(self):
@@ -942,6 +992,114 @@ class DownloadTests(TempMediaMixin, TestCase):
         self.assertNotContains(page, self.stored.file.name)
 
 
+class SftpTests(TempMediaMixin, TestCase):
+    """The database-facing pieces of the SFTP endpoint. The SSH plumbing itself
+    (login, chroot, disconnect handling) is exercised by the integration suite."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.zone = Dropzone.objects.create(
+            name="sftp-zone", upload_method=Dropzone.Method.SFTP, secret="pw"
+        )
+
+    def session_dir(self, files):
+        directory = Path(tempfile.mkdtemp(prefix="sftp-test-session"))
+        self.addCleanup(shutil.rmtree, directory, ignore_errors=True)
+        for name, content in files.items():
+            (directory / name).parent.mkdir(parents=True, exist_ok=True)
+            (directory / name).write_bytes(content)
+        return directory
+
+    def test_authenticate_returns_the_dropzone_for_valid_credentials(self):
+        self.assertEqual(sftp._authenticate("sftp-zone", "pw"), self.zone)
+
+    def test_authenticate_rejects_wrong_or_missing_credentials(self):
+        self.assertIsNone(sftp._authenticate("sftp-zone", "wrong"))
+        self.assertIsNone(sftp._authenticate("sftp-zone", ""))
+        self.assertIsNone(sftp._authenticate("unknown", "pw"))
+
+    def test_authenticate_rejects_non_sftp_and_disabled_dropzones(self):
+        Dropzone.objects.create(name="browser-zone", secret="pw")
+        self.assertIsNone(sftp._authenticate("browser-zone", "pw"))
+        self.zone.enabled = False
+        self.zone.save()
+        self.assertIsNone(sftp._authenticate("sftp-zone", "pw"))
+
+    def test_store_session_groups_all_files_into_one_upload(self):
+        directory = self.session_dir(
+            {"b.csv": b"3,4\n", "a.csv": b"1,2\n", "sub/c.csv": b"5,6\n"}
+        )
+        upload = sftp._store_session(self.zone.pk, directory)
+        self.assertEqual(Upload.objects.count(), 1)
+        self.assertEqual(
+            sorted(str(f) for f in upload.files.all()), ["a.csv", "b.csv", "c.csv"]
+        )
+        # The dropzone default "until replaced": concrete start, open end.
+        self.assertIsNotNone(upload.valid_from)
+        self.assertIsNone(upload.valid_until)
+
+    def test_store_session_applies_an_always_default_validity(self):
+        zone = Dropzone.objects.create(
+            name="always-sftp",
+            upload_method=Dropzone.Method.SFTP,
+            secret="pw",
+            default_validity=Dropzone.Validity.ALWAYS,
+        )
+        upload = sftp._store_session(zone.pk, self.session_dir({"a.csv": b"1\n"}))
+        self.assertIsNone(upload.valid_from)
+        self.assertIsNone(upload.valid_until)
+
+    def test_store_session_without_files_stores_nothing(self):
+        self.assertIsNone(sftp._store_session(self.zone.pk, self.session_dir({})))
+        self.assertEqual(Upload.objects.count(), 0)
+
+    def test_store_session_runs_the_checker(self):
+        def angry(files):
+            raise ValueError("Bad header row.")
+
+        zone = Dropzone.objects.create(
+            name="strict-sftp",
+            upload_method=Dropzone.Method.SFTP,
+            secret="pw",
+            checker="test_angry",
+        )
+        directory = self.session_dir({"a.csv": b"1\n"})
+        with patch.dict(registry._checkers, {"test_angry": angry}):
+            with self.assertRaisesMessage(UploadError, "Bad header row."):
+                sftp._store_session(zone.pk, directory)
+        self.assertEqual(Upload.objects.count(), 0)
+
+    def test_store_session_converts_csv_to_parquet(self):
+        # The example converter, end to end: the parquet files are stored under the
+        # source names, the uploaded CSVs themselves are not kept.
+        zone = Dropzone.objects.create(
+            name="parquet-sftp",
+            upload_method=Dropzone.Method.SFTP,
+            secret="pw",
+            converter="csv_to_parquet",
+        )
+        directory = self.session_dir({"a.csv": b"x,y\n1,2\n", "b.csv": b"x,y\n3,4\n"})
+        upload = sftp._store_session(zone.pk, directory)
+        self.assertEqual(
+            sorted(str(f) for f in upload.files.all()), ["a.parquet", "b.parquet"]
+        )
+
+    def test_store_session_is_all_or_nothing_on_rejection(self):
+        # The example checker rejects the empty file; the valid one of the same
+        # session must not be stored either.
+        zone = Dropzone.objects.create(
+            name="no-empties-sftp",
+            upload_method=Dropzone.Method.SFTP,
+            secret="pw",
+            checker="reject_empty_files",
+        )
+        directory = self.session_dir({"empty.csv": b"", "good.csv": b"x\n1\n"})
+        with self.assertRaisesMessage(UploadError, "empty"):
+            sftp._store_session(zone.pk, directory)
+        self.assertEqual(Upload.objects.count(), 0)
+        self.assertEqual(UploadFile.objects.count(), 0)
+
+
 class AdminTests(TempMediaMixin, TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -977,6 +1135,47 @@ class AdminTests(TempMediaMixin, TestCase):
             admin_instance.upload_link(None), "Available after saving."
         )
         self.assertIn(str(self.zone.token), admin_instance.upload_link(self.zone))
+
+    def test_upload_link_shows_the_sftp_address(self):
+        zone = Dropzone.objects.create(
+            name="sftp-zone", upload_method=Dropzone.Method.SFTP, secret="pw"
+        )
+        self.assertIn(
+            zone.sftp_address(), DropzoneAdmin(Dropzone, admin.site).upload_link(zone)
+        )
+
+    def dropzone_form(self, **overrides):
+        data = {
+            "name": "new-zone",
+            "description": "",
+            "upload_method": Dropzone.Method.SFTP,
+            "file_format": "",
+            "checker": "",
+            "converter": "",
+            "default_validity": Dropzone.Validity.UNTIL_REPLACED,
+            "secret": "pw",
+            "require_login": "on",
+            "enabled": "on",
+        }
+        data.update(overrides)
+        return DropzoneForm(data)
+
+    def test_an_sftp_dropzone_requires_a_secret(self):
+        # Without a secret the endpoint would accept no logins; the form catches the
+        # misconfiguration when the dropzone is created rather than at upload time.
+        complete = self.dropzone_form()
+        self.assertTrue(complete.is_valid(), complete.errors)
+        self.assertIn("secret", self.dropzone_form(secret="").errors)
+
+    def test_a_period_default_validity_needs_the_browser_upload(self):
+        form = self.dropzone_form(default_validity=Dropzone.Validity.PERIOD)
+        self.assertIn("default_validity", form.errors)
+        browser = self.dropzone_form(
+            upload_method=Dropzone.Method.BROWSER,
+            default_validity=Dropzone.Validity.PERIOD,
+            secret="",
+        )
+        self.assertTrue(browser.is_valid(), browser.errors)
 
     def test_upload_changelist_offers_a_delete_button_per_row(self):
         process_upload(self.zone, [upload_file()])

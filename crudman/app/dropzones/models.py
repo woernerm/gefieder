@@ -25,15 +25,20 @@ class Dropzone(models.Model):
     class Method(models.TextChoices):
         BROWSER = "browser", "Browser upload"
         API = "api", "API endpoint"
-        # Declared so dropzones can already be modelled for it; the SFTP channel itself
-        # is not implemented yet. It will feed the same pipeline (services.process_upload)
-        # the browser and API uploads use.
         SFTP = "sftp", "SFTP"
+
+    class Validity(models.TextChoices):
+        UNTIL_REPLACED = "until_replaced", "Valid from now on until replacement"
+        ALWAYS = "always", "Valid for past and future until replacement"
+        PERIOD = "period", "Valid for a given time period"
 
     name = models.CharField(
         max_length=100,
         unique=True,
-        help_text="Identifies the dropzone, also in analytics queries. e.g. bank-exports.",
+        help_text=(
+            "Identifies the dropzone, also in analytics queries and as the SFTP "
+            "login name. e.g. bank-exports."
+        ),
     )
     description = models.TextField(
         blank=True,
@@ -43,7 +48,7 @@ class Dropzone(models.Model):
         max_length=10,
         choices=Method.choices,
         default=Method.BROWSER,
-        help_text="How the files arrive. The browser and API uploads are implemented.",
+        help_text="How the files arrive.",
     )
     file_format = models.CharField(
         blank=True,
@@ -63,20 +68,34 @@ class Dropzone(models.Model):
         max_length=100,
         help_text="Function that transforms the uploaded files into the stored files.",
     )
+    default_validity = models.CharField(
+        max_length=20,
+        choices=Validity.choices,
+        default=Validity.UNTIL_REPLACED,
+        help_text=(
+            "Validity preselected on the browser upload page (the uploader may change "
+            "it there) and applied as-is to API uploads that send no validity and to "
+            "SFTP uploads. A given time period needs dates from the uploader, so it "
+            "is only available for the browser upload."
+        ),
+    )
     token = models.UUIDField(
         default=uuid.uuid4,
         unique=True,
         editable=False,
         help_text="Unguessable part of the upload URL.",
     )
-    api_token = models.CharField(
+    # One credential field serves both unattended methods because a dropzone has exactly
+    # one upload method: an API dropzone never needs an SFTP password and vice versa.
+    secret = models.CharField(
         blank=True,
         max_length=64,
         help_text=(
-            "Secret for the API endpoint, sent as an 'Authorization: Bearer <token>' "
-            "header. An unattended API client cannot log in through the browser, so "
-            "when this dropzone requires a login the token stands in for one; leave it "
-            "empty to keep the endpoint open (only sensible without a login requirement)."
+            "Secret an unattended client presents: the API endpoint expects it as an "
+            "'Authorization: Bearer <secret>' header, the SFTP upload uses it as the "
+            "login password. For the API it may stay empty to keep the endpoint open "
+            "(only sensible without a login requirement); an SFTP dropzone without a "
+            "secret accepts no logins."
         ),
     )
     require_login = models.BooleanField(
@@ -120,6 +139,10 @@ class Dropzone(models.Model):
         path = reverse("dropzones:api_upload", kwargs={"token": self.token})
         return f"{scheme}://{settings.SERVER_NAME}{path}"
 
+    def sftp_address(self):
+        """The SFTP address to hand to an uploader; the username is the dropzone name."""
+        return f"sftp://{self.name}@{settings.SERVER_NAME}:{settings.SFTP_PORT}"
+
     def user_may_upload(self, user):
         if not self.require_login:
             return True
@@ -129,20 +152,31 @@ class Dropzone(models.Model):
             return True
         return self.allowed_users.filter(pk=user.pk).exists()
 
-    def api_token_matches(self, presented):
-        """Whether ``presented`` is the right API token for this dropzone.
+    def api_secret_matches(self, presented):
+        """Whether ``presented`` authorizes an API upload to this dropzone.
 
         Without a login requirement the URL token alone authorizes the upload, so an
-        empty ``api_token`` accepts any client. With a login requirement a token must be
-        configured and match; an empty ``api_token`` then rejects every client rather
+        empty ``secret`` accepts any client. With a login requirement a secret must be
+        configured and match; an empty ``secret`` then rejects every client rather
         than silently opening the endpoint. Compared in constant time so the check does
-        not leak the token through its timing.
+        not leak the secret through its timing.
         """
-        if not self.require_login and not self.api_token:
+        if not self.require_login and not self.secret:
             return True
-        if not self.api_token or not presented:
+        if not self.secret or not presented:
             return False
-        return secrets.compare_digest(self.api_token, presented)
+        return secrets.compare_digest(self.secret, presented)
+
+    def sftp_secret_matches(self, presented):
+        """Whether ``presented`` is this dropzone's SFTP password (the secret).
+
+        Unlike the API endpoint an SFTP login carries no unguessable URL token — the
+        username is the dropzone's name — so an empty ``secret`` rejects every login
+        rather than opening the server. Compared in constant time, like the API check.
+        """
+        if not self.secret or not presented:
+            return False
+        return secrets.compare_digest(self.secret, presented)
 
 
 class UploadQuerySet(models.QuerySet):

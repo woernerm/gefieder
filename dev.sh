@@ -40,6 +40,8 @@ HTTP_PORT="${HTTP_PORT:-8080}"
 # Publish PostgreSQL on the host too, so a local psql or DB GUI can connect. The
 # in-pod port stays 5432; only the host port is exposed.
 PG_PORT="${PG_PORT:-5432}"
+# The dropzones SFTP endpoint, same host port as the deployment publishes.
+SFTP_PORT="${SFTP_PORT:-2222}"
 PG_USER="${SUPERUSER_NAME}"
 PG_DB="postgres"
 # Publish on the IPv4 loopback explicitly. On WSL "localhost" often resolves to ::1
@@ -181,7 +183,7 @@ printf '%s' "$SUPERUSER_DEFAULT_PASSWORD" | podman secret create superuser_passw
 # --- volumes --------------------------------------------------------------------------
 # Created up front so the rootless user owns their contents from the start (same reason as
 # install.sh), one per service matching the *.volume quadlets.
-for vol in postgresql_data grafana_data crudman_data sqlmesh_data proxy_data uploads_data; do
+for vol in postgresql_data grafana_data crudman_data sftp_data sqlmesh_data proxy_data uploads_data; do
   podman volume exists "$vol" || podman volume create "$vol" >/dev/null
 done
 
@@ -192,7 +194,8 @@ done
 podman pod rm -f "$POD" >/dev/null 2>&1 || true
 podman pod create --name "$POD" \
   --publish "${HOST_ADDR}:${HTTP_PORT}:80" \
-  --publish "${HOST_ADDR}:${PG_PORT}:5432" >/dev/null
+  --publish "${HOST_ADDR}:${PG_PORT}:5432" \
+  --publish "${HOST_ADDR}:${SFTP_PORT}:2222" >/dev/null
 
 # --- run the containers ---------------------------------------------------------------
 # Each `podman run` mirrors the matching *.container quadlet: same image, environment,
@@ -225,6 +228,19 @@ podman run -d --pod "$POD" --name crudman --restart always \
   -v uploads_data:/var/lib/gefieder/uploads \
   --secret django_secret_key --secret crudman_password --secret superuser_password \
   "${REGISTRY}/crudman:${IMAGE_TAG}" >/dev/null
+
+# The dropzones SFTP endpoint: the crudman image in its "sftp" role (same entrypoint,
+# sftp argument), sharing crudman's log volume and writing uploads like crudman does.
+podman run -d --pod "$POD" --name sftp --restart always \
+  -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 \
+  -e POSTGRES_DB=postgres -e POSTGRES_USER=crudman \
+  -e UPLOADS_DIR=/var/lib/gefieder/uploads \
+  -e SFTP_DIR=/var/lib/gefieder/sftp \
+  -v crudman_data:/var/log/gefieder \
+  -v uploads_data:/var/lib/gefieder/uploads \
+  -v sftp_data:/var/lib/gefieder/sftp \
+  --secret django_secret_key --secret crudman_password \
+  "${REGISTRY}/crudman:${IMAGE_TAG}" /crudman/entrypoint.sh sftp >/dev/null
 
 podman run -d --pod "$POD" --name sqlmesh --restart always \
   -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 -e POSTGRES_DB=postgres \
@@ -273,6 +289,9 @@ ${APP_NAME} is starting in development mode (plain HTTP, no certificate).
   PostgreSQL:   host=${HOST_ADDR} port=${PG_PORT} dbname=${PG_DB} user=${PG_USER}
                 (password = the superuser password, same as the admin login)
                 psql "host=${HOST_ADDR} port=${PG_PORT} dbname=${PG_DB} user=${PG_USER}"
+
+  SFTP:         port ${SFTP_PORT} for dropzones with the SFTP method
+                (each dropzone's admin page shows its address; the secret is the password)
 
   Follow logs:  ./dev.sh logs
   Stop:         ./dev.sh down

@@ -32,9 +32,10 @@ trap 'rm -rf "$WORK"' EXIT
 # The images built and saved by the workflow, and the unit files it ships. Keep these in
 # sync with the workflow's matrix and the quadlets/ directory.
 IMAGES="postgresql crudman sqlmesh proxy grafana"
-QUADLETS="main.pod postgresql.container crudman.container sqlmesh.container \
-  grafana.container proxy.container postgresql_data.volume grafana_data.volume \
-  crudman_data.volume sqlmesh_data.volume proxy_data.volume uploads_data.volume"
+QUADLETS="main.pod postgresql.container crudman.container sftp.container \
+  sqlmesh.container grafana.container proxy.container postgresql_data.volume \
+  grafana_data.volume crudman_data.volume sftp_data.volume sqlmesh_data.volume \
+  proxy_data.volume uploads_data.volume"
 
 # --- preflight: rootless podman needs a usable subuid/subgid range ---------------------
 command -v podman >/dev/null || { echo "podman is not installed." >&2; exit 1; }
@@ -100,7 +101,7 @@ fi
 # One data volume per service, matching the VolumeName= in the *.volume quadlets. The
 # crudman/sqlmesh/proxy volumes currently hold only the log the entrypoint tees, but are
 # general per-service data volumes.
-for vol in postgresql_data grafana_data crudman_data sqlmesh_data proxy_data uploads_data; do
+for vol in postgresql_data grafana_data crudman_data sftp_data sqlmesh_data proxy_data uploads_data; do
   podman volume exists "$vol" || podman volume create "$vol" >/dev/null
 done
 
@@ -168,10 +169,13 @@ Run a database backup now:
 
 Follow the combined live log of the whole system:
   journalctl --user -f -u 'main-pod.service' -u 'postgresql.service' \\
-    -u 'crudman.service' -u 'sqlmesh.service' -u 'grafana.service' -u 'proxy.service'
+    -u 'crudman.service' -u 'sftp.service' -u 'sqlmesh.service' \\
+    -u 'grafana.service' -u 'proxy.service'
 
 Follow the live log of a single component:
-  journalctl --user -f -u postgresql.service     # or crudman / sqlmesh / grafana / proxy
+  journalctl --user -f -u postgresql.service     # or crudman / sftp / sqlmesh / grafana / proxy
+
+Dropzone SFTP uploads connect to port 2222; each dropzone's admin page shows its address.
 
 Volume paths (cd into them to inspect data):
   postgresql: \$(podman volume inspect ${PG_VOL} -f '{{.Mountpoint}}')
@@ -197,6 +201,7 @@ View the persistent log of a component (survives a crash, unlike journald):
   cat \$(podman volume inspect ${PG_VOL} -f '{{.Mountpoint}}')/log/postgresql-*.log
   cat \$(podman volume inspect ${GF_VOL} -f '{{.Mountpoint}}')/log/grafana.log
   cat \$(podman volume inspect crudman_data -f '{{.Mountpoint}}')/crudman.log
+  cat \$(podman volume inspect crudman_data -f '{{.Mountpoint}}')/sftp.log
   cat \$(podman volume inspect sqlmesh_data -f '{{.Mountpoint}}')/sqlmesh.log
   cat \$(podman volume inspect proxy_data   -f '{{.Mountpoint}}')/proxy.log
 EOF

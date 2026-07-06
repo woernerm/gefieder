@@ -52,6 +52,7 @@ HTTP_PORT=18080
 HTTPS_PORT=18443
 GRAFANA_PORT=13000
 PG_PORT=15432
+SFTP_PORT=12222
 
 # The host-local cert directory the proxy quadlet mounts (same path a deployment uses).
 # It must exist even in dev mode, where the proxy mounts but does not read it.
@@ -122,13 +123,14 @@ PublishPort=${HTTP_PORT}:80
 PublishPort=${HTTPS_PORT}:443
 PublishPort=${PG_PORT}:5432
 PublishPort=${GRAFANA_PORT}:3000
+PublishPort=${SFTP_PORT}:2222
 
 [Install]
 WantedBy=default.target
 EOF
 
-UNITS="postgresql crudman sqlmesh grafana proxy"
-VOLUMES="postgresql_data grafana_data crudman_data sqlmesh_data proxy_data uploads_data"
+UNITS="postgresql crudman sftp sqlmesh grafana proxy"
+VOLUMES="postgresql_data grafana_data crudman_data sftp_data sqlmesh_data proxy_data uploads_data"
 
 # Install the server-statistics collector the way the release installer does, so the
 # suite exercises the real host-side sampler: render its units into the systemd user dir
@@ -173,6 +175,7 @@ export GEFIEDER_PROFILE="$PROFILE"
 export GEFIEDER_BASE_URL="$SCHEME://localhost:$APP_PORT"
 export GEFIEDER_HTTP_BASE_URL="http://localhost:$HTTP_PORT"
 export GEFIEDER_PG_PORT="$PG_PORT"
+export GEFIEDER_SFTP_PORT="$SFTP_PORT"
 export GEFIEDER_GRAFANA_PASSWORD="$GRAFANA_PASSWORD"
 export GEFIEDER_SUPERUSER_PASSWORD="$SUPERUSER_PASSWORD"
 export GEFIEDER_CRUDMAN_PASSWORD="$CRUDMAN_PASSWORD"

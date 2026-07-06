@@ -1,0 +1,44 @@
+# The dropzones SFTP endpoint, published by the pod on port 2222 (see main.pod).
+#
+# It runs the crudman image in its "sftp" role: a small SFTP server that authenticates
+# uploaders against the dropzones and feeds every cleanly finished session into the
+# same upload pipeline the browser and API uploads use. Ordering after crudman (plus
+# the entrypoint's own wait) makes sure the database migrations are applied first.
+# Notify=healthy marks the service started only once the port answers.
+[Unit]
+Description=Gefieder sftp (dropzones SFTP endpoint)
+After=crudman.service
+
+[Container]
+ContainerName=sftp
+Pod=main.pod
+Image=${REGISTRY}/crudman:${IMAGE_TAG}
+Exec=/crudman/entrypoint.sh sftp
+Notify=healthy
+Environment=APP_NAME=${APP_NAME}
+Environment=SERVER_NAME=${SERVER_NAME}
+Environment=DEBUG=${DEBUG}
+Environment=POSTGRES_HOST=localhost
+Environment=POSTGRES_PORT=5432
+Environment=POSTGRES_DB=postgres
+Environment=POSTGRES_USER=crudman
+# The log volume is crudman's: the endpoint is part of the same Django application,
+# so its sftp.log sits next to crudman.log. The host key lives on its own volume.
+Volume=crudman_data.volume:/var/log/gefieder
+Environment=UPLOADS_DIR=/var/lib/gefieder/uploads
+Volume=uploads_data.volume:/var/lib/gefieder/uploads
+Environment=SFTP_DIR=/var/lib/gefieder/sftp
+Volume=sftp_data.volume:/var/lib/gefieder/sftp
+Secret=django_secret_key
+Secret=crudman_password
+HealthCmd=python -c 'import socket; socket.create_connection(("127.0.0.1", 2222), 5).close()'
+HealthInterval=10s
+HealthTimeout=5s
+HealthRetries=10
+HealthStartPeriod=20s
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

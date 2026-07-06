@@ -91,16 +91,18 @@ def _bearer_token(request):
     return value.strip() if scheme.lower() == "bearer" else ""
 
 
-def _api_validity(post):
+def _api_validity(post, default):
     """Turn the API's validity fields into the ``(valid_from, valid_until)`` pair.
 
-    Mirrors ``UploadForm.clean``: ``validity`` is one of ``until_replaced`` (default,
-    starts now), ``always`` (both open) or ``period`` (optional ``valid_from`` /
-    ``valid_until`` as ISO 8601, empty start meaning now). Raises :class:`UploadError`
-    on an unknown mode, an unparseable date or an end that is not after the start, so
-    the API rejects bad input the same way the browser form does.
+    Mirrors ``UploadForm.clean``: ``validity`` is one of ``until_replaced`` (starts
+    now), ``always`` (both open) or ``period`` (optional ``valid_from`` /
+    ``valid_until`` as ISO 8601, empty start meaning now); a request that sends no
+    mode gets ``default``, the dropzone's default validity. Raises
+    :class:`UploadError` on an unknown mode, an unparseable date or an end that is
+    not after the start, so the API rejects bad input the same way the browser form
+    does.
     """
-    mode = post.get("validity", UploadForm.UNTIL_REPLACED)
+    mode = post.get("validity") or default
     if mode == UploadForm.ALWAYS:
         return None, None
     if mode == UploadForm.UNTIL_REPLACED:
@@ -145,11 +147,11 @@ def api_upload(request, token):
     )
     if request.method != "POST":
         return JsonResponse({"error": "Use POST to upload."}, status=405)
-    if not dropzone.api_token_matches(_bearer_token(request)):
+    if not dropzone.api_secret_matches(_bearer_token(request)):
         return JsonResponse({"error": "Invalid or missing API token."}, status=401)
     files = request.FILES.getlist("files")
     try:
-        valid_from, valid_until = _api_validity(request.POST)
+        valid_from, valid_until = _api_validity(request.POST, dropzone.default_validity)
         # API uploads carry no user, like a secret-link browser upload.
         upload = process_upload(
             dropzone, files, valid_from=valid_from, valid_until=valid_until

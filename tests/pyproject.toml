@@ -6,6 +6,7 @@ requires-python = ">=3.13"
 dependencies = [
     "pytest",
     "httpx",
+    "paramiko",
     "psycopg2-binary",
 ]
 

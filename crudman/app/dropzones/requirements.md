@@ -8,10 +8,16 @@ from other systems, files agreed upon with their producers.
 # Models
 - There shall be a model `Dropzone`. It defines the purpose of a set of files, the
   expected file format, who may upload (by user or by secret URL) and by what method
-  (browser upload, POST to an API endpoint, sftp — the browser upload and the API
-  endpoint are implemented; sftp must feed the same pipeline later).
+  (browser upload, POST to an API endpoint, SFTP — all three feed the same pipeline).
 - Every dropzone has an unguessable token that forms its upload URL, so a secret link
   can be handed to someone without creating an account.
+- A dropzone has exactly one upload method, so one `secret` field serves as the machine
+  credential of whichever method needs one: the Bearer token of an API dropzone or the
+  SFTP password of an SFTP dropzone.
+- A dropzone carries a `default_validity`: preselected on the browser upload page,
+  applied to API uploads that send no validity and to SFTP uploads (which cannot send
+  one). "Valid for a given time period" needs dates from the uploader, so it is only
+  allowed as default for browser dropzones.
 - There shall be a model `Upload` keeping the metadata of each upload: upload time,
   uploading user (empty for secret-link uploads), validity start and end date, the
   directory of the stored files (relative to the uploads volume, using the dropzone's
@@ -55,11 +61,35 @@ from other systems, files agreed upon with their producers.
 - Dropzones with the API method take a `multipart/form-data` POST at
   `api/<token>/` (alongside the browser page, below CRUDMAN_PATH). The files travel
   under the `files` field; the optional `validity`, `valid_from` and `valid_until`
-  fields mean exactly what they do on the browser form. Success returns 201 with the
+  fields mean exactly what they do on the browser form, and a POST without a
+  `validity` gets the dropzone's default validity. Success returns 201 with the
   upload id, file count and hash as JSON; a rejected upload returns 400 with the
   checker/converter message. Disabled dropzones and non-API methods answer 404.
 - Authentication: an unattended client cannot hold a session, so the dropzone's
-  `api_token` (an `Authorization: Bearer` header) stands in for a login. A dropzone
-  that requires a login must have a token set and matched; without a login requirement
-  an empty token leaves the endpoint open to anyone holding the secret URL. API uploads
-  are recorded with no user, like a secret-link browser upload.
+  `secret` (an `Authorization: Bearer` header) stands in for a login. A dropzone
+  that requires a login must have a secret set and matched; without a login requirement
+  an empty secret leaves the endpoint open to anyone holding the secret URL. API
+  uploads are recorded with no user, like a secret-link browser upload.
+
+# SFTP upload
+- Dropzones with the SFTP method are served by an SFTP server Gefieder runs itself
+  (`manage.py sftpserver` in `dropzones/sftp.py`, run by the `sftp` container and
+  published on port 2222). Owning the server is what keeps the uploader's side free of
+  conventions: no marker files, no manifest, no rename dance — connect, `put` one or
+  more files with any SFTP/scp client, disconnect.
+- Authentication: username = the dropzone's name, password = its secret. An SFTP
+  dropzone must have a secret (there is no unguessable URL standing in for one), so an
+  empty secret rejects every login and the admin form requires one. Disabled and
+  non-SFTP dropzones reject logins exactly like unknown names.
+- One cleanly disconnected session becomes one upload: every file the client put runs
+  through the same pipeline (checker, converter, hash, validity clipping) as one set,
+  preserving the multi-file contract of the other methods. A session that ends in a
+  connection error stores nothing, like an aborted POST — the uploader's client shows
+  the failure and they retry. A checker/converter rejection after the disconnect can
+  only be logged (visible in sftp.log), not shown to the uploader.
+- Every session is chrooted into its own throwaway directory: uploaders see only their
+  own running session, never stored uploads or other dropzones' data.
+- The validity is the dropzone's default validity ("until replaced" or "always"; SFTP
+  cannot carry dates).
+- The server's ed25519 host key is generated on first start and kept on the sftp
+  volume, so the server identity survives restarts and updates.

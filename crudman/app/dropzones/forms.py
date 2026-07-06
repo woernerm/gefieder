@@ -1,6 +1,8 @@
 from django import forms
 from django.utils import timezone
 
+from .models import Dropzone
+
 
 class MultipleFileInput(forms.ClearableFileInput):
     # Opting in to multiple selection this way is the documented Django pattern
@@ -26,18 +28,15 @@ class MultipleFileField(forms.FileField):
 class UploadForm(forms.Form):
     """The upload form: the files plus one validity period for the whole set."""
 
-    ALWAYS = "always"
-    UNTIL_REPLACED = "until_replaced"
-    PERIOD = "period"
-    VALIDITY_CHOICES = [
-        (UNTIL_REPLACED, "Valid from now on until replacement"),
-        (ALWAYS, "Valid for past and future until replacement"),
-        (PERIOD, "Valid for a given time period"),
-    ]
+    # The modes live on the model (they are also a dropzone's default validity); the
+    # aliases keep the form self-describing and the API view working on form terms.
+    ALWAYS = Dropzone.Validity.ALWAYS
+    UNTIL_REPLACED = Dropzone.Validity.UNTIL_REPLACED
+    PERIOD = Dropzone.Validity.PERIOD
 
     files = MultipleFileField(label="Files")
     validity = forms.ChoiceField(
-        choices=VALIDITY_CHOICES,
+        choices=Dropzone.Validity.choices,
         initial=UNTIL_REPLACED,
         widget=forms.RadioSelect,
         label="Validity of the files",
@@ -55,6 +54,10 @@ class UploadForm(forms.Form):
 
     def __init__(self, *args, dropzone=None, **kwargs):
         super().__init__(*args, **kwargs)
+        # The dropzone's default validity is preselected; the uploader may still
+        # choose another mode.
+        if dropzone:
+            self.fields["validity"].initial = dropzone.default_validity
         # Preselect matching files in the browser's file dialog when the dropzone
         # declares an accept list like ".csv,.xlsx". A prose format ("Excel files") is
         # not a valid accept value and would filter everything out, so it is skipped.

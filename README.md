@@ -113,10 +113,12 @@ builds through `build.sh`, so CI and a developer build identically.
 
 ## The containers
 The system is a single pod (named after `APP_NAME`, `gefieder` by default; the pod file
-is `main.pod`, so the systemd unit is `main-pod.service`) of five containers:
+is `main.pod`, so the systemd unit is `main-pod.service`) of six containers:
 
 - `postgresql` — the database holding the engineering, analytics and application data
 - `crudman` — the Django administration panel, reachable through the proxy
+- `sftp` — the SFTP endpoint for dropzone uploads (the crudman image in a second role),
+  published on port 2222
 - `sqlmesh` — the SQLMesh analytics engine, running models on their cron schedules
 - `grafana` — the Grafana dashboards, with the database pre-configured as a read-only
   data source
@@ -197,6 +199,8 @@ user owns their contents):
 - `grafana_data` — the Grafana dashboards, users and settings
 - `uploads_data` — the files uploaded through dropzones (see
   [Uploading files](#uploading-files-with-dropzones))
+- `sftp_data` — the host key of the SFTP upload endpoint, so uploaders' SFTP clients
+  keep trusting the server across updates
 - `crudman_data`, `sqlmesh_data`, `proxy_data` — currently the persistent logs of each
   service (see [Logs](#logs))
 
@@ -209,9 +213,10 @@ Every service keeps a persistent log on its volume, so a crash leaves its cause 
 
 - `postgresql` and `grafana` are configured to log into a `log/` subdirectory of their
   data volume.
-- `crudman`, `sqlmesh` and `proxy` tee their entrypoint output to a log file on their
-  data volume; those files are owned by the rootless podman user, so you can read them
-  without `podman unshare`.
+- `crudman`, `sftp`, `sqlmesh` and `proxy` tee their entrypoint output to a log file on
+  their data volume (the SFTP endpoint is part of the crudman application, so its
+  `sftp.log` sits next to `crudman.log`); those files are owned by the rootless podman
+  user, so you can read them without `podman unshare`.
 
 Follow the live logs through journald, or read the persistent files from the volumes:
 
@@ -263,8 +268,17 @@ uploader sees the reason immediately and can fix the files and try again.
 Every dropzone has a secret upload link, shown on its admin page. Hand it to the person
 providing the files: they get a simple page where they drop one or more files and state
 how long the set is valid — always, until they replace it with a new upload, or for a
-fixed period. When a replacement arrives, the previous upload's validity is shortened
-to end where the new one begins.
+fixed period (the dropzone's default validity is preselected). When a replacement
+arrives, the previous upload's validity is shortened to end where the new one begins.
+
+Files can also arrive without a person at a browser. A dropzone with the *API endpoint*
+method takes a plain HTTP POST (the admin page shows a ready-to-run `curl` line), and
+one with the *SFTP* method takes uploads from any SFTP or scp client on port 2222 —
+handy for other systems that can only "drop files somewhere". SFTP uploaders log in
+with the dropzone's name and secret, put one or more files and disconnect; that's the
+whole protocol. Everything sent in one session is stored as one upload with the
+dropzone's default validity, an interrupted transfer stores nothing, and uploaders
+only ever see their own session — never each other's files.
 
 Each upload is recorded in the `crudman.dropzones_upload` table together with its file
 paths, and the files land on the `uploads_data` volume, which the analytics engine sees

@@ -194,6 +194,13 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 # UPLOADS_DIR (local development, unit tests) a directory next to the app is used.
 MEDIA_ROOT = Path(os.environ.get('UPLOADS_DIR', BASE_DIR / 'media'))
 
+# The dropzones SFTP endpoint (manage.py sftpserver, run by the sftp container).
+# SFTP_DIR holds its generated host key; in the deployment it is the sftp volume.
+# SFTP_PORT is both the port the server listens on and the port the admin shows in a
+# dropzone's SFTP address, so it must match the port the pod publishes (main.pod).
+SFTP_DIR = Path(os.environ.get('SFTP_DIR', BASE_DIR / 'sftp'))
+SFTP_PORT = int(os.environ.get('SFTP_PORT', '2222'))
+
 STORAGES = {
     'default': {
         'BACKEND': 'django.core.files.storage.FileSystemStorage',
