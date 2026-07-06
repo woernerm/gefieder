@@ -6,5 +6,6 @@ app_name = "dropzones"
 
 urlpatterns = [
     path("<uuid:token>/", views.upload, name="upload"),
+    path("api/<uuid:token>/", views.api_upload, name="api_upload"),
     path("files/<int:pk>/download/", views.download, name="download"),
 ]

@@ -141,6 +141,30 @@ class DropzoneModelTests(TestCase):
         boss = User.objects.create_superuser("boss")
         self.assertTrue(zone.user_may_upload(boss))
 
+    def test_api_token_open_when_no_login_required_and_no_token(self):
+        zone = Dropzone(require_login=False, api_token="")
+        self.assertTrue(zone.api_token_matches(""))
+        self.assertTrue(zone.api_token_matches("anything"))
+
+    def test_api_token_must_match_when_login_required(self):
+        zone = Dropzone(require_login=True, api_token="right")
+        self.assertTrue(zone.api_token_matches("right"))
+        self.assertFalse(zone.api_token_matches("wrong"))
+        self.assertFalse(zone.api_token_matches(""))
+
+    def test_api_token_fails_closed_when_login_required_but_unset(self):
+        zone = Dropzone(require_login=True, api_token="")
+        self.assertFalse(zone.api_token_matches(""))
+        self.assertFalse(zone.api_token_matches("anything"))
+
+    @override_settings(DEBUG=False, SERVER_NAME="reports.example.com")
+    def test_api_upload_url_uses_https_and_server_name(self):
+        zone = Dropzone.objects.create(name="api-zone")
+        self.assertTrue(
+            zone.api_upload_url().startswith("https://reports.example.com/")
+        )
+        self.assertIn(str(zone.token), zone.api_upload_url())
+
 
 class UploadModelTests(TestCase):
     @classmethod
@@ -712,6 +736,149 @@ class UploadViewTests(TempMediaMixin, TestCase):
             'dark:text-font-important-dark">open-zone</span>',
             html=True,
         )
+
+
+class APIUploadTests(TempMediaMixin, TestCase):
+    """The POST endpoint an unattended client uses; feeds the same pipeline as the
+    browser upload but authenticates with a bearer token instead of a session."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.open_zone = Dropzone.objects.create(
+            name="open-api", upload_method=Dropzone.Method.API, require_login=False
+        )
+        cls.secured_zone = Dropzone.objects.create(
+            name="secured-api",
+            upload_method=Dropzone.Method.API,
+            require_login=True,
+            api_token="s3cret-token",
+        )
+
+    def url(self, zone):
+        return reverse("dropzones:api_upload", kwargs={"token": zone.token})
+
+    def post(self, zone, token=None, files=None, **data):
+        headers = {"HTTP_AUTHORIZATION": f"Bearer {token}"} if token else {}
+        payload = {"files": files if files is not None else upload_file(), **data}
+        return self.client.post(self.url(zone), payload, **headers)
+
+    def test_open_dropzone_accepts_without_a_token(self):
+        response = self.post(self.open_zone, files=[upload_file("a.csv"), upload_file("b.csv")])
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+        upload = Upload.objects.get()
+        self.assertEqual(body["upload_id"], upload.pk)
+        self.assertEqual(body["files"], 2)
+        self.assertEqual(body["sha256"], upload.sha256)
+        self.assertIsNone(upload.uploaded_by)
+
+    def test_secured_dropzone_accepts_the_matching_token(self):
+        response = self.post(self.secured_zone, token="s3cret-token")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Upload.objects.count(), 1)
+
+    def test_secured_dropzone_rejects_a_wrong_token(self):
+        response = self.post(self.secured_zone, token="wrong")
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(Upload.objects.count(), 0)
+
+    def test_secured_dropzone_rejects_a_missing_token(self):
+        response = self.post(self.secured_zone)
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(Upload.objects.count(), 0)
+
+    def test_login_required_without_a_token_configured_rejects_everyone(self):
+        # A misconfiguration (require_login but no api_token) must fail closed, not open.
+        zone = Dropzone.objects.create(
+            name="misconfigured", upload_method=Dropzone.Method.API, require_login=True
+        )
+        self.assertEqual(self.post(zone).status_code, 401)
+        self.assertEqual(self.post(zone, token="anything").status_code, 401)
+
+    def test_unknown_token_is_404(self):
+        import uuid
+
+        url = reverse("dropzones:api_upload", kwargs={"token": uuid.uuid4()})
+        self.assertEqual(self.client.post(url).status_code, 404)
+
+    def test_disabled_dropzone_is_404(self):
+        self.open_zone.enabled = False
+        self.open_zone.save()
+        self.assertEqual(self.post(self.open_zone).status_code, 404)
+
+    def test_browser_dropzone_is_404_on_the_api_endpoint(self):
+        # The browser and API routes both key on the token but are separate methods.
+        zone = Dropzone.objects.create(name="browser-only", require_login=False)
+        self.assertEqual(self.post(zone).status_code, 404)
+
+    def test_get_is_rejected(self):
+        self.assertEqual(self.client.get(self.url(self.open_zone)).status_code, 405)
+
+    def test_no_files_is_a_400(self):
+        response = self.post(self.open_zone, files=[])
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("no files", response.json()["error"])
+        self.assertEqual(Upload.objects.count(), 0)
+
+    def test_checker_rejection_is_a_400_with_the_message(self):
+        def angry(files):
+            raise ValueError("Bad header row.")
+
+        zone = Dropzone.objects.create(
+            name="strict-api", upload_method=Dropzone.Method.API, require_login=False,
+            checker="test_angry",
+        )
+        with patch.dict(registry._checkers, {"test_angry": angry}):
+            response = self.post(zone)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "Bad header row.")
+        self.assertEqual(Upload.objects.count(), 0)
+
+    def test_default_validity_is_until_replaced(self):
+        before = timezone.now()
+        self.post(self.open_zone)
+        upload = Upload.objects.get()
+        self.assertGreaterEqual(upload.valid_from, before)
+        self.assertIsNone(upload.valid_until)
+
+    def test_always_validity_leaves_both_bounds_open(self):
+        self.post(self.open_zone, validity=UploadForm.ALWAYS)
+        upload = Upload.objects.get()
+        self.assertIsNone(upload.valid_from)
+        self.assertIsNone(upload.valid_until)
+
+    def test_period_validity_parses_iso_dates(self):
+        self.post(
+            self.open_zone,
+            validity=UploadForm.PERIOD,
+            valid_from="2026-07-01T08:00:00",
+            valid_until="2026-07-31T08:00:00",
+        )
+        upload = Upload.objects.get()
+        self.assertEqual(upload.valid_from.year, 2026)
+        self.assertEqual(upload.valid_until.day, 31)
+
+    def test_period_end_before_start_is_a_400(self):
+        response = self.post(
+            self.open_zone,
+            validity=UploadForm.PERIOD,
+            valid_from="2026-07-02T08:00:00",
+            valid_until="2026-07-01T08:00:00",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Upload.objects.count(), 0)
+
+    def test_unparseable_date_is_a_400(self):
+        response = self.post(
+            self.open_zone, validity=UploadForm.PERIOD, valid_from="not-a-date"
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Upload.objects.count(), 0)
+
+    def test_unknown_validity_mode_is_a_400(self):
+        response = self.post(self.open_zone, validity="whenever")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Upload.objects.count(), 0)
 
 
 class DownloadTests(TempMediaMixin, TestCase):

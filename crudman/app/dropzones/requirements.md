@@ -8,8 +8,8 @@ from other systems, files agreed upon with their producers.
 # Models
 - There shall be a model `Dropzone`. It defines the purpose of a set of files, the
   expected file format, who may upload (by user or by secret URL) and by what method
-  (browser upload, POST to an API endpoint, sftp — only the browser upload is
-  implemented; the other methods must feed the same pipeline later).
+  (browser upload, POST to an API endpoint, sftp — the browser upload and the API
+  endpoint are implemented; sftp must feed the same pipeline later).
 - Every dropzone has an unguessable token that forms its upload URL, so a secret link
   can be handed to someone without creating an account.
 - There shall be a model `Upload` keeping the metadata of each upload: upload time,
@@ -50,3 +50,16 @@ from other systems, files agreed upon with their producers.
   route. Disabled dropzones and non-browser methods answer 404 like unknown tokens.
 - Access: without `require_login`, anyone with the link may upload; with it, any
   logged-in user, or only the listed users if some are listed (superusers always).
+
+# API upload
+- Dropzones with the API method take a `multipart/form-data` POST at
+  `api/<token>/` (alongside the browser page, below CRUDMAN_PATH). The files travel
+  under the `files` field; the optional `validity`, `valid_from` and `valid_until`
+  fields mean exactly what they do on the browser form. Success returns 201 with the
+  upload id, file count and hash as JSON; a rejected upload returns 400 with the
+  checker/converter message. Disabled dropzones and non-API methods answer 404.
+- Authentication: an unattended client cannot hold a session, so the dropzone's
+  `api_token` (an `Authorization: Bearer` header) stands in for a login. A dropzone
+  that requires a login must have a token set and matched; without a login requirement
+  an empty token leaves the endpoint open to anyone holding the secret URL. API uploads
+  are recorded with no user, like a secret-link browser upload.

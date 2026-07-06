@@ -63,15 +63,26 @@ class DropzoneAdmin(ModelAdmin):
         "converter",
         "require_login",
         "allowed_users",
+        "api_token",
         "enabled",
         "upload_link",
     )
 
     @admin.display(description="secret upload link")
     def upload_link(self, obj):
-        # The link to hand to uploaders. The token exists only once the row is saved.
+        # What to hand to uploaders: the secret page for a browser dropzone, the POST
+        # endpoint (with a ready-to-run curl line) for an API dropzone. The token exists
+        # only once the row is saved.
         if obj is None or not obj.pk:
             return "Available after saving."
+        if obj.upload_method == Dropzone.Method.API:
+            auth = ' -H "Authorization: Bearer <api_token>"' if obj.api_token else ""
+            return format_html(
+                '{}<br><code>curl{} -F files=@yourfile {}</code>',
+                obj.api_upload_url(),
+                auth,
+                obj.api_upload_url(),
+            )
         return format_html('<a href="{}">{}</a>', obj.upload_path(), obj.upload_url())
 
 

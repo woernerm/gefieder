@@ -1,5 +1,12 @@
 # Instructions for Gefieder
 
+# General
+- You are running in a Ubuntu WSL. Podman 5.x is installed and configured to run 
+  rootless.
+- When executing you final tests, you can always use run-tests.sh to run the integration 
+  tests. It will start a local podman registry, build the images, start the services and 
+  run the tests. Do not skip that step if you changed code (apart from comments only).
+
 ## Purpose
 - The repository is named "Gefieder".
 - The repository is a template for data analytics systems. The included software 

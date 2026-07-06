@@ -4,9 +4,12 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied
-from django.http import FileResponse, Http404
+from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+from django.views.decorators.csrf import csrf_exempt
 
 from .forms import UploadForm
 from .models import Dropzone, UploadFile
@@ -78,4 +81,88 @@ def download(request, pk):
         raise Http404("The stored file is missing from the uploads volume.")
     return FileResponse(
         handle, as_attachment=True, filename=Path(stored.file.name).name
+    )
+
+
+def _bearer_token(request):
+    """The token from an ``Authorization: Bearer <token>`` header, or an empty string."""
+    header = request.headers.get("Authorization", "")
+    scheme, _, value = header.partition(" ")
+    return value.strip() if scheme.lower() == "bearer" else ""
+
+
+def _api_validity(post):
+    """Turn the API's validity fields into the ``(valid_from, valid_until)`` pair.
+
+    Mirrors ``UploadForm.clean``: ``validity`` is one of ``until_replaced`` (default,
+    starts now), ``always`` (both open) or ``period`` (optional ``valid_from`` /
+    ``valid_until`` as ISO 8601, empty start meaning now). Raises :class:`UploadError`
+    on an unknown mode, an unparseable date or an end that is not after the start, so
+    the API rejects bad input the same way the browser form does.
+    """
+    mode = post.get("validity", UploadForm.UNTIL_REPLACED)
+    if mode == UploadForm.ALWAYS:
+        return None, None
+    if mode == UploadForm.UNTIL_REPLACED:
+        return timezone.now(), None
+    if mode != UploadForm.PERIOD:
+        raise UploadError(f"Unknown validity '{mode}'.")
+
+    def parse(field):
+        raw = post.get(field, "").strip()
+        if not raw:
+            return None
+        value = parse_datetime(raw)
+        if value is None:
+            raise UploadError(f"'{field}' is not a valid ISO 8601 date-time.")
+        # A naive value is read in the server's timezone, as the browser form does.
+        return value if timezone.is_aware(value) else timezone.make_aware(value)
+
+    start = parse("valid_from") or timezone.now()
+    end = parse("valid_until")
+    if end and end <= start:
+        raise UploadError("'valid_until' must be after 'valid_from'.")
+    return start, end
+
+
+@csrf_exempt
+def api_upload(request, token):
+    """Accept an upload over HTTP POST for a dropzone whose method is the API endpoint.
+
+    The URL carries the same secret token as the browser link; the API token (if the
+    dropzone requires a login) travels in an ``Authorization: Bearer`` header, because
+    an unattended client cannot hold a session. The multipart body carries the files
+    under ``files`` and the optional ``validity`` / ``valid_from`` / ``valid_until``
+    fields; on success the files run through the very same pipeline as a browser upload.
+
+    A disabled dropzone or one whose method is not the API answers 404, exactly like an
+    unknown token, so the endpoint never reveals whether a link exists. CSRF is exempt
+    because the caller is a script authenticated by a bearer token, not a browser
+    carrying cookies.
+    """
+    dropzone = get_object_or_404(
+        Dropzone, token=token, enabled=True, upload_method=Dropzone.Method.API
+    )
+    if request.method != "POST":
+        return JsonResponse({"error": "Use POST to upload."}, status=405)
+    if not dropzone.api_token_matches(_bearer_token(request)):
+        return JsonResponse({"error": "Invalid or missing API token."}, status=401)
+    files = request.FILES.getlist("files")
+    try:
+        valid_from, valid_until = _api_validity(request.POST)
+        # API uploads carry no user, like a secret-link browser upload.
+        upload = process_upload(
+            dropzone, files, valid_from=valid_from, valid_until=valid_until
+        )
+    except UploadError as error:
+        return JsonResponse({"error": str(error)}, status=400)
+    return JsonResponse(
+        {
+            "upload_id": upload.pk,
+            "files": upload.files.count(),
+            "sha256": upload.sha256,
+            "valid_from": upload.valid_from,
+            "valid_until": upload.valid_until,
+        },
+        status=201,
     )

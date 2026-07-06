@@ -1,3 +1,4 @@
+import secrets
 import shutil
 import uuid
 from pathlib import Path
@@ -23,10 +24,10 @@ class Dropzone(models.Model):
 
     class Method(models.TextChoices):
         BROWSER = "browser", "Browser upload"
-        # Declared so dropzones can already be modelled for them; the upload channels
-        # themselves are not implemented yet. Both will feed the same pipeline
-        # (services.process_upload) the browser upload uses.
         API = "api", "API endpoint"
+        # Declared so dropzones can already be modelled for it; the SFTP channel itself
+        # is not implemented yet. It will feed the same pipeline (services.process_upload)
+        # the browser and API uploads use.
         SFTP = "sftp", "SFTP"
 
     name = models.CharField(
@@ -42,7 +43,7 @@ class Dropzone(models.Model):
         max_length=10,
         choices=Method.choices,
         default=Method.BROWSER,
-        help_text="How the files arrive. Only the browser upload is implemented yet.",
+        help_text="How the files arrive. The browser and API uploads are implemented.",
     )
     file_format = models.CharField(
         blank=True,
@@ -67,6 +68,16 @@ class Dropzone(models.Model):
         unique=True,
         editable=False,
         help_text="Unguessable part of the upload URL.",
+    )
+    api_token = models.CharField(
+        blank=True,
+        max_length=64,
+        help_text=(
+            "Secret for the API endpoint, sent as an 'Authorization: Bearer <token>' "
+            "header. An unattended API client cannot log in through the browser, so "
+            "when this dropzone requires a login the token stands in for one; leave it "
+            "empty to keep the endpoint open (only sensible without a login requirement)."
+        ),
     )
     require_login = models.BooleanField(
         default=True,
@@ -103,6 +114,12 @@ class Dropzone(models.Model):
         scheme = "http" if settings.DEBUG else "https"
         return f"{scheme}://{settings.SERVER_NAME}{self.upload_path()}"
 
+    def api_upload_url(self):
+        """The full URL of the API endpoint, for the POST that uploads files."""
+        scheme = "http" if settings.DEBUG else "https"
+        path = reverse("dropzones:api_upload", kwargs={"token": self.token})
+        return f"{scheme}://{settings.SERVER_NAME}{path}"
+
     def user_may_upload(self, user):
         if not self.require_login:
             return True
@@ -111,6 +128,21 @@ class Dropzone(models.Model):
         if user.is_superuser or not self.allowed_users.exists():
             return True
         return self.allowed_users.filter(pk=user.pk).exists()
+
+    def api_token_matches(self, presented):
+        """Whether ``presented`` is the right API token for this dropzone.
+
+        Without a login requirement the URL token alone authorizes the upload, so an
+        empty ``api_token`` accepts any client. With a login requirement a token must be
+        configured and match; an empty ``api_token`` then rejects every client rather
+        than silently opening the endpoint. Compared in constant time so the check does
+        not leak the token through its timing.
+        """
+        if not self.require_login and not self.api_token:
+            return True
+        if not self.api_token or not presented:
+            return False
+        return secrets.compare_digest(self.api_token, presented)
 
 
 class UploadQuerySet(models.QuerySet):
