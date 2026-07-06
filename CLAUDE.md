@@ -131,6 +131,8 @@
   explainations. Don't fall into technical verbosity.
 - The `Readme.md` should be focused on the perspective of someone using the Gefieder
   system as a productive system, not as someone developing Gefieder itself.
+- Use the type annotations that are considered best practice for the python version used 
+  in the respective docker containers.
 
 # Example Tenants
 - There are three example tenants "Project A", "Project B" and "Project C"
