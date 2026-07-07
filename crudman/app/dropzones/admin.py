@@ -93,7 +93,8 @@ class DropzoneAdmin(ModelAdmin):
     @admin.display(description="secret upload link")
     def upload_link(self, obj):
         # What to hand to uploaders: the secret page for a browser dropzone, the POST
-        # endpoint (with a ready-to-run curl line) for an API dropzone, the SFTP
+        # endpoint (with a ready-to-run curl line) for an API dropzone, the GET URL
+        # (with a curl line showing example readings) for a webhook dropzone, the SFTP
         # address (with a ready-to-run sftp line) for an SFTP dropzone. The token
         # exists only once the row is saved.
         if obj is None or not obj.pk:
@@ -105,6 +106,14 @@ class DropzoneAdmin(ModelAdmin):
                 obj.api_upload_url(),
                 auth,
                 obj.api_upload_url(),
+            )
+        if obj.upload_method == Dropzone.Method.WEBHOOK:
+            auth = ' -H "Authorization: Bearer <secret>"' if obj.secret else ""
+            return format_html(
+                '{}<br><code>curl{} "{}?temperature=21.5"</code>',
+                obj.webhook_url(),
+                auth,
+                obj.webhook_url(),
             )
         if obj.upload_method == Dropzone.Method.SFTP:
             return format_html(

@@ -8,16 +8,17 @@ from other systems, files agreed upon with their producers.
 # Models
 - There shall be a model `Dropzone`. It defines the purpose of a set of files, the
   expected file format, who may upload (by user or by secret URL) and by what method
-  (browser upload, POST to an API endpoint, SFTP — all three feed the same pipeline).
+  (browser upload, POST to an API endpoint, SFTP, webhook GET — all four feed the
+  same pipeline).
 - Every dropzone has an unguessable token that forms its upload URL, so a secret link
   can be handed to someone without creating an account.
 - A dropzone has exactly one upload method, so one `secret` field serves as the machine
-  credential of whichever method needs one: the Bearer token of an API dropzone or the
-  SFTP password of an SFTP dropzone.
+  credential of whichever method needs one: the Bearer token of an API or webhook
+  dropzone or the SFTP password of an SFTP dropzone.
 - A dropzone carries a `default_validity`: preselected on the browser upload page,
-  applied to API uploads that send no validity and to SFTP uploads (which cannot send
-  one). "Valid for a given time period" needs dates from the uploader, so it is only
-  allowed as default for browser dropzones.
+  applied to API uploads that send no validity and to SFTP and webhook uploads (which
+  cannot send one). "Valid for a given time period" needs dates from the uploader, so
+  it is only allowed as default for browser dropzones.
 - There shall be a model `Upload` keeping the metadata of each upload: upload time,
   uploading user (empty for secret-link uploads), validity start and end date, the
   directory of the stored files (relative to the uploads volume, using the dropzone's
@@ -70,6 +71,26 @@ from other systems, files agreed upon with their producers.
   that requires a login must have a secret set and matched; without a login requirement
   an empty secret leaves the endpoint open to anyone holding the secret URL. API
   uploads are recorded with no user, like a secret-link browser upload.
+
+# Webhook upload
+- Dropzones with the webhook method are made for devices that can only call a URL with
+  measured values substituted into it (e.g. a Shelly relay reporting a temperature):
+  an HTTP GET at `webhook/<token>/` (below CRUDMAN_PATH like the other web routes)
+  whose query parameters are the payload. Each call becomes one upload holding a
+  one-row CSV file — the parameter names as the sorted header, the values as the data
+  row — which runs through the same pipeline as every other method (a converter like
+  `csv_to_parquet` may turn it into Parquet). Success returns 201 with the upload id
+  and hash as JSON; a rejected call returns 400 with the message.
+- Hygiene: parameter names are restricted to letters, digits and underscores (they
+  become column names downstream); duplicate names, more than 100 parameters, values
+  longer than 1000 characters and calls without parameters are rejected.
+- Authentication is exactly the API endpoint's: the dropzone's `secret` as an
+  `Authorization: Bearer` header for clients that can send one; without a login
+  requirement and secret, the unguessable URL alone authorizes — the fit for devices
+  that cannot set headers. Webhook uploads are recorded with no user.
+- The validity is the dropzone's default ("until replaced" or "always"), like SFTP.
+  With "until replaced", each reading is valid exactly while it is the newest, so the
+  canonical validity query answers "the reading in effect at a timestamp".
 
 # SFTP upload
 - Dropzones with the SFTP method are served by an SFTP server the application runs itself

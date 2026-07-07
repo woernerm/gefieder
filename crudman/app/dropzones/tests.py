@@ -185,6 +185,12 @@ class DropzoneModelTests(TestCase):
         )
         self.assertIn(str(zone.token), zone.api_upload_url())
 
+    @override_settings(DEBUG=False, SERVER_NAME="reports.example.com")
+    def test_webhook_url_uses_https_and_server_name(self):
+        zone = Dropzone.objects.create(name="webhook-zone")
+        self.assertTrue(zone.webhook_url().startswith("https://reports.example.com/"))
+        self.assertIn(str(zone.token), zone.webhook_url())
+
 
 class UploadModelTests(TestCase):
     @classmethod
@@ -919,6 +925,171 @@ class APIUploadTests(TempMediaMixin, TestCase):
         self.assertEqual(Upload.objects.count(), 0)
 
 
+class WebhookUploadTests(TempMediaMixin, TestCase):
+    """The GET endpoint for devices that can only call a URL with values substituted
+    into it (e.g. a Shelly relay reporting a temperature): the query parameters are
+    stored as a one-row CSV through the same pipeline as every other method."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.open_zone = Dropzone.objects.create(
+            name="open-webhook",
+            upload_method=Dropzone.Method.WEBHOOK,
+            require_login=False,
+        )
+        cls.secured_zone = Dropzone.objects.create(
+            name="secured-webhook",
+            upload_method=Dropzone.Method.WEBHOOK,
+            require_login=True,
+            secret="s3cret-token",
+        )
+
+    def url(self, zone):
+        return reverse("dropzones:webhook_upload", kwargs={"token": zone.token})
+
+    def get(self, zone, query="temperature=21.5&humidity=60", token=None):
+        headers = {"HTTP_AUTHORIZATION": f"Bearer {token}"} if token else {}
+        return self.client.get(f"{self.url(zone)}?{query}", **headers)
+
+    def stored_text(self, upload):
+        # Raw bytes, so the assertions see the csv module's \r\n line endings.
+        return (self.media_root / upload.files.get().file.name).read_bytes().decode()
+
+    def test_readings_are_stored_as_a_one_row_csv(self):
+        response = self.get(self.open_zone)
+        self.assertEqual(response.status_code, 201)
+        upload = Upload.objects.get()
+        self.assertEqual(response.json()["upload_id"], upload.pk)
+        self.assertEqual(response.json()["files"], 1)
+        self.assertIsNone(upload.uploaded_by)
+        # The header is sorted, so the column order does not depend on the device.
+        self.assertEqual(
+            self.stored_text(upload), "humidity,temperature\r\n60,21.5\r\n"
+        )
+
+    def test_values_with_commas_stay_one_column(self):
+        self.get(self.open_zone, query="note=a,b")
+        self.assertEqual(self.stored_text(Upload.objects.get()), 'note\r\n"a,b"\r\n')
+
+    def test_the_example_converter_turns_the_reading_into_parquet(self):
+        import polars as pl
+
+        zone = Dropzone.objects.create(
+            name="parquet-webhook",
+            upload_method=Dropzone.Method.WEBHOOK,
+            require_login=False,
+            converter="csv_to_parquet",
+        )
+        self.assertEqual(self.get(zone).status_code, 201)
+        upload = Upload.objects.get()
+        stored = upload.files.get()
+        self.assertTrue(stored.file.name.endswith("webhook.parquet"))
+        frame = pl.read_parquet(self.media_root / stored.file.name)
+        self.assertEqual(frame.shape, (1, 2))
+        self.assertEqual(frame["temperature"][0], 21.5)
+
+    def test_secured_dropzone_accepts_the_matching_token(self):
+        response = self.get(self.secured_zone, token="s3cret-token")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Upload.objects.count(), 1)
+
+    def test_secured_dropzone_rejects_a_wrong_or_missing_token(self):
+        self.assertEqual(self.get(self.secured_zone, token="wrong").status_code, 401)
+        self.assertEqual(self.get(self.secured_zone).status_code, 401)
+        self.assertEqual(Upload.objects.count(), 0)
+
+    def test_unknown_token_is_404(self):
+        import uuid
+
+        url = reverse("dropzones:webhook_upload", kwargs={"token": uuid.uuid4()})
+        self.assertEqual(self.client.get(f"{url}?t=1").status_code, 404)
+
+    def test_disabled_dropzone_is_404(self):
+        self.open_zone.enabled = False
+        self.open_zone.save()
+        self.assertEqual(self.get(self.open_zone).status_code, 404)
+
+    def test_browser_dropzone_is_404_on_the_webhook_endpoint(self):
+        zone = Dropzone.objects.create(name="browser-only", require_login=False)
+        self.assertEqual(self.get(zone).status_code, 404)
+
+    def test_post_is_rejected(self):
+        response = self.client.post(f"{self.url(self.open_zone)}?t=1")
+        self.assertEqual(response.status_code, 405)
+
+    def test_no_parameters_is_a_400(self):
+        response = self.client.get(self.url(self.open_zone))
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Upload.objects.count(), 0)
+
+    def test_a_duplicate_parameter_is_a_400(self):
+        response = self.get(self.open_zone, query="t=1&t=2")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Duplicate", response.json()["error"])
+
+    def test_an_invalid_parameter_name_is_a_400(self):
+        # The names become column names downstream, so anything beyond letters,
+        # digits and underscores is rejected.
+        response = self.get(self.open_zone, query="bad-name=1")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("bad-name", response.json()["error"])
+
+    def test_an_overlong_value_is_a_400(self):
+        response = self.get(self.open_zone, query="t=" + "9" * 1001)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Upload.objects.count(), 0)
+
+    def test_too_many_parameters_is_a_400(self):
+        query = "&".join(f"p{i}=1" for i in range(101))
+        response = self.get(self.open_zone, query=query)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Upload.objects.count(), 0)
+
+    def test_checker_rejection_is_a_400_with_the_message(self):
+        def angry(files):
+            raise ValueError("Out of range.")
+
+        zone = Dropzone.objects.create(
+            name="strict-webhook",
+            upload_method=Dropzone.Method.WEBHOOK,
+            require_login=False,
+            checker="test_angry",
+        )
+        with patch.dict(registry._checkers, {"test_angry": angry}):
+            response = self.get(zone)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "Out of range.")
+        self.assertEqual(Upload.objects.count(), 0)
+
+    def test_default_validity_is_until_replaced(self):
+        before = timezone.now()
+        self.get(self.open_zone)
+        upload = Upload.objects.get()
+        self.assertGreaterEqual(upload.valid_from, before)
+        self.assertIsNone(upload.valid_until)
+
+    def test_always_default_leaves_both_bounds_open(self):
+        zone = Dropzone.objects.create(
+            name="always-webhook",
+            upload_method=Dropzone.Method.WEBHOOK,
+            require_login=False,
+            default_validity=Dropzone.Validity.ALWAYS,
+        )
+        self.get(zone)
+        upload = Upload.objects.get()
+        self.assertIsNone(upload.valid_from)
+        self.assertIsNone(upload.valid_until)
+
+    def test_a_new_reading_clips_the_previous_one(self):
+        # With the default validity, each reading is valid exactly while it is the
+        # newest, so "the reading in effect at a timestamp" is one validity query.
+        self.get(self.open_zone, query="temperature=20")
+        self.get(self.open_zone, query="temperature=21")
+        first, second = Upload.objects.order_by("uploaded_at")
+        self.assertEqual(first.valid_until, second.valid_from)
+        self.assertIsNone(second.valid_until)
+
+
 class DownloadTests(TempMediaMixin, TestCase):
     """Stored files are downloaded through an authenticated view linked from the
     admin; bare storage paths are never served."""
@@ -1131,6 +1302,16 @@ class AdminTests(TempMediaMixin, TestCase):
         self.assertIn(
             zone.sftp_address(), DropzoneAdmin(Dropzone, admin.site).upload_link(zone)
         )
+
+    def test_upload_link_shows_the_webhook_curl(self):
+        zone = Dropzone.objects.create(
+            name="webhook-zone",
+            upload_method=Dropzone.Method.WEBHOOK,
+            require_login=False,
+        )
+        link = DropzoneAdmin(Dropzone, admin.site).upload_link(zone)
+        self.assertIn(zone.webhook_url(), link)
+        self.assertIn("curl", link)
 
     def dropzone_form(self, **overrides):
         data = {

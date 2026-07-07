@@ -280,6 +280,12 @@ whole protocol. Everything sent in one session is stored as one upload with the
 dropzone's default validity, an interrupted transfer stores nothing, and uploaders
 only ever see their own session — never each other's files.
 
+Even devices that cannot produce a file are covered: a dropzone with the *Webhook*
+method takes a plain HTTP GET and stores whatever values ride along in the URL — say
+a temperature a sensor reports — as a small CSV file, one per call, through the same
+pipeline. This suits IoT devices like Shelly relays, which can call a URL with
+measured values filled in whenever something happens.
+
 Each upload is recorded in the `crudman.dropzones_upload` table together with its file
 paths, and the files land on the `uploads_data` volume, which the analytics engine sees
 read-only under the same path. An analytics model therefore just selects the upload

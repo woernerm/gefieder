@@ -26,6 +26,7 @@ class Dropzone(models.Model):
         BROWSER = "browser", "Browser upload"
         API = "api", "API endpoint"
         SFTP = "sftp", "SFTP"
+        WEBHOOK = "webhook", "Webhook (HTTP GET)"
 
     class Validity(models.TextChoices):
         UNTIL_REPLACED = "until_replaced", "Valid from now on until replacement"
@@ -75,8 +76,8 @@ class Dropzone(models.Model):
         help_text=(
             "Validity preselected on the browser upload page (the uploader may change "
             "it there) and applied as-is to API uploads that send no validity and to "
-            "SFTP uploads. A given time period needs dates from the uploader, so it "
-            "is only available for the browser upload."
+            "SFTP and webhook uploads. A given time period needs dates from the "
+            "uploader, so it is only available for the browser upload."
         ),
     )
     token = models.UUIDField(
@@ -85,17 +86,18 @@ class Dropzone(models.Model):
         editable=False,
         help_text="Unguessable part of the upload URL.",
     )
-    # One credential field serves both unattended methods because a dropzone has exactly
-    # one upload method: an API dropzone never needs an SFTP password and vice versa.
+    # One credential field serves the unattended methods because a dropzone has exactly
+    # one upload method: an API or webhook dropzone never needs an SFTP password and
+    # vice versa.
     secret = models.CharField(
         blank=True,
         max_length=64,
         help_text=(
-            "Secret an unattended client presents: the API endpoint expects it as an "
-            "'Authorization: Bearer <secret>' header, the SFTP upload uses it as the "
-            "login password. For the API it may stay empty to keep the endpoint open "
-            "(only sensible without a login requirement); an SFTP dropzone without a "
-            "secret accepts no logins."
+            "Secret an unattended client presents: the API endpoint and the webhook "
+            "expect it as an 'Authorization: Bearer <secret>' header, the SFTP upload "
+            "uses it as the login password. For the API and the webhook it may stay "
+            "empty to keep the endpoint open (only sensible without a login "
+            "requirement); an SFTP dropzone without a secret accepts no logins."
         ),
     )
     require_login = models.BooleanField(
@@ -139,6 +141,12 @@ class Dropzone(models.Model):
         path = reverse("dropzones:api_upload", kwargs={"token": self.token})
         return f"{scheme}://{settings.SERVER_NAME}{path}"
 
+    def webhook_url(self):
+        """The full URL a device calls with its readings as query parameters."""
+        scheme = "http" if settings.DEBUG else "https"
+        path = reverse("dropzones:webhook_upload", kwargs={"token": self.token})
+        return f"{scheme}://{settings.SERVER_NAME}{path}"
+
     def sftp_address(self):
         """The SFTP address to hand to an uploader; the username is the dropzone name."""
         return f"sftp://{self.name}@{settings.SERVER_NAME}:{settings.SFTP_PORT}"
@@ -153,7 +161,7 @@ class Dropzone(models.Model):
         return self.allowed_users.filter(pk=user.pk).exists()
 
     def api_secret_matches(self, presented):
-        """Whether ``presented`` authorizes an API upload to this dropzone.
+        """Whether ``presented`` authorizes an API or webhook upload to this dropzone.
 
         Without a login requirement the URL token alone authorizes the upload, so an
         empty ``secret`` accepts any client. With a login requirement a secret must be

@@ -1,9 +1,13 @@
+import csv
+import io
+import re
 from pathlib import Path
 
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied
+from django.core.files.base import ContentFile
 from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -155,6 +159,98 @@ def api_upload(request, token):
         # API uploads carry no user, like a secret-link browser upload.
         upload = process_upload(
             dropzone, files, valid_from=valid_from, valid_until=valid_until
+        )
+    except UploadError as error:
+        return JsonResponse({"error": str(error)}, status=400)
+    return JsonResponse(
+        {
+            "upload_id": upload.pk,
+            "files": upload.files.count(),
+            "sha256": upload.sha256,
+            "valid_from": upload.valid_from,
+            "valid_until": upload.valid_until,
+        },
+        status=201,
+    )
+
+
+# Hygiene bounds for a webhook call: real devices send a handful of short readings, so
+# anything past these is a misdirected or malicious request, not data.
+WEBHOOK_MAX_PARAMS = 100
+WEBHOOK_MAX_VALUE_LENGTH = 1000
+
+# Parameter names become CSV column names read by analytics code, so only names that
+# stay unremarkable in Polars and SQL are accepted.
+_WEBHOOK_NAME = re.compile(r"[A-Za-z0-9_]+")
+
+
+def _webhook_file(query):
+    """A webhook call's query parameters as a one-row CSV file, ready for the pipeline.
+
+    The parameter names become the header (sorted, so the column order does not depend
+    on how the device arranges its URL), the values the single data row, exactly as
+    they arrived. Raises :class:`UploadError` for parameters that could not have come
+    from a well-configured device.
+    """
+    if not query:
+        raise UploadError("The request carries no query parameters.")
+    if len(query) > WEBHOOK_MAX_PARAMS:
+        raise UploadError(f"More than {WEBHOOK_MAX_PARAMS} query parameters.")
+    row = {}
+    for name in query:
+        if not _WEBHOOK_NAME.fullmatch(name):
+            raise UploadError(
+                f"Invalid parameter name '{name}': letters, digits and _ only."
+            )
+        values = query.getlist(name)
+        if len(values) > 1:
+            raise UploadError(f"Duplicate parameter '{name}'.")
+        if len(values[0]) > WEBHOOK_MAX_VALUE_LENGTH:
+            raise UploadError(
+                f"The value of '{name}' exceeds {WEBHOOK_MAX_VALUE_LENGTH} characters."
+            )
+        row[name] = values[0]
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(sorted(row))
+    writer.writerow([row[name] for name in sorted(row)])
+    return ContentFile(buffer.getvalue().encode(), name="webhook.csv")
+
+
+@csrf_exempt
+def webhook_upload(request, token):
+    """Accept readings as query parameters of an HTTP GET and store them as one CSV.
+
+    Made for devices that can only call a URL with measured values substituted into it
+    (e.g. a Shelly relay reporting a temperature): each call becomes one upload holding
+    a one-row CSV file, which runs through the very same pipeline as every other upload
+    method. A GET with a side effect is deliberate — it is the only verb such devices
+    speak.
+
+    Authentication works exactly like the API endpoint: the URL carries the secret
+    token, and a client that can send headers may additionally be held to the
+    dropzone's secret via ``Authorization: Bearer``. A disabled dropzone or one whose
+    method is not the webhook answers 404, exactly like an unknown token. CSRF is
+    exempt so that a stray POST gets the 405 below rather than a misleading CSRF error.
+    """
+    dropzone = get_object_or_404(
+        Dropzone, token=token, enabled=True, upload_method=Dropzone.Method.WEBHOOK
+    )
+    if request.method != "GET":
+        return JsonResponse({"error": "Use GET with query parameters."}, status=405)
+    if not dropzone.api_secret_matches(_bearer_token(request)):
+        return JsonResponse({"error": "Invalid or missing API token."}, status=401)
+    # The query string is payload, so a call carries no validity fields; the dropzone's
+    # default applies, exactly like an SFTP upload: "always" keeps both bounds open,
+    # everything else is "from now on until replacement".
+    valid_from = (
+        None
+        if dropzone.default_validity == Dropzone.Validity.ALWAYS
+        else timezone.now()
+    )
+    try:
+        upload = process_upload(
+            dropzone, [_webhook_file(request.GET)], valid_from=valid_from
         )
     except UploadError as error:
         return JsonResponse({"error": str(error)}, status=400)
