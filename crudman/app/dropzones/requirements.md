@@ -45,6 +45,11 @@ from other systems, files agreed upon with their producers.
   designated folder (`dropzones/functions/`, named by the `FUNCTIONS_PACKAGE` constant
   in `dropzones/registry.py`) and are autodiscovered at startup via the
   `@checker`/`@converter` decorators. New functions require a rebuilt image.
+- Default functions ship in `functions/default.py`, Polars-based: the
+  `reject_empty_files` checker and the `csv_to_parquet`, `excel_to_parquet` (every
+  sheet becomes its own Parquet file, named after the source file and the sheet) and
+  `json_to_parquet` converters. They are usable as-is and double as templates for
+  custom functions.
 - Both run immediately after upload, before anything is stored. Any exception rejects
   the upload; the message is shown to the uploading user and no files are kept.
 - The converter receives the uploaded files and an output directory and writes the

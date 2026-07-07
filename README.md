@@ -289,9 +289,11 @@ measured values filled in whenever something happens.
 Each upload is recorded in the `crudman.dropzones_upload` table together with its file
 paths, and the files land on the `uploads_data` volume, which the analytics engine sees
 read-only under the same path. An analytics model therefore just selects the upload
-valid at the timestamp it is computing and reads the files. The check and convert
-functions are plain Python functions in `crudman/app/dropzones/functions/`; the
-examples in that folder show the pattern and are meant to be replaced with your own.
+valid at the timestamp it is computing and reads the files. Converters for the usual
+formats ship ready to use — CSV, Excel and JSON to Parquet, where every Excel sheet
+becomes its own file. The check and convert functions are plain Python functions in
+`crudman/app/dropzones/functions/`; the shipped ones double as the pattern for
+writing your own.
 
 ## Scripts
 | Script | What it does |

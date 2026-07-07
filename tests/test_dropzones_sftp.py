@@ -3,7 +3,7 @@
 The suite creates SFTP dropzones directly in the database (as the crudman role, which
 owns the tables) and then connects to the published SFTP port exactly like an uploader
 would: username = dropzone name, password = the dropzone's secret, put files,
-disconnect. The dropzones use the example checker/converter functions baked into the
+disconnect. The dropzones use the default checker/converter functions baked into the
 image (reject_empty_files, csv_to_parquet), so the whole pipeline is exercised.
 """
 import time

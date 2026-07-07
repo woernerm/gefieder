@@ -87,11 +87,12 @@ class RegistryTests(SimpleTestCase):
         with self.assertRaises(LookupError):
             registry.get_converter("no_such_converter")
 
-    def test_autodiscover_registered_the_example_functions(self):
+    def test_autodiscover_registered_the_default_functions(self):
         # DropzonesConfig.ready ran autodiscover at startup, importing the modules in
-        # the functions folder; the examples must therefore be selectable.
+        # the functions folder; the shipped defaults must therefore be selectable.
         self.assertIn("reject_empty_files", registry.checker_names())
-        self.assertIn("csv_to_parquet", registry.converter_names())
+        for name in ("csv_to_parquet", "excel_to_parquet", "json_to_parquet"):
+            self.assertIn(name, registry.converter_names())
 
 
 class DropzoneModelTests(TestCase):
@@ -408,7 +409,7 @@ class ProcessUploadTests(TempMediaMixin, TestCase):
         with self.assertRaises(UploadError):
             process_upload(zone, [upload_file()])
 
-    def test_example_csv_to_parquet_converter_works_end_to_end(self):
+    def test_default_csv_to_parquet_converter_works_end_to_end(self):
         import polars as pl
 
         zone = Dropzone.objects.create(name="polars", converter="csv_to_parquet")
@@ -417,6 +418,31 @@ class ProcessUploadTests(TempMediaMixin, TestCase):
         self.assertTrue(stored.file.name.endswith("numbers.parquet"))
         frame = pl.read_parquet(self.media_root / stored.file.name)
         self.assertEqual(frame.shape, (1, 2))
+
+    def test_default_excel_to_parquet_stores_one_parquet_per_sheet(self):
+        import polars as pl
+
+        workbook = (Path(__file__).parent / "testdata" / "sheets.xlsx").read_bytes()
+        zone = Dropzone.objects.create(name="excel", converter="excel_to_parquet")
+        upload = process_upload(zone, [upload_file("report.xlsx", workbook)])
+        stored = {Path(f.file.name).name: f.file.name for f in upload.files.all()}
+        self.assertEqual(
+            sorted(stored), ["report_Costs.parquet", "report_Hours.parquet"]
+        )
+        hours = pl.read_parquet(self.media_root / stored["report_Hours.parquet"])
+        self.assertEqual(hours["person"].to_list(), ["ann", "bob"])
+
+    def test_default_json_to_parquet_converter_works_end_to_end(self):
+        import polars as pl
+
+        zone = Dropzone.objects.create(name="json", converter="json_to_parquet")
+        upload = process_upload(
+            zone, [upload_file("data.json", b'[{"a": 1, "b": 2}, {"a": 3, "b": 4}]')]
+        )
+        stored = upload.files.get()
+        self.assertTrue(stored.file.name.endswith("data.parquet"))
+        frame = pl.read_parquet(self.media_root / stored.file.name)
+        self.assertEqual(frame.shape, (2, 2))
 
     def test_failure_after_storing_files_cleans_them_up(self):
         # If anything fails while the transaction is open, the rows roll back and the
