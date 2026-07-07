@@ -14,9 +14,9 @@ Signatures:
         # uploading user and nothing is stored.
 
     @converter("my_convert")
-    def my_convert(files: list[Path], out_dir: Path) -> list[Path]:
-        # Write the files to store into out_dir and return their paths. Returning the
-        # input paths unchanged means "store the files as uploaded".
+    def my_convert(files: list[Path], out_dir: Path) -> None:
+        # Write the files to store into out_dir; everything found there afterwards is
+        # stored. To store files as uploaded, leave the dropzone's converter empty.
 """
 
 import importlib

@@ -140,6 +140,9 @@
   system as a productive system, not as someone developing Gefieder itself.
 - Use the type annotations that are considered best practice for the python version used 
   in the respective docker containers.
+- Use sentece case (e.g. "Reject empty files") for the registry names of checker and 
+  converter functions of the dropzones django app in crudman. Stay with snake case for 
+  the actual python function names.
 
 # Example Tenants
 - There are three example tenants "Project A", "Project B" and "Project C"

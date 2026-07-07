@@ -46,9 +46,9 @@ from other systems, files agreed upon with their producers.
   `@checker`/`@converter` decorators. New functions require a rebuilt image.
 - Both run immediately after upload, before anything is stored. Any exception rejects
   the upload; the message is shown to the uploading user and no files are kept.
-- The converter receives the uploaded files and an output directory and returns the
-  files to store — the same files (no conversion) or entirely different ones
-  (e.g. Excel in, Parquet out).
+- The converter receives the uploaded files and an output directory and writes the
+  files to store into it (e.g. Excel in, Parquet out); everything found there
+  afterwards is stored. Without a converter, the files are stored as uploaded.
 
 # Browser upload
 - The upload page is a self-contained drag-and-drop form (multiple files at once)

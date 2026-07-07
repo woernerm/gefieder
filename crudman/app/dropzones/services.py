@@ -102,14 +102,12 @@ def _run_converter(dropzone, in_paths, out_dir):
     except LookupError as error:
         raise UploadError(str(error)) from error
     try:
-        converted = [Path(p) for p in convert(list(in_paths), out_dir) or []]
+        convert(list(in_paths), out_dir)
     except Exception as error:
         raise UploadError(str(error) or "The files could not be converted.") from error
+    converted = sorted(path for path in out_dir.iterdir() if path.is_file())
     if not converted:
-        raise UploadError("The conversion returned no files.")
-    missing = [p.name for p in converted if not p.is_file()]
-    if missing:
-        raise UploadError(f"The conversion returned missing files: {missing}")
+        raise UploadError("The conversion produced no files.")
     return converted
 
 

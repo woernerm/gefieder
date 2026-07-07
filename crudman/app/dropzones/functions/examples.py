@@ -20,9 +20,5 @@ def reject_empty_files(files):
 @converter("csv_to_parquet")
 def csv_to_parquet(files, out_dir):
     """Store every uploaded CSV file as Parquet, named after the source file."""
-    outputs = []
     for path in files:
-        output = out_dir / (path.stem + ".parquet")
-        pl.read_csv(path).write_parquet(output)
-        outputs.append(output)
-    return outputs
+        pl.read_csv(path).write_parquet(out_dir / (path.stem + ".parquet"))

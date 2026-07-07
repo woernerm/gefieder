@@ -54,7 +54,7 @@ class RegistryTests(SimpleTestCase):
         with patch.dict(registry._converters):
             @registry.converter("test_convert")
             def convert(files, out_dir):
-                return files
+                pass
 
             self.assertIs(registry.get_converter("test_convert"), convert)
             self.assertIn("test_convert", registry.converter_names())
@@ -367,9 +367,7 @@ class ProcessUploadTests(TempMediaMixin, TestCase):
 
     def test_converter_output_is_stored_instead_of_originals(self):
         def convert(files, out_dir):
-            output = out_dir / "combined.parquet"
-            output.write_bytes(b"parquet")
-            return [output]
+            (out_dir / "combined.parquet").write_bytes(b"parquet")
 
         zone = Dropzone.objects.create(name="converted", converter="test_convert")
         with patch.dict(registry._converters, {"test_convert": convert}):
@@ -392,19 +390,9 @@ class ProcessUploadTests(TempMediaMixin, TestCase):
         self.assertEqual(Upload.objects.count(), 0)
         self.assertEqual(self.stored_files(), [])
 
-    def test_converter_returning_nothing_is_rejected(self):
+    def test_converter_producing_nothing_is_rejected(self):
         zone = Dropzone.objects.create(name="converted", converter="test_empty")
-        with patch.dict(registry._converters, {"test_empty": lambda f, o: []}):
-            with self.assertRaises(UploadError):
-                process_upload(zone, [upload_file()])
-        self.assertEqual(Upload.objects.count(), 0)
-
-    def test_converter_returning_missing_files_is_rejected(self):
-        def liar(files, out_dir):
-            return [out_dir / "never-written.parquet"]
-
-        zone = Dropzone.objects.create(name="converted", converter="test_liar")
-        with patch.dict(registry._converters, {"test_liar": liar}):
+        with patch.dict(registry._converters, {"test_empty": lambda f, o: None}):
             with self.assertRaises(UploadError):
                 process_upload(zone, [upload_file()])
         self.assertEqual(Upload.objects.count(), 0)
@@ -1112,7 +1100,7 @@ class AdminTests(TempMediaMixin, TestCase):
 
     def test_function_dropdowns_follow_the_registry(self):
         with patch.dict(registry._checkers, {"test_zz_check": lambda f: None}):
-            with patch.dict(registry._converters, {"test_zz_conv": lambda f, o: f}):
+            with patch.dict(registry._converters, {"test_zz_conv": lambda f, o: None}):
                 form = DropzoneForm()
                 self.assertIn(
                     ("test_zz_check", "test_zz_check"), form.fields["checker"].choices
