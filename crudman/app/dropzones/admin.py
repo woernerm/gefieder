@@ -10,11 +10,11 @@ from .models import Dropzone, Upload, UploadFile
 
 
 def _checker_choices():
-    return [("", "No file check")] + [(n, n) for n in registry.checker_names()]
+    return [("", "No file check")] + registry.checker_choices()
 
 
 def _converter_choices():
-    return [("", "No conversion")] + [(n, n) for n in registry.converter_names()]
+    return [("", "No conversion")] + registry.converter_choices()
 
 
 class DropzoneForm(forms.ModelForm):
@@ -67,8 +67,8 @@ class DropzoneAdmin(ModelAdmin):
         "name",
         "upload_method",
         "file_format",
-        "checker",
-        "converter",
+        "checker_label",
+        "converter_label",
         "enabled",
     )
     list_filter = ("upload_method", "enabled")
@@ -89,6 +89,16 @@ class DropzoneAdmin(ModelAdmin):
         "enabled",
         "upload_link",
     )
+
+    # The changelist shows the functions by their human-readable labels, like the
+    # dropdowns; a name whose function is gone from the image stays visible as-is.
+    @admin.display(description="checker", ordering="checker")
+    def checker_label(self, obj):
+        return dict(registry.checker_choices()).get(obj.checker, obj.checker)
+
+    @admin.display(description="converter", ordering="converter")
+    def converter_label(self, obj):
+        return dict(registry.converter_choices()).get(obj.converter, obj.converter)
 
     @admin.display(description="secret upload link")
     def upload_link(self, obj):

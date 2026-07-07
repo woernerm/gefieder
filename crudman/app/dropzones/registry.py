@@ -8,15 +8,20 @@ the image.
 
 Signatures:
 
-    @checker("my_check")
+    @checker("My check")
     def my_check(files: list[Path]) -> None:
         # Raise any exception to reject the upload; the message is shown to the
         # uploading user and nothing is stored.
 
-    @converter("my_convert")
+    @converter("My conversion")
     def my_convert(files: list[Path], out_dir: Path) -> None:
         # Write the files to store into out_dir; everything found there afterwards is
         # stored. To store files as uploaded, leave the dropzone's converter empty.
+
+A function registers under its own name — the identifier a dropzone stores, so
+renaming a function orphans dropzones still referencing the old name. The decorator's
+optional argument is the human-readable label shown in the admin dropdowns; used bare
+(``@checker``), the label defaults to the name.
 """
 
 import importlib
@@ -30,26 +35,46 @@ FUNCTIONS_PACKAGE = "dropzones.functions"
 
 _checkers = {}
 _converters = {}
+# The dropdown labels, keyed like the function tables; a function registered without
+# a label falls back to its name wherever a label is displayed.
+_checker_labels = {}
+_converter_labels = {}
 
 
-def _register(table, kind, name, func):
+def _register(table, labels, kind, label, func):
     # Re-registering the same function (e.g. a module imported twice) is harmless, but
     # two different functions under one name would make a dropzone ambiguous.
+    name = func.__name__
     registered = table.get(name)
     if registered is not None and registered is not func:
         raise ImproperlyConfigured(f"Duplicate {kind} function name '{name}'.")
     table[name] = func
+    if label is not None:
+        labels[name] = label
     return func
 
 
-def checker(name):
-    """Register the decorated function as a file checker under ``name``."""
-    return lambda func: _register(_checkers, "checker", name, func)
+def checker(label=None):
+    """Register the decorated function as a file checker, named after itself.
+
+    Used bare (``@checker``) or with the dropdown label (``@checker("My check")``).
+    """
+    if callable(label):
+        return _register(_checkers, _checker_labels, "checker", None, label)
+    return lambda func: _register(_checkers, _checker_labels, "checker", label, func)
 
 
-def converter(name):
-    """Register the decorated function as a file converter under ``name``."""
-    return lambda func: _register(_converters, "converter", name, func)
+def converter(label=None):
+    """Register the decorated function as a file converter, named after itself.
+
+    Used bare (``@converter``) or with the dropdown label
+    (``@converter("My conversion")``).
+    """
+    if callable(label):
+        return _register(_converters, _converter_labels, "converter", None, label)
+    return lambda func: _register(
+        _converters, _converter_labels, "converter", label, func
+    )
 
 
 def get_checker(name):
@@ -74,6 +99,20 @@ def checker_names():
 
 def converter_names():
     return sorted(_converters)
+
+
+def _choices(table, labels):
+    """``(name, label)`` pairs for form dropdowns, sorted by what the user sees."""
+    pairs = ((name, labels.get(name, name)) for name in table)
+    return sorted(pairs, key=lambda pair: pair[1].lower())
+
+
+def checker_choices():
+    return _choices(_checkers, _checker_labels)
+
+
+def converter_choices():
+    return _choices(_converters, _converter_labels)
 
 
 def autodiscover():

@@ -10,7 +10,7 @@ import polars as pl
 from dropzones.registry import checker, converter
 
 
-@checker("reject_empty_files")
+@checker("Reject empty files")
 def reject_empty_files(files):
     """Reject the upload if any file is empty, regardless of its format."""
     for path in files:
@@ -18,14 +18,14 @@ def reject_empty_files(files):
             raise ValueError(f"File '{path.name}' is empty.")
 
 
-@converter("csv_to_parquet")
+@converter("CSV to Parquet")
 def csv_to_parquet(files, out_dir):
     """Store every uploaded CSV file as Parquet, named after the source file."""
     for path in files:
         pl.read_csv(path).write_parquet(out_dir / (path.stem + ".parquet"))
 
 
-@converter("excel_to_parquet")
+@converter("Excel to Parquet (one file per sheet)")
 def excel_to_parquet(files, out_dir):
     """Store every sheet of every uploaded Excel file as its own Parquet file,
     named after the source file and the sheet."""
@@ -34,7 +34,7 @@ def excel_to_parquet(files, out_dir):
             frame.write_parquet(out_dir / f"{path.stem}_{sheet}.parquet")
 
 
-@converter("json_to_parquet")
+@converter("JSON to Parquet")
 def json_to_parquet(files, out_dir):
     """Store every uploaded JSON file (one object or an array of objects) as
     Parquet, named after the source file."""

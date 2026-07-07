@@ -41,51 +41,68 @@ def upload_file(name="data.csv", content=b"a,b\n1,2\n"):
 
 
 class RegistryTests(SimpleTestCase):
-    def test_checker_decorator_registers(self):
+    def test_checker_decorator_registers_under_the_function_name(self):
         with patch.dict(registry._checkers):
-            @registry.checker("test_check")
-            def check(files):
+            @registry.checker
+            def test_check(files):
                 pass
 
-            self.assertIs(registry.get_checker("test_check"), check)
+            self.assertIs(registry.get_checker("test_check"), test_check)
             self.assertIn("test_check", registry.checker_names())
 
-    def test_converter_decorator_registers(self):
+    def test_converter_decorator_registers_under_the_function_name(self):
         with patch.dict(registry._converters):
-            @registry.converter("test_convert")
-            def convert(files, out_dir):
+            @registry.converter
+            def test_convert(files, out_dir):
                 pass
 
-            self.assertIs(registry.get_converter("test_convert"), convert)
+            self.assertIs(registry.get_converter("test_convert"), test_convert)
             self.assertIn("test_convert", registry.converter_names())
 
     def test_duplicate_name_raises(self):
-        # Two different functions under one name would make a dropzone ambiguous.
-        with patch.dict(registry._checkers):
-            @registry.checker("test_dup")
-            def first(files):
+        # Two different functions under one name (e.g. defined in two modules of the
+        # functions folder) would make a dropzone ambiguous.
+        def make_test_dup():
+            def test_dup(files):
                 pass
 
+            return test_dup
+
+        with patch.dict(registry._checkers):
+            registry.checker(make_test_dup())
             with self.assertRaises(ImproperlyConfigured):
-                @registry.checker("test_dup")
-                def second(files):
-                    pass
+                registry.checker(make_test_dup())
 
     def test_reregistering_same_function_is_tolerated(self):
         # A module imported twice re-runs its decorators; that must not fail.
         with patch.dict(registry._checkers):
-            def check(files):
+            def test_again(files):
                 pass
 
-            registry.checker("test_again")(check)
-            registry.checker("test_again")(check)
-            self.assertIs(registry.get_checker("test_again"), check)
+            registry.checker(test_again)
+            registry.checker(test_again)
+            self.assertIs(registry.get_checker("test_again"), test_again)
 
     def test_unknown_names_raise_lookup_error(self):
         with self.assertRaises(LookupError):
             registry.get_checker("no_such_checker")
         with self.assertRaises(LookupError):
             registry.get_converter("no_such_converter")
+
+    def test_labels_show_in_choices_and_default_to_the_name(self):
+        with patch.dict(registry._checkers), patch.dict(registry._checker_labels):
+
+            @registry.checker
+            def test_plain(files):
+                pass
+
+            @registry.checker("A nice label")
+            def test_labeled(files):
+                pass
+
+            choices = dict(registry.checker_choices())
+            self.assertEqual(choices["test_plain"], "test_plain")
+            self.assertEqual(choices["test_labeled"], "A nice label")
 
     def test_autodiscover_registered_the_default_functions(self):
         # DropzonesConfig.ready ran autodiscover at startup, importing the modules in
@@ -1304,6 +1321,11 @@ class AdminTests(TempMediaMixin, TestCase):
                 )
                 self.assertIn(
                     ("test_zz_conv", "test_zz_conv"), form.fields["converter"].choices
+                )
+                # The shipped defaults appear under their human-readable labels.
+                self.assertIn(
+                    ("csv_to_parquet", "CSV to Parquet"),
+                    form.fields["converter"].choices,
                 )
         # Both fields must be optional, and an unregistered name must not validate.
         form = DropzoneForm(
