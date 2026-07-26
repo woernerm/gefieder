@@ -1,18 +1,30 @@
+import re
+import shlex
 import shutil
 import tempfile
+import threading
 from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
+import pyarrow
+import pyarrow.flight as pyarrow_flight
+import pyarrow.parquet as pyarrow_parquet
+from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth.models import AnonymousUser, User
 from django.core.exceptions import ImproperlyConfigured
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import (
+    SimpleTestCase,
+    TestCase,
+    TransactionTestCase,
+    override_settings,
+)
 from django.urls import reverse
 from django.utils import timezone
 
-from . import registry, services, sftp
+from . import examples, flight, registry, services, sftp
 from .admin import DropzoneAdmin, DropzoneForm, UploadAdmin
 from .forms import UploadForm
 from .models import Dropzone, Upload, UploadFile, remove_upload_directory
@@ -1302,6 +1314,472 @@ class SftpTests(TempMediaMixin, TestCase):
         self.assertEqual(UploadFile.objects.count(), 0)
 
 
+class FlightTests(TempMediaMixin, TransactionTestCase):
+    """The Arrow Flight endpoint, driven through a real client.
+
+    A server is started on an ephemeral port and talked to exactly as an uploader
+    would, because the parts worth testing — the token that ties several DoPuts into
+    one upload, and the commit that decides whether anything is stored at all — only
+    exist at that level. TransactionTestCase rather than TestCase: the server answers
+    on its own threads, which do not share the test's open transaction.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.zone = Dropzone.objects.create(
+            name="flight-zone", upload_method=Dropzone.Method.FLIGHT, secret="pw"
+        )
+        # A long timeout: the sweeper must not collect a session mid-test.
+        self.server = flight.FlightEndpoint(
+            location="grpc://127.0.0.1:0",
+            auth_handler=flight.NoOpAuthHandler(),
+            middleware={"auth": flight.AuthMiddlewareFactory()},
+        )
+        self.port = self.server.port
+        thread = threading.Thread(target=self.server.serve, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 5)
+        self.addCleanup(self.server.shutdown)
+        self.addCleanup(flight._sessions.clear)
+
+    def connect(self, name="flight-zone", secret="pw"):
+        """An authenticated client and its call options, like an uploader's first lines."""
+        client = pyarrow_flight.connect(f"grpc://127.0.0.1:{self.port}")
+        self.addCleanup(client.close)
+        options = pyarrow_flight.FlightCallOptions(
+            headers=[client.authenticate_basic_token(name.encode(), secret.encode())]
+        )
+        return client, options
+
+    def send(self, client, options, name, table, dropzone="flight-zone"):
+        writer, _ = client.do_put(
+            pyarrow_flight.FlightDescriptor.for_path(dropzone, name),
+            table.schema,
+            options,
+        )
+        writer.write_table(table)
+        writer.close()
+
+    def commit(self, client, options):
+        return next(
+            client.do_action(pyarrow_flight.Action("commit", b""), options)
+        ).body.to_pybytes().decode()
+
+    @staticmethod
+    def table(**columns):
+        return pyarrow.table(columns or {"id": [1, 2]})
+
+    def stored_names(self, upload):
+        return sorted(str(f) for f in upload.files.all())
+
+    def test_a_single_table_shall_be_stored_as_one_parquet_file(self):
+        client, options = self.connect()
+        self.send(client, options, "issues", self.table(id=[1, 2, 3]))
+        self.commit(client, options)
+
+        upload = Upload.objects.get()
+        self.assertEqual(self.stored_names(upload), ["issues.parquet"])
+        stored = Path(settings.MEDIA_ROOT) / upload.files.get().file.name
+        self.assertEqual(pyarrow_parquet.read_table(stored).num_rows, 3)
+
+    def test_several_tables_shall_become_one_upload_of_several_files(self):
+        client, options = self.connect()
+        self.send(client, options, "issues", self.table(id=[1, 2]))
+        self.send(client, options, "commits", self.table(sha=["a1", "b2"]))
+        self.send(client, options, "builds", self.table(n=[7]))
+        self.commit(client, options)
+
+        upload = Upload.objects.get()
+        self.assertEqual(
+            self.stored_names(upload),
+            ["builds.parquet", "commits.parquet", "issues.parquet"],
+        )
+
+    def test_the_table_name_shall_come_from_the_descriptor_not_the_content(self):
+        client, options = self.connect()
+        self.send(client, options, "quarterly-figures", self.table())
+        self.commit(client, options)
+        self.assertEqual(
+            self.stored_names(Upload.objects.get()), ["quarterly-figures.parquet"]
+        )
+
+    def test_a_disconnect_without_commit_shall_store_nothing(self):
+        """The point of the explicit commit: an upload that was never committed is
+        incomplete, so no row, no directory and no file may survive it."""
+        client, options = self.connect()
+        self.send(client, options, "issues", self.table())
+        self.send(client, options, "commits", self.table())
+        # The uploader vanishes: the client goes away without ever committing.
+        client.close()
+
+        self.assertEqual(Upload.objects.count(), 0)
+        self.assertEqual(UploadFile.objects.count(), 0)
+        self.assertEqual(list(Path(settings.MEDIA_ROOT).rglob("*")), [])
+
+    def test_an_abandoned_session_shall_be_swept_without_storing_anything(self):
+        client, options = self.connect()
+        self.send(client, options, "issues", self.table())
+        session = next(iter(flight._sessions.values()))
+        directory = session.directory
+        self.assertTrue(any(directory.iterdir()))
+
+        # Everything older than the timeout is abandoned; nothing is stored for it.
+        flight._sweep(timeout=-1)
+
+        self.assertEqual(flight._sessions, {})
+        self.assertFalse(directory.exists())
+        self.assertEqual(Upload.objects.count(), 0)
+        self.assertEqual(list(Path(settings.MEDIA_ROOT).rglob("*")), [])
+
+    def test_a_second_upload_shall_get_its_own_session(self):
+        first, first_options = self.connect()
+        self.send(first, first_options, "issues", self.table())
+        second, second_options = self.connect()
+        self.send(second, second_options, "commits", self.table())
+        # Each client commits only its own tables, even though both are open at once.
+        self.commit(first, first_options)
+        self.commit(second, second_options)
+
+        uploads = Upload.objects.order_by("pk")
+        self.assertEqual(
+            [self.stored_names(u) for u in uploads],
+            [["issues.parquet"], ["commits.parquet"]],
+        )
+
+    def test_a_commit_without_tables_shall_be_refused(self):
+        client, options = self.connect()
+        with self.assertRaises(pyarrow_flight.FlightServerError) as caught:
+            self.commit(client, options)
+        self.assertIn("no tables", str(caught.exception))
+        self.assertEqual(Upload.objects.count(), 0)
+
+    def test_a_truncated_table_shall_poison_the_commit(self):
+        """A client killed mid-table ends its stream without an error, so the
+        cancellation flag is the only thing that keeps the partial table out."""
+        client, options = self.connect()
+        self.send(client, options, "issues", self.table())
+        session = next(iter(flight._sessions.values()))
+        session.truncated = True
+
+        with self.assertRaises(pyarrow_flight.FlightServerError) as caught:
+            self.commit(client, options)
+        self.assertIn("broke off", str(caught.exception))
+        self.assertEqual(Upload.objects.count(), 0)
+        self.assertEqual(list(Path(settings.MEDIA_ROOT).rglob("*")), [])
+
+    def test_a_checker_rejection_shall_reach_the_uploader(self):
+        self.zone.checker = "reject_empty_files"
+        self.zone.save()
+        client, options = self.connect()
+        # An empty table still writes a parquet file with a header, so the rejection
+        # is provoked with a checker that refuses everything instead.
+        with patch.dict(registry._checkers):
+            @registry.checker
+            def flight_reject(files):
+                raise ValueError("not the agreed columns")
+
+            self.zone.checker = "flight_reject"
+            self.zone.save()
+            self.send(client, options, "issues", self.table())
+            with self.assertRaises(pyarrow_flight.FlightServerError) as caught:
+                self.commit(client, options)
+
+        self.assertIn("not the agreed columns", str(caught.exception))
+        self.assertEqual(Upload.objects.count(), 0)
+        self.assertEqual(list(Path(settings.MEDIA_ROOT).rglob("*")), [])
+
+    def test_a_wrong_secret_shall_be_denied(self):
+        with self.assertRaises(pyarrow_flight.FlightUnauthenticatedError):
+            self.connect(secret="wrong")
+
+    def test_an_unknown_or_non_flight_dropzone_shall_be_denied(self):
+        Dropzone.objects.create(name="browser-zone", secret="pw")
+        with self.assertRaises(pyarrow_flight.FlightUnauthenticatedError):
+            self.connect(name="unknown")
+        with self.assertRaises(pyarrow_flight.FlightUnauthenticatedError):
+            self.connect(name="browser-zone")
+
+    def test_a_disabled_dropzone_shall_be_denied(self):
+        self.zone.enabled = False
+        self.zone.save()
+        with self.assertRaises(pyarrow_flight.FlightUnauthenticatedError):
+            self.connect()
+
+    def test_a_call_without_credentials_shall_be_denied(self):
+        client = pyarrow_flight.connect(f"grpc://127.0.0.1:{self.port}")
+        self.addCleanup(client.close)
+        with self.assertRaises(pyarrow_flight.FlightUnauthenticatedError):
+            self.send(client, None, "issues", self.table())
+
+    def test_an_unknown_token_shall_be_denied(self):
+        client, options = self.connect()
+        forged = pyarrow_flight.FlightCallOptions(
+            headers=[(b"authorization", b"Bearer not-a-real-token")]
+        )
+        with self.assertRaises(pyarrow_flight.FlightUnauthenticatedError):
+            self.send(client, forged, "issues", self.table())
+
+    def test_an_unknown_action_shall_be_refused(self):
+        client, options = self.connect()
+        self.send(client, options, "issues", self.table())
+        with self.assertRaises(pyarrow_flight.FlightServerError):
+            list(client.do_action(pyarrow_flight.Action("drop", b""), options))
+
+    def test_the_example_from_the_admin_shall_perform_a_real_upload(self):
+        """Execute the stored template verbatim against the running endpoint.
+
+        This is what keeps the admin's example honest: it is run as an uploader would
+        run it, with only the address pointed at the test server's ephemeral port.
+        """
+        self.zone.secret = "pw"
+        self.zone.save()
+        with override_settings(
+            SERVER_NAME="127.0.0.1", FLIGHT_PORT=self.port
+        ):
+            example = self.zone.upload_example()
+        self.assertIn(f"grpc://127.0.0.1:{self.port}", example)
+
+        exec(compile(example, "<flight example>", "exec"), {})
+
+        upload = Upload.objects.get()
+        # The two tables the example sends, each stored as its own parquet file.
+        self.assertEqual(
+            sorted(str(f) for f in upload.files.all()),
+            ["commits.parquet", "issues.parquet"],
+        )
+        stored = Path(settings.MEDIA_ROOT) / upload.files.get(
+            file__endswith="issues.parquet"
+        ).file.name
+        self.assertEqual(
+            pyarrow_parquet.read_table(stored).column("state").to_pylist(),
+            ["open", "done"],
+        )
+
+    def test_the_dropzone_default_validity_shall_apply(self):
+        self.zone.default_validity = Dropzone.Validity.ALWAYS
+        self.zone.save()
+        client, options = self.connect()
+        self.send(client, options, "issues", self.table())
+        self.commit(client, options)
+
+        upload = Upload.objects.get()
+        self.assertIsNone(upload.valid_from)
+        self.assertIsNone(upload.valid_until)
+
+
+class FlightModelTests(TestCase):
+    """The Flight-specific parts of the Dropzone model."""
+
+    def setUp(self):
+        self.zone = Dropzone.objects.create(
+            name="flight-zone", upload_method=Dropzone.Method.FLIGHT, secret="pw"
+        )
+
+    def test_flight_secret_must_match(self):
+        self.assertTrue(self.zone.flight_secret_matches("pw"))
+        self.assertFalse(self.zone.flight_secret_matches("wrong"))
+        self.assertFalse(self.zone.flight_secret_matches(""))
+
+    def test_flight_secret_fails_closed_when_unset(self):
+        # Like SFTP: the dropzone name is not a secret, so no secret means no logins.
+        self.zone.secret = ""
+        self.assertFalse(self.zone.flight_secret_matches(""))
+        self.assertFalse(self.zone.flight_secret_matches("anything"))
+
+    @override_settings(SERVER_NAME="reports.example.com", FLIGHT_PORT=8815)
+    def test_flight_address_uses_server_name_and_port(self):
+        self.assertEqual(
+            self.zone.flight_address(), "grpc://reports.example.com:8815"
+        )
+
+    @override_settings(SERVER_NAME="reports.example.com", FLIGHT_PORT=8815)
+    def test_flight_example_is_a_complete_client_for_this_dropzone(self):
+        example = self.zone.upload_example()
+        self.assertIn("grpc://reports.example.com:8815", example)
+        self.assertIn('authenticate_basic_token(b"flight-zone"', example)
+        self.assertIn('for_path("flight-zone", table_name)', example)
+        self.assertIn('Action("commit"', example)
+
+
+class UploadExampleTests(TestCase):
+    """The templates themselves: filled in correctly and complete.
+
+    That an example actually works is proven by running it — see
+    :class:`ExecutedExampleTests` for the HTTP methods and
+    ``FlightTests.test_the_example_from_the_admin_shall_perform_a_real_upload``
+    for Arrow Flight.
+    """
+
+    def zone(self, method, **kwargs):
+        # A name per method, because the field is unique and these tests build one
+        # dropzone per method within a single test.
+        return Dropzone.objects.create(
+            name=f"example-{method}", upload_method=method, **kwargs
+        )
+
+    def test_every_method_has_an_example(self):
+        # A method without a template would leave its dropzone page with an empty
+        # example box, so the mapping must cover the choices exhaustively.
+        self.assertEqual(
+            sorted(examples.TEMPLATES), sorted(m.value for m in Dropzone.Method)
+        )
+
+    def test_no_template_keeps_an_unfilled_placeholder(self):
+        # The placeholder names the templates may use; anything else would raise in
+        # str.format, and a leftover "{name}" here would reach the uploader as-is.
+        placeholders = re.compile(
+            r"\{(url|address|name|secret|port|host)[!:}]"
+        )
+        for method in Dropzone.Method:
+            with self.subTest(method=method):
+                example = self.zone(method, secret="s3cret").upload_example()
+                self.assertIsNone(placeholders.search(example))
+
+    def test_the_secret_is_filled_in_and_marked_when_missing(self):
+        zone = self.zone(Dropzone.Method.SFTP, secret="s3cret")
+        self.assertIn("s3cret", zone.upload_example())
+        zone.secret = ""
+        self.assertIn("<secret>", zone.upload_example())
+
+    def test_each_example_names_the_endpoint_it_uploads_to(self):
+        # The URL methods show the address verbatim; SFTP and Arrow Flight show the
+        # host and port of theirs, in the shape their client expects.
+        for method in (
+            Dropzone.Method.BROWSER, Dropzone.Method.API, Dropzone.Method.WEBHOOK
+        ):
+            with self.subTest(method=method):
+                zone = self.zone(method, secret="s3cret")
+                self.assertIn(zone.upload_address(), zone.upload_example())
+        flight_zone = self.zone(Dropzone.Method.FLIGHT, secret="s3cret")
+        self.assertIn(flight_zone.flight_address(), flight_zone.upload_example())
+        sftp_zone = self.zone(Dropzone.Method.SFTP, secret="s3cret")
+        self.assertIn(
+            f"{sftp_zone.name}@{settings.SERVER_NAME}", sftp_zone.upload_example()
+        )
+
+    def test_upload_address_follows_the_method(self):
+        cases = {
+            Dropzone.Method.BROWSER: "upload_url",
+            Dropzone.Method.API: "api_upload_url",
+            Dropzone.Method.WEBHOOK: "webhook_url",
+            Dropzone.Method.SFTP: "sftp_address",
+            Dropzone.Method.FLIGHT: "flight_address",
+        }
+        for method, attribute in cases.items():
+            with self.subTest(method=method):
+                zone = self.zone(method)
+                self.assertEqual(zone.upload_address(), getattr(zone, attribute)())
+
+    def test_the_flight_example_is_valid_python(self):
+        zone = self.zone(Dropzone.Method.FLIGHT, secret="s3cret")
+        compile(zone.upload_example(), "<flight example>", "exec")
+
+
+class ExecutedExampleTests(TempMediaMixin, TestCase):
+    """Run the stored examples against live dropzones.
+
+    The point is that an example a user copies actually uploads something: the curl
+    commands are parsed into the request they describe and replayed through the real
+    view, so a template that drifts away from its endpoint fails here rather than
+    wasting an uploader's afternoon.
+    """
+
+    def curl_parts(self, command):
+        """The URL, headers and form fields of a ``curl`` example, as written."""
+        tokens = shlex.split(command.replace("\\\n", " "))
+        url, headers, fields = None, {}, []
+        index = 0
+        while index < len(tokens):
+            token = tokens[index]
+            if token in ("-H", "--header"):
+                name, _, value = tokens[index + 1].partition(":")
+                headers[name.strip()] = value.strip()
+                index += 2
+            elif token in ("-F", "--form"):
+                fields.append(tokens[index + 1])
+                index += 2
+            elif token in ("-X", "--request"):
+                index += 2
+            elif token.startswith("http"):
+                url = token
+                index += 1
+            else:
+                index += 1
+        return url, headers, fields
+
+    @staticmethod
+    def strip_comments(example):
+        return "\n".join(
+            line for line in example.splitlines() if not line.startswith("#")
+        ).strip()
+
+    @override_settings(DEBUG=True, SERVER_NAME="testserver")
+    def test_the_api_example_uploads_a_file(self):
+        zone = Dropzone.objects.create(
+            name="api-example", upload_method=Dropzone.Method.API, secret="s3cret"
+        )
+        url, headers, fields = self.curl_parts(
+            self.strip_comments(zone.upload_example())
+        )
+        self.assertEqual(url, zone.api_upload_url())
+        # -F files=@yourfile.csv means "post this file under the name files".
+        self.assertEqual([field.split("=@")[0] for field in fields], ["files"])
+        filename = fields[0].split("=@")[1]
+
+        response = self.client.post(
+            url,
+            {"files": SimpleUploadedFile(filename, b"a,b\n1,2\n")},
+            headers={"authorization": headers["Authorization"]},
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        upload = Upload.objects.get(dropzone=zone)
+        self.assertEqual([str(f) for f in upload.files.all()], [filename])
+
+    @override_settings(DEBUG=True, SERVER_NAME="testserver")
+    def test_the_webhook_example_stores_its_readings(self):
+        zone = Dropzone.objects.create(
+            name="webhook-example",
+            upload_method=Dropzone.Method.WEBHOOK,
+            secret="s3cret",
+        )
+        url, headers, _ = self.curl_parts(self.strip_comments(zone.upload_example()))
+        self.assertTrue(url.startswith(zone.webhook_url()))
+
+        response = self.client.get(
+            url, headers={"authorization": headers["Authorization"]}
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        upload = Upload.objects.get(dropzone=zone)
+        stored = (Path(settings.MEDIA_ROOT) / upload.files.get().file.name).read_text()
+        # The example's own readings, as the columns of the stored one-row CSV.
+        self.assertEqual(stored.splitlines()[0], "humidity,temperature")
+        self.assertEqual(stored.splitlines()[1], "48,21.5")
+
+    @override_settings(DEBUG=True, SERVER_NAME="testserver")
+    def test_the_browser_example_points_at_the_working_upload_page(self):
+        zone = Dropzone.objects.create(
+            name="browser-example", require_login=False
+        )
+        example = zone.upload_example()
+        self.assertIn(zone.upload_url(), example)
+        # The link in the example is the page an uploader lands on.
+        self.assertEqual(self.client.get(zone.upload_path()).status_code, 200)
+
+    @override_settings(SERVER_NAME="reports.example.com", SFTP_PORT=2222)
+    def test_the_sftp_example_uses_the_real_login_and_port(self):
+        zone = Dropzone.objects.create(
+            name="sftp-example", upload_method=Dropzone.Method.SFTP, secret="s3cret"
+        )
+        example = zone.upload_example()
+        # The credentials the example tells the uploader to use must be the ones the
+        # endpoint accepts; the transfer itself is covered by the integration suite.
+        self.assertIn("sftp -P 2222 sftp-example@reports.example.com", example)
+        self.assertTrue(zone.sftp_secret_matches("s3cret"))
+        self.assertIn("s3cret", example)
+
+
 class AdminTests(TempMediaMixin, TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -1351,15 +1829,34 @@ class AdminTests(TempMediaMixin, TestCase):
             zone.sftp_address(), DropzoneAdmin(Dropzone, admin.site).upload_link(zone)
         )
 
-    def test_upload_link_shows_the_webhook_curl(self):
+    def test_upload_link_shows_the_webhook_address(self):
         zone = Dropzone.objects.create(
             name="webhook-zone",
             upload_method=Dropzone.Method.WEBHOOK,
             require_login=False,
         )
-        link = DropzoneAdmin(Dropzone, admin.site).upload_link(zone)
-        self.assertIn(zone.webhook_url(), link)
-        self.assertIn("curl", link)
+        # The link field carries the address alone; how to call it is the example.
+        self.assertIn(
+            zone.webhook_url(), DropzoneAdmin(Dropzone, admin.site).upload_link(zone)
+        )
+
+    def test_example_field_shows_the_example_of_the_chosen_method(self):
+        admin_instance = DropzoneAdmin(Dropzone, admin.site)
+        self.assertEqual(admin_instance.example(None), "Available after saving.")
+        for method, expected in (
+            (Dropzone.Method.API, "curl"),
+            (Dropzone.Method.WEBHOOK, "temperature=21.5"),
+            (Dropzone.Method.SFTP, "sftp -P"),
+            (Dropzone.Method.FLIGHT, "do_put"),
+            (Dropzone.Method.BROWSER, "browser"),
+        ):
+            with self.subTest(method=method):
+                zone = Dropzone.objects.create(
+                    name=f"example-field-{method}",
+                    upload_method=method,
+                    secret="pw",
+                )
+                self.assertIn(expected, admin_instance.example(zone))
 
     def dropzone_form(self, **overrides):
         data = {

@@ -33,7 +33,8 @@ trap 'rm -rf "$WORK"' EXIT
 # sync with the workflow's matrix and the quadlets/ directory.
 IMAGES="postgresql crudman sqlmesh proxy grafana"
 QUADLETS="main.pod postgresql.container crudman.container sftp.container \
-  sqlmesh.container grafana.container proxy.container postgresql_data.volume \
+  flight.container sqlmesh.container grafana.container proxy.container \
+  postgresql_data.volume \
   grafana_data.volume crudman_data.volume sftp_data.volume sqlmesh_data.volume \
   proxy_data.volume uploads_data.volume"
 
@@ -169,13 +170,14 @@ Run a database backup now:
 
 Follow the combined live log of the whole system:
   journalctl --user -f -u 'main-pod.service' -u 'postgresql.service' \\
-    -u 'crudman.service' -u 'sftp.service' -u 'sqlmesh.service' \\
+    -u 'crudman.service' -u 'sftp.service' -u 'flight.service' -u 'sqlmesh.service' \\
     -u 'grafana.service' -u 'proxy.service'
 
 Follow the live log of a single component:
-  journalctl --user -f -u postgresql.service     # or crudman / sftp / sqlmesh / grafana / proxy
+  journalctl --user -f -u postgresql.service     # or crudman / sftp / flight / sqlmesh / grafana / proxy
 
-Dropzone SFTP uploads connect to port 2222; each dropzone's admin page shows its address.
+Dropzone SFTP uploads connect to port 2222 and Arrow Flight uploads to port 8815;
+each dropzone's admin page shows its address (and, for Arrow Flight, a client script).
 
 Volume paths (cd into them to inspect data):
   postgresql: \$(podman volume inspect ${PG_VOL} -f '{{.Mountpoint}}')
@@ -202,6 +204,7 @@ View the persistent log of a component (survives a crash, unlike journald):
   cat \$(podman volume inspect ${GF_VOL} -f '{{.Mountpoint}}')/log/grafana.log
   cat \$(podman volume inspect crudman_data -f '{{.Mountpoint}}')/crudman.log
   cat \$(podman volume inspect crudman_data -f '{{.Mountpoint}}')/sftp.log
+  cat \$(podman volume inspect crudman_data -f '{{.Mountpoint}}')/flight.log
   cat \$(podman volume inspect sqlmesh_data -f '{{.Mountpoint}}')/sqlmesh.log
   cat \$(podman volume inspect proxy_data   -f '{{.Mountpoint}}')/proxy.log
 EOF

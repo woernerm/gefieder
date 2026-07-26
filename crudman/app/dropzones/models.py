@@ -10,6 +10,8 @@ from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.urls import reverse
 
+from . import examples
+
 
 class Dropzone(models.Model):
     """A named entry point for uploading one specific kind of source files.
@@ -27,6 +29,7 @@ class Dropzone(models.Model):
         API = "api", "API endpoint"
         SFTP = "sftp", "SFTP"
         WEBHOOK = "webhook", "Webhook (HTTP GET)"
+        FLIGHT = "flight", "Arrow Flight"
 
     class Validity(models.TextChoices):
         UNTIL_REPLACED = "until_replaced", "Valid from now on until replacement"
@@ -94,10 +97,11 @@ class Dropzone(models.Model):
         max_length=64,
         help_text=(
             "Secret an unattended client presents: the API endpoint and the webhook "
-            "expect it as an 'Authorization: Bearer <secret>' header, the SFTP upload "
-            "uses it as the login password. For the API and the webhook it may stay "
-            "empty to keep the endpoint open (only sensible without a login "
-            "requirement); an SFTP dropzone without a secret accepts no logins."
+            "expect it as an 'Authorization: Bearer <secret>' header, the SFTP and "
+            "Arrow Flight uploads use it as the login password. For the API and the "
+            "webhook it may stay empty to keep the endpoint open (only sensible "
+            "without a login requirement); an SFTP or Arrow Flight dropzone without a "
+            "secret accepts no logins."
         ),
     )
     require_login = models.BooleanField(
@@ -151,6 +155,53 @@ class Dropzone(models.Model):
         """The SFTP address to hand to an uploader; the username is the dropzone name."""
         return f"sftp://{self.name}@{settings.SERVER_NAME}:{settings.SFTP_PORT}"
 
+    def flight_address(self):
+        """The Arrow Flight address to hand to an uploader.
+
+        Plain ``grpc://``: the endpoint is published straight from the pod like the
+        SFTP port, so nothing terminates TLS in front of it.
+        """
+        return f"grpc://{settings.SERVER_NAME}:{settings.FLIGHT_PORT}"
+
+    def upload_address(self):
+        """The address an uploader connects to, whatever the method is.
+
+        The URL for the methods that have one, the SFTP or Arrow Flight address for
+        those that connect rather than fetch.
+        """
+        return {
+            self.Method.API: self.api_upload_url,
+            self.Method.WEBHOOK: self.webhook_url,
+            self.Method.SFTP: self.sftp_address,
+            self.Method.FLIGHT: self.flight_address,
+        }.get(self.upload_method, self.upload_url)()
+
+    def upload_example(self):
+        """A ready-to-run example for this dropzone's upload method.
+
+        The template of the method (see :mod:`dropzones.examples`) with this dropzone's
+        real address, name, token and secret filled in, so an uploader can copy it and
+        run it as it stands. A dropzone without a secret yet shows a ``<secret>``
+        marker in its place, which is the one thing left to fill in.
+        """
+        template = examples.TEMPLATES.get(self.upload_method)
+        if template is None:
+            return ""
+        port = (
+            settings.FLIGHT_PORT
+            if self.upload_method == self.Method.FLIGHT
+            else settings.SFTP_PORT
+        )
+        # Every placeholder is supplied; each template uses only the ones it needs.
+        return template.format(
+            url=self.upload_address(),
+            address=self.upload_address(),
+            name=self.name,
+            secret=self.secret or "<secret>",
+            port=port,
+            host=settings.SERVER_NAME,
+        )
+
     def user_may_upload(self, user):
         if not self.require_login:
             return True
@@ -181,6 +232,16 @@ class Dropzone(models.Model):
         Unlike the API endpoint an SFTP login carries no unguessable URL token — the
         username is the dropzone's name — so an empty ``secret`` rejects every login
         rather than opening the server. Compared in constant time, like the API check.
+        """
+        if not self.secret or not presented:
+            return False
+        return secrets.compare_digest(self.secret, presented)
+
+    def flight_secret_matches(self, presented):
+        """Whether ``presented`` is this dropzone's Arrow Flight password (the secret).
+
+        Fails closed on an empty secret for the same reason as the SFTP check: the
+        Flight client authenticates with the dropzone's name, which is not a secret.
         """
         if not self.secret or not presented:
             return False

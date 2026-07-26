@@ -1,0 +1,44 @@
+# The dropzones Arrow Flight endpoint, published by the pod on port 8815 (see main.pod).
+#
+# It runs the crudman image in its "flight" role: a small Arrow Flight server that
+# authenticates uploaders against the dropzones and feeds every committed upload into
+# the same pipeline the browser, API and SFTP uploads use. Ordering after crudman (plus
+# the entrypoint's own wait) makes sure the database migrations are applied first.
+# Notify=healthy marks the service started only once the port answers.
+[Unit]
+Description=${APP_NAME} flight (dropzones Arrow Flight endpoint)
+After=crudman.service
+
+[Container]
+ContainerName=flight
+Pod=main.pod
+Image=${REGISTRY}/crudman:${IMAGE_TAG}
+Exec=/crudman/entrypoint.sh flight
+Notify=healthy
+Environment=APP_NAME=${APP_NAME}
+Environment=SERVER_NAME=${SERVER_NAME}
+Environment=DEBUG=${DEBUG}
+Environment=POSTGRES_HOST=localhost
+Environment=POSTGRES_PORT=5432
+Environment=POSTGRES_DB=postgres
+Environment=POSTGRES_USER=crudman
+# The log volume is crudman's: the endpoint is part of the same Django application, so
+# its flight.log sits next to crudman.log. Unlike SFTP it keeps no state of its own —
+# uploads in progress live in the container's temporary directory and are deliberately
+# lost on a restart, because an upload that was never committed is incomplete.
+Volume=crudman_data.volume:/var/log/app
+Environment=UPLOADS_DIR=/var/lib/app/uploads
+Volume=uploads_data.volume:/var/lib/app/uploads
+Secret=django_secret_key
+Secret=crudman_password
+HealthCmd=python -c 'import socket; socket.create_connection(("127.0.0.1", 8815), 5).close()'
+HealthInterval=10s
+HealthTimeout=5s
+HealthRetries=10
+HealthStartPeriod=20s
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

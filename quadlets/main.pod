@@ -1,9 +1,10 @@
-# The pod groups all six containers into a single shared network namespace, so they
+# The pod groups all seven containers into a single shared network namespace, so they
 # reach each other on localhost (replacing the implicit shared network compose gave us).
-# Only the proxy (80/443) and the dropzones SFTP endpoint (2222) publish ports, and
-# they do so here at the pod level. Quadlet does not expand shell-style variables in
-# PublishPort, so the host ports are literal; to serve on different ports, edit the
-# lines below (for SFTP also set SFTP_PORT in crudman.container and sftp.container so
+# Only the proxy (80/443), the dropzones SFTP endpoint (2222) and the dropzones Arrow
+# Flight endpoint (8815) publish ports, and they do so here at the pod level. Quadlet
+# does not expand shell-style variables in PublishPort, so the host ports are literal;
+# to serve on different ports, edit the lines below (for SFTP also set SFTP_PORT, for
+# Arrow Flight FLIGHT_PORT, in crudman.container and the endpoint's own container so
 # the admin shows the right address).
 #
 # The file is named main.pod (so the generated unit is main-pod.service and the
@@ -14,6 +15,7 @@ PodName=${APP_NAME}
 PublishPort=80:80
 PublishPort=443:443
 PublishPort=2222:2222
+PublishPort=8815:8815
 
 [Install]
 WantedBy=default.target

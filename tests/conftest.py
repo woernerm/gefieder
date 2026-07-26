@@ -56,6 +56,7 @@ BASE_URL = os.environ["TEST_BASE_URL"]            # e.g. http://localhost:8080
 HTTP_BASE_URL = os.environ["TEST_HTTP_BASE_URL"]  # the plain-HTTP base, for the redirect test
 PG_PORT = os.environ.get("TEST_PG_PORT", "5432")
 SFTP_PORT = int(os.environ.get("TEST_SFTP_PORT", "2222"))
+FLIGHT_PORT = int(os.environ.get("TEST_FLIGHT_PORT", "8815"))
 GRAFANA_PASSWORD = os.environ["TEST_GRAFANA_PASSWORD"]
 SUPERUSER_PASSWORD = os.environ["TEST_SUPERUSER_PASSWORD"]
 CRUDMAN_PASSWORD = os.environ["TEST_CRUDMAN_PASSWORD"]
@@ -78,7 +79,8 @@ CRUDMAN_LOGIN = f"/{CRUDMAN_PATH}/login/"
 GRAFANA_LOGIN = f"/{GRAFANA_PATH}/login"
 
 # The names of the containers that make up the stack.
-CONTAINERS = ["postgresql", "crudman", "sftp", "sqlmesh", "grafana", "proxy"]
+CONTAINERS = ["postgresql", "crudman", "sftp", "flight", "sqlmesh", "grafana",
+              "proxy"]
 
 # The systemd unit that owns the pod (the quadlet file is named main.pod).
 POD_SERVICE = "main-pod.service"
@@ -91,12 +93,14 @@ DATA_VOLUMES = [
 ]
 
 # Where each service writes its persistent log, as (container, volume, path-in-volume).
-# crudman/sftp/sqlmesh/proxy tee their entrypoint output to a file the rootless user
-# owns (sftp runs the crudman application, so its log shares crudman's volume);
-# postgresql and grafana are configured to log into a subdir of their data volume.
+# crudman/sftp/flight/sqlmesh/proxy tee their entrypoint output to a file the rootless
+# user owns (sftp and flight run the crudman application, so their logs share crudman's
+# volume); postgresql and grafana are configured to log into a subdir of their data
+# volume.
 PERSISTENT_LOGS = [
     ("crudman", "crudman_data", "crudman.log"),
     ("sftp", "crudman_data", "sftp.log"),
+    ("flight", "crudman_data", "flight.log"),
     ("sqlmesh", "sqlmesh_data", "sqlmesh.log"),
     ("proxy", "proxy_data", "proxy.log"),
     ("postgresql", "postgresql_data", "log"),   # directory of dated log files
@@ -107,7 +111,7 @@ PERSISTENT_LOGS = [
 # mapped to the host user), so the log file is owned by that user without `podman
 # unshare`. postgresql/grafana run as a non-root in-container user, so their files land
 # on a mapped subuid instead and are excluded from the ownership assertion.
-USER_OWNED_LOGS = ["crudman", "sftp", "sqlmesh", "proxy"]
+USER_OWNED_LOGS = ["crudman", "sftp", "flight", "sqlmesh", "proxy"]
 
 # In the production profile the proxy serves a self-signed certificate, so TLS
 # verification is disabled for the test run.

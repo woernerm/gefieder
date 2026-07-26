@@ -1,5 +1,4 @@
 from django import forms
-from django.conf import settings
 from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
@@ -41,12 +40,18 @@ class DropzoneForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
-        # An SFTP login has no unguessable URL token standing in for a credential, so
-        # a dropzone with the SFTP method needs its secret (the password) up front.
+        # An SFTP or Arrow Flight login has no unguessable URL token standing in for a
+        # credential, so those methods need their secret (the password) up front.
         if cleaned.get("upload_method") == Dropzone.Method.SFTP and not cleaned.get(
             "secret"
         ):
             self.add_error("secret", "The SFTP upload needs a secret as its password.")
+        if cleaned.get("upload_method") == Dropzone.Method.FLIGHT and not cleaned.get(
+            "secret"
+        ):
+            self.add_error(
+                "secret", "The Arrow Flight upload needs a secret as its password."
+            )
         # A time period needs its dates from the uploader, and only the browser upload
         # has a form to enter them on.
         if (
@@ -74,7 +79,7 @@ class DropzoneAdmin(ModelAdmin):
     list_filter = ("upload_method", "enabled")
     search_fields = ("name", "description")
     filter_horizontal = ("allowed_users",)
-    readonly_fields = ("upload_link",)
+    readonly_fields = ("upload_link", "example")
     fields = (
         "name",
         "description",
@@ -88,6 +93,7 @@ class DropzoneAdmin(ModelAdmin):
         "secret",
         "enabled",
         "upload_link",
+        "example",
     )
 
     # The changelist shows the functions by their human-readable labels, like the
@@ -102,39 +108,25 @@ class DropzoneAdmin(ModelAdmin):
 
     @admin.display(description="secret upload link")
     def upload_link(self, obj):
-        # What to hand to uploaders: the secret page for a browser dropzone, the POST
-        # endpoint (with a ready-to-run curl line) for an API dropzone, the GET URL
-        # (with a curl line showing example readings) for a webhook dropzone, the SFTP
-        # address (with a ready-to-run sftp line) for an SFTP dropzone. The token
-        # exists only once the row is saved.
+        # Just the address to connect to; how to use it is the example field below.
+        # The browser link stays clickable, the others are addresses rather than pages.
+        # The token exists only once the row is saved.
         if obj is None or not obj.pk:
             return "Available after saving."
-        if obj.upload_method == Dropzone.Method.API:
-            auth = ' -H "Authorization: Bearer <secret>"' if obj.secret else ""
-            return format_html(
-                '{}<br><code>curl{} -F files=@yourfile {}</code>',
-                obj.api_upload_url(),
-                auth,
-                obj.api_upload_url(),
-            )
-        if obj.upload_method == Dropzone.Method.WEBHOOK:
-            auth = ' -H "Authorization: Bearer <secret>"' if obj.secret else ""
-            return format_html(
-                '{}<br><code>curl{} "{}?temperature=21.5"</code>',
-                obj.webhook_url(),
-                auth,
-                obj.webhook_url(),
-            )
-        if obj.upload_method == Dropzone.Method.SFTP:
-            return format_html(
-                "{}<br><code>sftp -P {} {}@{}</code>, then <code>put</code> the "
-                "file(s) and disconnect; the secret is the password.",
-                obj.sftp_address(),
-                settings.SFTP_PORT,
-                obj.name,
-                settings.SERVER_NAME,
-            )
-        return format_html('<a href="{}">{}</a>', obj.upload_path(), obj.upload_url())
+        if obj.upload_method == Dropzone.Method.BROWSER:
+            return format_html('<a href="{}">{}</a>', obj.upload_path(), obj.upload_url())
+        return obj.upload_address()
+
+    @admin.display(description="example")
+    def example(self, obj):
+        # The ready-to-run client for the chosen method, filled in with this dropzone's
+        # address and credentials. white-space:pre keeps the indentation intact.
+        if obj is None or not obj.pk:
+            return "Available after saving."
+        return format_html(
+            '<pre style="white-space: pre; overflow-x: auto">{}</pre>',
+            obj.upload_example(),
+        )
 
 
 class UploadFileInline(TabularInline):

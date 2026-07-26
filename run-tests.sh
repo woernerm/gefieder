@@ -53,6 +53,7 @@ HTTPS_PORT=18443
 GRAFANA_PORT=13000
 PG_PORT=15432
 SFTP_PORT=12222
+FLIGHT_PORT=18815
 
 # The host-local cert directory the proxy quadlet mounts (same path a deployment uses).
 # It must exist even in dev mode, where the proxy mounts but does not read it.
@@ -124,12 +125,13 @@ PublishPort=${HTTPS_PORT}:443
 PublishPort=${PG_PORT}:5432
 PublishPort=${GRAFANA_PORT}:3000
 PublishPort=${SFTP_PORT}:2222
+PublishPort=${FLIGHT_PORT}:8815
 
 [Install]
 WantedBy=default.target
 EOF
 
-UNITS="postgresql crudman sftp sqlmesh grafana proxy"
+UNITS="postgresql crudman sftp flight sqlmesh grafana proxy"
 VOLUMES="postgresql_data grafana_data crudman_data sftp_data sqlmesh_data proxy_data uploads_data"
 
 # Holds the password file the crudman unit tests mount; created just before they run,
@@ -183,6 +185,7 @@ export TEST_BASE_URL="$SCHEME://localhost:$APP_PORT"
 export TEST_HTTP_BASE_URL="http://localhost:$HTTP_PORT"
 export TEST_PG_PORT="$PG_PORT"
 export TEST_SFTP_PORT="$SFTP_PORT"
+export TEST_FLIGHT_PORT="$FLIGHT_PORT"
 export TEST_GRAFANA_PASSWORD="$GRAFANA_PASSWORD"
 export TEST_SUPERUSER_PASSWORD="$SUPERUSER_PASSWORD"
 export TEST_CRUDMAN_PASSWORD="$CRUDMAN_PASSWORD"

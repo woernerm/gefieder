@@ -8,6 +8,7 @@ dependencies = [
     "httpx",
     "paramiko",
     "psycopg2-binary",
+    "pyarrow",
 ]
 
 [tool.pytest.ini_options]

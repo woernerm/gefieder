@@ -42,6 +42,8 @@ HTTP_PORT="${HTTP_PORT:-8080}"
 PG_PORT="${PG_PORT:-5432}"
 # The dropzones SFTP endpoint, same host port as the deployment publishes.
 SFTP_PORT="${SFTP_PORT:-2222}"
+# The dropzones Arrow Flight endpoint, likewise.
+FLIGHT_PORT="${FLIGHT_PORT:-8815}"
 PG_USER="${SUPERUSER_NAME}"
 PG_DB="postgres"
 # Publish on the IPv4 loopback explicitly. On WSL "localhost" often resolves to ::1
@@ -195,7 +197,8 @@ podman pod rm -f "$POD" >/dev/null 2>&1 || true
 podman pod create --name "$POD" \
   --publish "${HOST_ADDR}:${HTTP_PORT}:80" \
   --publish "${HOST_ADDR}:${PG_PORT}:5432" \
-  --publish "${HOST_ADDR}:${SFTP_PORT}:2222" >/dev/null
+  --publish "${HOST_ADDR}:${SFTP_PORT}:2222" \
+  --publish "${HOST_ADDR}:${FLIGHT_PORT}:8815" >/dev/null
 
 # --- run the containers ---------------------------------------------------------------
 # Each `podman run` mirrors the matching *.container quadlet: same image, environment,
@@ -241,6 +244,15 @@ podman run -d --pod "$POD" --name sftp --restart always \
   -v sftp_data:/var/lib/app/sftp \
   --secret django_secret_key --secret crudman_password \
   "${REGISTRY}/crudman:${IMAGE_TAG}" /crudman/entrypoint.sh sftp >/dev/null
+
+podman run -d --pod "$POD" --name flight --restart always \
+  -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 \
+  -e POSTGRES_DB=postgres -e POSTGRES_USER=crudman \
+  -e UPLOADS_DIR=/var/lib/app/uploads \
+  -v crudman_data:/var/log/app \
+  -v uploads_data:/var/lib/app/uploads \
+  --secret django_secret_key --secret crudman_password \
+  "${REGISTRY}/crudman:${IMAGE_TAG}" /crudman/entrypoint.sh flight >/dev/null
 
 podman run -d --pod "$POD" --name sqlmesh --restart always \
   -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 -e POSTGRES_DB=postgres \
@@ -292,6 +304,9 @@ ${APP_NAME} is starting in development mode (plain HTTP, no certificate).
 
   SFTP:         port ${SFTP_PORT} for dropzones with the SFTP method
                 (each dropzone's admin page shows its address; the secret is the password)
+
+  Arrow Flight: port ${FLIGHT_PORT} for dropzones with the Arrow Flight method
+                (each dropzone's admin page shows its address and a ready-to-run client)
 
   Follow logs:  ./dev.sh logs
   Stop:         ./dev.sh down

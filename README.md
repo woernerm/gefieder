@@ -113,12 +113,14 @@ builds through `build.sh`, so CI and a developer build identically.
 
 ## The containers
 The system is a single pod (named after `APP_NAME`, `gefieder` by default; the pod file
-is `main.pod`, so the systemd unit is `main-pod.service`) of six containers:
+is `main.pod`, so the systemd unit is `main-pod.service`) of seven containers:
 
 - `postgresql` — the database holding the engineering, analytics and application data
 - `crudman` — the Django administration panel, reachable through the proxy
 - `sftp` — the SFTP endpoint for dropzone uploads (the crudman image in a second role),
   published on port 2222
+- `flight` — the Arrow Flight endpoint for dropzone uploads (the crudman image in a
+  third role), published on port 8815
 - `sqlmesh` — the SQLMesh analytics engine, running models on their cron schedules
 - `grafana` — the Grafana dashboards, with the database pre-configured as a read-only
   data source
@@ -213,10 +215,11 @@ Every service keeps a persistent log on its volume, so a crash leaves its cause 
 
 - `postgresql` and `grafana` are configured to log into a `log/` subdirectory of their
   data volume.
-- `crudman`, `sftp`, `sqlmesh` and `proxy` tee their entrypoint output to a log file on
-  their data volume (the SFTP endpoint is part of the crudman application, so its
-  `sftp.log` sits next to `crudman.log`); those files are owned by the rootless podman
-  user, so you can read them without `podman unshare`.
+- `crudman`, `sftp`, `flight`, `sqlmesh` and `proxy` tee their entrypoint output to a
+  log file on their data volume (the SFTP and Arrow Flight endpoints are part of the
+  crudman application, so their `sftp.log` and `flight.log` sit next to `crudman.log`);
+  those files are owned by the rootless podman user, so you can read them without
+  `podman unshare`.
 
 Follow the live logs through journald, or read the persistent files from the volumes:
 
@@ -279,6 +282,14 @@ with the dropzone's name and secret, put one or more files and disconnect; that'
 whole protocol. Everything sent in one session is stored as one upload with the
 dropzone's default validity, an interrupted transfer stores nothing, and uploaders
 only ever see their own session — never each other's files.
+
+Analysts who already work with data frames can skip files altogether. A dropzone with
+the *Arrow Flight* method takes Arrow tables straight over the network on port 8815 —
+each table is stored as its own Parquet file, named after the table. The admin page
+shows the address together with a complete client script to copy, so sending a Polars
+or DuckDB result is a handful of lines. Several tables can go into one upload; nothing
+is stored until the client commits at the end, so an upload that breaks off halfway
+leaves nothing behind.
 
 Even devices that cannot produce a file are covered: a dropzone with the *Webhook*
 method takes a plain HTTP GET and stores whatever values ride along in the URL — say

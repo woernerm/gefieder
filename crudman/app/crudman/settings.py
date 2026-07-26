@@ -201,6 +201,14 @@ MEDIA_ROOT = Path(os.environ.get('UPLOADS_DIR', BASE_DIR / 'media'))
 SFTP_DIR = Path(os.environ.get('SFTP_DIR', BASE_DIR / 'sftp'))
 SFTP_PORT = int(os.environ.get('SFTP_PORT', '2222'))
 
+# The dropzones Arrow Flight endpoint (manage.py flightserver, run by the flight
+# container). FLIGHT_PORT is both the port the server listens on and the port the admin
+# shows in a dropzone's Flight address, so it must match the port the pod publishes
+# (main.pod). FLIGHT_SESSION_TIMEOUT is how long an upload may stay open between calls
+# before it counts as abandoned; abandoned uploads are discarded, never stored.
+FLIGHT_PORT = int(os.environ.get('FLIGHT_PORT', '8815'))
+FLIGHT_SESSION_TIMEOUT = int(os.environ.get('FLIGHT_SESSION_TIMEOUT', '1800'))
+
 STORAGES = {
     'default': {
         'BACKEND': 'django.core.files.storage.FileSystemStorage',
