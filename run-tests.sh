@@ -132,6 +132,10 @@ EOF
 UNITS="postgresql crudman sftp sqlmesh grafana proxy"
 VOLUMES="postgresql_data grafana_data crudman_data sftp_data sqlmesh_data proxy_data uploads_data"
 
+# Holds the password file the crudman unit tests mount; created just before they run,
+# declared here so the cleanup trap below can always refer to it.
+UNIT_SECRET_DIR=""
+
 # Install the server-statistics collector the way the release installer does, so the
 # suite exercises the real host-side sampler: render its units into the systemd user dir
 # and drop the collector and a runtime.env under ~/.config/<APP_NAME>/. The suite triggers
@@ -160,6 +164,9 @@ cleanup() {
   rm -f "$SYSTEMD_USER_DIR/server-stats.service" "$SYSTEMD_USER_DIR/server-stats.timer"
   systemctl --user daemon-reload >/dev/null 2>&1 || true
   rm -f "$CERT_DIR/fullchain.pem" "$CERT_DIR/privkey.pem"
+  # The unit tests' mounted password file, in case they failed before removing it.
+  # Unset until they run, so guard against rm -rf on an empty path.
+  if [ -n "$UNIT_SECRET_DIR" ]; then rm -rf "$UNIT_SECRET_DIR"; fi
 }
 trap cleanup EXIT INT TERM
 
@@ -185,5 +192,37 @@ export TEST_SQLMESH_PASSWORD="$SQLMESH_PASSWORD"
 export TEST_SERVER_STATS_SCHEMA="${SERVER_STATS_SCHEMA:-server_stats}"
 export TEST_COLLECTOR="$APP_CONFIG_DIR/serverstats/collect.sh"
 
+# The crudman unit tests (crudman/app/*/tests.py) cover the application logic the
+# integration suite only sees from the outside: the upload pipeline, the check/convert
+# registry, the validity clipping and the SFTP session handling. They run first, in a
+# throwaway container from the crudman image, so a broken pipeline fails here rather
+# than as a puzzling HTTP result later.
+#
+# Run from the image rather than a host virtualenv so the dependencies are exactly the
+# ones the deployment ships (a stale host venv would test something nobody runs).
+# Django's test runner creates and drops its own test_<db> database, so it needs a role
+# with CREATEDB: the deployed crudman role deliberately has none, hence the connection
+# as the database superuser. Its password is mounted where settings.py reads the
+# database password from, the only way in (settings.py takes it from the secret file,
+# not from the environment).
+echo "Running the crudman unit tests ..."
+UNIT_SECRET_DIR="$(mktemp -d)"
+podman secret inspect --showsecret -f '{{.SecretData}}' superuser_password \
+  > "$UNIT_SECRET_DIR/crudman_password"
+# collectstatic first: the tests render admin pages, and the manifest static files
+# storage resolves every asset through the manifest the entrypoint builds at startup —
+# a fresh container has none. UPLOADS_DIR/SFTP_DIR point into the container's own
+# filesystem, which dies with it, so no test writes anywhere persistent.
+podman run --rm --network host \
+  -v "$UNIT_SECRET_DIR/crudman_password:/run/secrets/crudman_password:ro,Z" \
+  -e POSTGRES_HOST=localhost -e POSTGRES_PORT="$PG_PORT" \
+  -e POSTGRES_USER="$SUPERUSER_NAME" -e POSTGRES_DB=postgres \
+  -e UPLOADS_DIR=/tmp/uploads -e SFTP_DIR=/tmp/sftp \
+  --entrypoint sh "${REGISTRY}/crudman:${IMAGE_TAG}" -c \
+  'uv run --project /crudman python manage.py collectstatic --noinput >/dev/null \
+   && uv run --project /crudman python manage.py test --noinput'
+rm -rf "$UNIT_SECRET_DIR"
+
 # Run the suite. uv provides the test dependencies from tests/pyproject.toml.
+echo "Running the integration test suite ..."
 uv run --project tests pytest tests/ -v

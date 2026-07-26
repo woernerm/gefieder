@@ -167,7 +167,8 @@
     - An upload may consist of multiple files.
     - The user shall use crudman to define dropzones. A dropzone uniquely identifies
       the source's purpose, the file format (e.g. Excel, CSV, Parquet) and the method
-      of upload (e.g. Post to API endpoint, sftp directory, browser file upload).
+      of upload (e.g. Post to API endpoint, sftp directory, browser file upload, 
+      variable values via a GET-Request, Arrow Flight).
     - Crudman shall have a model for a dropzone. It contains at least its name, 
       description, file format, file path, upload method, processing function to be 
       used and authentication details (e.g. sftp username and password, API token, 

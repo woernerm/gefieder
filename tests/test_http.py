@@ -38,8 +38,11 @@ class TestStaticFiles:
 
     def test_grafana_static_files_shall_be_served(self, http_follow):
         # Grafana references assets relative to its <base href="/GRAFANA_PATH/">.
+        # The bundle names come from the upstream image and change between releases
+        # (13.x appends a "-react19" variant suffix), so match any of them rather than
+        # one specific bundle: what is under test is the proxy serving the asset.
         html = http_follow.get(GRAFANA_LOGIN).text
-        match = re.search(r"public/build/grafana\.app\.[^\"']+\.css", html)
+        match = re.search(r"public/build/grafana\.[^\"']+\.css", html)
         assert match, "no grafana static asset referenced on the login page"
         resp = http_follow.get(f"/{GRAFANA_PATH}/" + match.group(0))
         assert resp.status_code == 200
