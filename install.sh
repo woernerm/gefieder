@@ -14,10 +14,17 @@ set -e
 # --- where the release lives ----------------------------------------------------------
 # REPO is the full URL of the repository the release lives in; it is baked in from
 # buildtime.env when the release is built, so this installer works against an enterprise
-# GitHub instance as well as github.com. Override REPO/TAG to install a different
-# repository or a pinned version, e.g.
+# GitHub instance as well as github.com. There is no default: guessing a repository would
+# silently pull someone else's release. Set REPO (and optionally TAG for a pinned
+# version) when running the installer from a checkout, e.g.
 #   REPO=https://github.example.com/myorg/myrepo TAG=v1.2.0 ./install.sh
-REPO="${REPO:-https://github.com/your-org/gefieder}"
+REPO="${REPO}"
+if [ -z "$REPO" ]; then
+  echo "REPO is required: the full URL of the repository holding the release, e.g." >&2
+  echo "  REPO=https://github.example.com/myorg/myrepo ./install.sh" >&2
+  exit 1
+fi
+
 TAG="${TAG:-latest}"
 if [ "$TAG" = "latest" ]; then
   BASE="${REPO}/releases/latest/download"

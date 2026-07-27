@@ -4,15 +4,16 @@ name: Build and release
 # as a GitHub release: one tarball per image, one file per quadlet, plus install.sh.
 # A server then installs it without a checkout via the curl one-liner in install.sh.
 #
-# Triggered by every commit to main; also runnable manually with an explicit tag.
+# Triggered by every commit to main; also runnable manually, optionally with an explicit
+# tag to override the calendar version.
 on:
   push:
     branches: ["main"]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to create (e.g. v1.2.0)"
-        required: true
+        description: "Release tag to create (e.g. 26.7.3). Leave empty for the next calendar version."
+        required: false
 
 permissions:
   contents: write   # create the release and upload its assets
@@ -22,17 +23,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Pinned to a full commit SHA (v5.0.0) so a moved tag cannot change what runs.
+      # fetch-depth: 0 brings the tags along; the calendar version below counts the
+      # releases already tagged this month, and a shallow checkout has none of them.
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          fetch-depth: 0
 
-      # The release tag: the explicit one from a manual run, otherwise a unique tag
-      # derived from the date and short commit SHA for the main-branch push.
+      # The release tag: the explicit one from a manual run, otherwise a calendar version
+      # YY.M.x (e.g. 26.7.1, 26.12.11). The month resets the counter; within a month x is
+      # the highest patch already released for that YY.M, plus one. Existing tags are the
+      # source of truth, so a re-run cannot collide with an earlier release.
       - name: Resolve the release tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
-          if [ -n "${{ github.event.inputs.tag }}" ]; then
-            echo "TAG=${{ github.event.inputs.tag }}" >> "$GITHUB_ENV"
-          else
-            echo "TAG=v$(date +%Y.%m.%d)-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          if [ -n "$INPUT_TAG" ]; then
+            echo "TAG=$INPUT_TAG" >> "$GITHUB_ENV"
+            exit 0
           fi
+
+          PREFIX="$(date +%y).$(date +%-m)"
+
+          # List the tags for this month and take the largest patch number. --sort=-v:refname
+          # would order 11 before 2, so compare numerically instead.
+          LAST="$(git tag --list "${PREFIX}.*" \
+            | sed -n "s/^${PREFIX}\.\([0-9][0-9]*\)$/\1/p" \
+            | sort -n | tail -n 1)"
+
+          echo "TAG=${PREFIX}.$(( ${LAST:-0} + 1 ))" >> "$GITHUB_ENV"
 
       # Load the build-time settings so the build args and the rendered quadlets use the
       # same values. Only KEY=value lines go into $GITHUB_ENV; comments and blank lines in
@@ -83,6 +101,12 @@ jobs:
           # Bake the repository URL into the installer so the curl one-liner points at this
           # repository (github.com or an enterprise instance). Only ${REPO} is substituted;
           # the installer's own shell variables ($WORK, $BASE, ...) are left untouched.
+          # REPO has no default, so fail here rather than publish an installer that would
+          # download from an empty URL.
+          if [ -z "${REPO}" ]; then
+            echo "REPO is not set in buildtime.env; set it to this repository's URL." >&2
+            exit 1
+          fi
           envsubst '${REPO}' < install.sh > dist/install.sh
 
       - name: Publish the GitHub release

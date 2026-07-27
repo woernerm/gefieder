@@ -96,14 +96,48 @@ export DEBUG
 
 # A running "systemd --user" only scans this fixed path with its generator (it ignores an
 # XDG_CONFIG_HOME we might export here), so the test must install where the real
-# deployment installs. Refuse to run if a deployment is already there, so the test never
-# clobbers it.
+# deployment installs. So the test never silently clobbers a deployment already there, it
+# asks for confirmation before removing it (below).
 QUADLET_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/containers/systemd"
+SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 mkdir -p "$QUADLET_DIR"
+
+UNITS="postgresql crudman sftp flight sqlmesh grafana proxy"
+VOLUMES="postgresql_data grafana_data crudman_data sftp_data sqlmesh_data proxy_data uploads_data"
+
+# Stop the stack's services and drop its pod, volumes and unit files. Shared by the
+# teardown of our own test stack and by the removal of a pre-existing deployment, which
+# are the same operation -- both are installed in the same place under the same names.
+remove_deployment() {
+  for u in $UNITS; do systemctl --user stop "${u}.service" >/dev/null 2>&1 || true; done
+  systemctl --user stop server-stats.timer >/dev/null 2>&1 || true
+  podman pod rm -f "$APP_NAME" >/dev/null 2>&1 || true
+  podman volume rm -f $VOLUMES >/dev/null 2>&1 || true
+  # Glob rather than iterate quadlets/, so a deployment installed from a release is
+  # cleared even where it holds unit files this checkout does not know about.
+  rm -f "$QUADLET_DIR"/*.pod "$QUADLET_DIR"/*.container "$QUADLET_DIR"/*.volume
+  rm -f "$SYSTEMD_USER_DIR/server-stats.service" "$SYSTEMD_USER_DIR/server-stats.timer"
+  systemctl --user daemon-reload >/dev/null 2>&1 || true
+}
+
+# The test installs over the same paths, so an existing deployment has to go first. Ask
+# rather than refuse: on a machine kept for testing, re-deploying by hand every run is
+# tedious. The data loss is spelled out because the volumes go with it.
 if [ -e "$QUADLET_DIR/main.pod" ]; then
-  echo "A deployment is already installed in $QUADLET_DIR; refusing to run." >&2
-  echo "Stop and remove it first, or run the tests on a host without a deployment." >&2
-  exit 1
+  echo "A deployment is already installed in $QUADLET_DIR."
+  echo "Running the tests requires removing it, including its volumes and all data in them."
+  printf "Delete the deployment and continue? [y/N] "
+  read -r reply
+  case "$reply" in
+    y|Y|yes|YES|Yes)
+      echo "Removing the existing deployment ..."
+      remove_deployment
+      ;;
+    *)
+      echo "Keeping the deployment; not running the tests." >&2
+      exit 1
+      ;;
+  esac
 fi
 
 # Render the quadlet templates the same way the release workflow does: substitute only
@@ -131,9 +165,6 @@ PublishPort=${FLIGHT_PORT}:8815
 WantedBy=default.target
 EOF
 
-UNITS="postgresql crudman sftp flight sqlmesh grafana proxy"
-VOLUMES="postgresql_data grafana_data crudman_data sftp_data sqlmesh_data proxy_data uploads_data"
-
 # Holds the password file the crudman unit tests mount; created just before they run,
 # declared here so the cleanup trap below can always refer to it.
 UNIT_SECRET_DIR=""
@@ -142,7 +173,6 @@ UNIT_SECRET_DIR=""
 # suite exercises the real host-side sampler: render its units into the systemd user dir
 # and drop the collector and a runtime.env under ~/.config/<APP_NAME>/. The suite triggers
 # a sample itself (rather than waiting for the timer) and asserts rows appear.
-SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 APP_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/${APP_NAME}"
 mkdir -p "$SYSTEMD_USER_DIR" "$APP_CONFIG_DIR/serverstats"
 for u in serverstats/server-stats.service serverstats/server-stats.timer; do
@@ -156,15 +186,7 @@ cleanup() {
   # deletes the throwaway volumes. The teardown is silenced, so announce it -- this is the
   # pause between the test result and the prompt returning.
   echo "Tearing down the test stack ..."
-  for u in $UNITS; do systemctl --user stop "${u}.service" >/dev/null 2>&1 || true; done
-  systemctl --user stop server-stats.timer >/dev/null 2>&1 || true
-  podman pod rm -f "$APP_NAME" >/dev/null 2>&1 || true
-  podman volume rm -f $VOLUMES >/dev/null 2>&1 || true
-  # Remove exactly the unit files rendered above (one per quadlets/ entry), so renames
-  # never leave stragglers behind.
-  for f in quadlets/*; do rm -f "$QUADLET_DIR/$(basename "$f")"; done
-  rm -f "$SYSTEMD_USER_DIR/server-stats.service" "$SYSTEMD_USER_DIR/server-stats.timer"
-  systemctl --user daemon-reload >/dev/null 2>&1 || true
+  remove_deployment
   rm -f "$CERT_DIR/fullchain.pem" "$CERT_DIR/privkey.pem"
   # The unit tests' mounted password file, in case they failed before removing it.
   # Unset until they run, so guard against rm -rf on an empty path.

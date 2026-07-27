@@ -84,7 +84,7 @@ command at your own repository (the `REPO` you set in `buildtime.env`, which may
 enterprise GitHub instance):
 
 ```bash
-curl -fsSL https://github.com/your-org/gefieder/releases/latest/download/install.sh | bash
+curl -fsSL https://github.example.com/myorg/myrepo/releases/latest/download/install.sh | bash
 ```
 
 Then start the pod and verify in a browser that `http://` redirects to `https://`:
