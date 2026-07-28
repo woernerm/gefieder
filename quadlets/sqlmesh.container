@@ -12,6 +12,9 @@ ContainerName=sqlmesh
 Pod=main.pod
 Image=${REGISTRY}/sqlmesh:${IMAGE_TAG}
 Notify=healthy
+# An init at PID 1 forwards the stop signal past the entrypoint's tee pipeline; see
+# crudman.container for why the shell alone cannot.
+RunInit=true
 Environment=POSTGRES_HOST=localhost
 Environment=POSTGRES_PORT=5432
 Environment=POSTGRES_DB=postgres

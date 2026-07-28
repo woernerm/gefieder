@@ -1,11 +1,16 @@
 # The pod groups all seven containers into a single shared network namespace, so they
 # reach each other on localhost (replacing the implicit shared network compose gave us).
-# Only the proxy (80/443), the dropzones SFTP endpoint (2222) and the dropzones Arrow
-# Flight endpoint (8815) publish ports, and they do so here at the pod level. Quadlet
-# does not expand shell-style variables in PublishPort, so the host ports are literal;
-# to serve on different ports, edit the lines below (for SFTP also set SFTP_PORT, for
-# Arrow Flight FLIGHT_PORT, in crudman.container and the endpoint's own container so
-# the admin shows the right address).
+# The proxy (80/443), the database (5432), the dropzones SFTP endpoint (2222) and the
+# dropzones Arrow Flight endpoint (8815) publish ports, and they do so here at the pod
+# level. Quadlet does not expand shell-style variables in PublishPort, so the host ports
+# are literal; to serve on different ports, edit the lines below (for SFTP also set
+# SFTP_PORT, for Arrow Flight FLIGHT_PORT, in crudman.container and the endpoint's own
+# container so the admin shows the right address).
+#
+# PostgreSQL is published so reporting tools and the engineering tools that write the
+# bronze schemas can reach it directly. Unlike the admin panel and Grafana it does not
+# go through the nginx proxy: the PostgreSQL wire protocol is not HTTP, so there is
+# nothing for the proxy to route. Access is guarded by the database's own passwords.
 #
 # The file is named main.pod (so the generated unit is main-pod.service and the
 # containers link to it with Pod=main.pod), but PodName below sets the name podman
@@ -14,6 +19,7 @@
 PodName=${APP_NAME}
 PublishPort=80:80
 PublishPort=443:443
+PublishPort=5432:5432
 PublishPort=2222:2222
 PublishPort=8815:8815
 

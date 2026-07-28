@@ -109,10 +109,25 @@ VOLUMES="postgresql_data grafana_data crudman_data sftp_data sqlmesh_data proxy_
 # teardown of our own test stack and by the removal of a pre-existing deployment, which
 # are the same operation -- both are installed in the same place under the same names.
 remove_deployment() {
+  stack_stop="$(date +%s)"
+  # Stop the whole stack in one go rather than unit by unit. Every container carries
+  # Restart=always, so stopping them individually makes systemd restart the ones whose
+  # dependencies just went away -- stopping postgresql first fails the healthchecks of
+  # everything behind it, and those units queue an auto-restart while this loop is still
+  # trying to shut the stack down. Stopping main-pod.service takes the pod and all its
+  # containers down together, and the per-unit stops below then only confirm what is
+  # already gone.
+  printf '  stopping the pod ... '
+  systemctl --user stop main-pod.service >/dev/null 2>&1 || true
+  printf 'stopped (%ss)\n' "$(( $(date +%s) - stack_stop ))"
+  # The units are stopped explicitly afterwards so systemd does not hold them "active"
+  # with a dead container underneath, and so a unit that outlived the pod still goes.
   for u in $UNITS; do systemctl --user stop "${u}.service" >/dev/null 2>&1 || true; done
   systemctl --user stop server-stats.timer >/dev/null 2>&1 || true
+  printf '  removing pod and volumes ... '
   podman pod rm -f "$APP_NAME" >/dev/null 2>&1 || true
   podman volume rm -f $VOLUMES >/dev/null 2>&1 || true
+  printf 'removed (%ss)\n' "$(( $(date +%s) - stack_stop ))"
   # Glob rather than iterate quadlets/, so a deployment installed from a release is
   # cleared even where it holds unit files this checkout does not know about.
   rm -f "$QUADLET_DIR"/*.pod "$QUADLET_DIR"/*.container "$QUADLET_DIR"/*.volume
@@ -200,7 +215,15 @@ systemctl --user daemon-reload
 # start blocks on the service's healthcheck (Notify=healthy), so this waits for the
 # database to run its init scripts and the apps to come up -- the long, silent pause.
 echo "Starting the test stack and waiting for every service to become healthy ..."
-for u in $UNITS; do systemctl --user start "${u}.service"; done
+stack_start="$(date +%s)"
+for u in $UNITS; do
+  # The label goes out first (unterminated, so it shows while the start blocks) and the
+  # result completes the same line. No \r: it cannot shorten an already-printed line, so
+  # rewriting the label in place would leave the tail of the longer text behind.
+  printf '  %-12s ' "$u"
+  systemctl --user start "${u}.service"
+  printf 'healthy (%ss)\n' "$(( $(date +%s) - stack_start ))"
+done
 
 export TEST_PROFILE="$PROFILE"
 export TEST_BASE_URL="$SCHEME://localhost:$APP_PORT"

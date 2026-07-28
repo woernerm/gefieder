@@ -15,6 +15,9 @@ Pod=main.pod
 Image=${REGISTRY}/crudman:${IMAGE_TAG}
 Exec=/crudman/entrypoint.sh sftp
 Notify=healthy
+# An init at PID 1 forwards the stop signal past the entrypoint's tee pipeline; see
+# crudman.container for why the shell alone cannot.
+RunInit=true
 Environment=APP_NAME=${APP_NAME}
 Environment=SERVER_NAME=${SERVER_NAME}
 Environment=DEBUG=${DEBUG}

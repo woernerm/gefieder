@@ -45,7 +45,24 @@ QUADLETS="main.pod postgresql.container crudman.container sftp.container \
   grafana_data.volume crudman_data.volume sftp_data.volume sqlmesh_data.volume \
   proxy_data.volume uploads_data.volume"
 
+# --- progress reporting ---------------------------------------------------------------
+# Long steps report progress with the tools' own facilities rather than a hand-rolled bar:
+# curl's -# draws the transfer bar, podman load draws its own layer progress. Both write to
+# the terminal, so they are only enabled when stderr is one -- piped into a log or run from
+# CI the bars would just be noise, and curl falls back to -s there.
+if [ -t 2 ]; then
+  CURL_PROGRESS="-#"       # transfer bar for the large image tarballs
+  PODMAN_QUIET=""          # let podman load draw its layer progress
+else
+  CURL_PROGRESS="-s"
+  PODMAN_QUIET="-q"
+fi
+
+# A step heading, so the bars and podman's output below it have a label.
+step() { echo; echo "==> $*"; }
+
 # --- preflight: rootless podman needs a usable subuid/subgid range ---------------------
+step "Checking prerequisites"
 command -v podman >/dev/null || { echo "podman is not installed." >&2; exit 1; }
 
 # Without a range of subordinate UIDs/GIDs, rootless podman falls back to single-UID
@@ -62,26 +79,119 @@ if ! podman unshare sh -c 'true' >/dev/null 2>&1; then
 fi
 
 # --- images: download each tarball with its own curl, then load it --------------------
-echo "Downloading the release from ${BASE} ..."
+step "Downloading the release from ${BASE}"
 curl -fsSL "${BASE}/manifest.env" -o "${WORK}/manifest.env"
 . "${WORK}/manifest.env"   # APP_NAME, SUPERUSER_NAME, CRUDMAN_PATH, GRAFANA_PATH, ...
 
+# --- preflight: the published ports must be bindable and reachable ---------------------
+# The pod publishes 80, 443, 5432, 2222 and 8815 (see quadlets/main.pod). Two things can
+# stop them working, and both are silent until someone's browser times out, so they are
+# checked here rather than left to be discovered later. Neither aborts the install: the
+# stack is still worth having with, say, only the database port open, so this reports what
+# is wrong and prints the exact command that fixes it on *this* host.
+step "Checking the published ports"
+PORTS="80 443 5432 2222 8815"
+PORT_HINTS=""   # collected fixes, repeated in the cheat sheet at the end
+
+# 1. Rootless podman may not bind low ports. The kernel reserves everything below
+#    net.ipv4.ip_unprivileged_port_start (1024 by default) for root, so 80 and 443 fail
+#    with "permission denied" while 5432/2222/8815 are fine.
+UNPRIV_START=$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo 1024)
+if [ "$UNPRIV_START" -gt 80 ]; then
+  PORT_HINTS="${PORT_HINTS}
+Let rootless podman bind ports 80 and 443 (currently reserved below ${UNPRIV_START}):
+  echo net.ipv4.ip_unprivileged_port_start=80 | sudo tee /etc/sysctl.d/99-${APP_NAME}.conf
+  sudo sysctl --system"
+  echo "  ports 80 and 443 are reserved for root on this host" >&2
+fi
+
+# 2. A port already in use by another service would make the pod fail to start with a
+#    bind error, which is worth catching before that happens.
+for p in $PORTS; do
+  if command -v ss >/dev/null 2>&1 && ss -ltn "sport = :$p" 2>/dev/null | grep -q ":$p"; then
+    echo "  port ${p} is already in use by another service; free it or edit main.pod" >&2
+  fi
+done
+
+# 3. The host firewall. firewalld (RHEL) and ufw (Ubuntu) are the two that ship enabled on
+#    the supported distributions; if neither is installed, or it is installed but inactive,
+#    nothing is blocking and there is nothing to report. The fix commands below open a port
+#    to everyone -- for the database, SFTP and Flight ports an operator may well want to
+#    restrict the source to a VPN or a subnet instead, so the hint says so rather than
+#    pretending one command suits every deployment.
+blocked=""
+if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+  fw=firewalld
+  # 80 and 443 are usually opened through firewalld's named http/https services rather
+  # than by port number, and --query-port does not see those, so ask for the service too
+  # before calling the port blocked.
+  for p in $PORTS; do
+    case "$p" in 80) svc=http ;; 443) svc=https ;; *) svc="" ;; esac
+    firewall-cmd --query-port="${p}/tcp" >/dev/null 2>&1 && continue
+    [ -n "$svc" ] && firewall-cmd --query-service="$svc" >/dev/null 2>&1 && continue
+    blocked="${blocked} ${p}"
+  done
+elif command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
+  fw=ufw
+  for p in $PORTS; do
+    ufw status 2>/dev/null | grep -qE "^${p}(/tcp)?[[:space:]]+ALLOW" || blocked="${blocked} ${p}"
+  done
+fi
+
+if [ -n "$blocked" ]; then
+  echo "  ${fw} blocks:${blocked}" >&2
+  for p in $blocked; do
+    case "$fw" in
+      firewalld)
+        # Use the named service for the two web ports, which is how firewalld hosts are
+        # normally configured, and the port number for the rest.
+        case "$p" in
+          80)  cmd="sudo firewall-cmd --permanent --add-service=http && sudo firewall-cmd --reload" ;;
+          443) cmd="sudo firewall-cmd --permanent --add-service=https && sudo firewall-cmd --reload" ;;
+          *)   cmd="sudo firewall-cmd --permanent --add-port=${p}/tcp && sudo firewall-cmd --reload" ;;
+        esac ;;
+      ufw) cmd="sudo ufw allow ${p}/tcp" ;;
+    esac
+    PORT_HINTS="${PORT_HINTS}
+Open port ${p} (restrict the source if it should not be reachable from everywhere):
+  ${cmd}"
+  done
+fi
+
+if [ -z "$PORT_HINTS" ]; then
+  echo "  ports ${PORTS} are bindable and open"
+else
+  echo "  the system will start, but some ports stay unreachable until you run:"
+  echo "$PORT_HINTS"
+fi
+
+
+# The image tarballs are by far the largest download; count them off so a stalled transfer
+# is obvious, and let curl draw its bar for each one.
+img_total=$(echo $IMAGES | wc -w)
+img_n=0
 for img in $IMAGES; do
-  curl -fsSL "${BASE}/${img}.tar" -o "${WORK}/${img}.tar"
-  podman load -i "${WORK}/${img}.tar"
+  img_n=$((img_n + 1))
+  echo "  [${img_n}/${img_total}] ${img}"
+  curl -fL $CURL_PROGRESS "${BASE}/${img}.tar" -o "${WORK}/${img}.tar"
+  podman load $PODMAN_QUIET -i "${WORK}/${img}.tar"
 done
 
 # --- quadlets: download each unit file with its own curl, then install it --------------
+# These are a few kilobytes each: no bar, just one line saying how many were installed.
+step "Installing quadlet unit files"
 mkdir -p "$QUADLET_DIR"
 for q in $QUADLETS; do
   curl -fsSL "${BASE}/${q}" -o "${WORK}/${q}"
   cp "${WORK}/${q}" "$QUADLET_DIR/$q"
 done
+echo "  $(echo $QUADLETS | wc -w) unit files installed in ${QUADLET_DIR}"
 
 # --- server-statistics collector: host-side timer, collector and default config --------
 # The collector runs on the host (not in a container) so it can read the pod's cgroup
 # counters, disk IOPS and network egress. Its systemd user units live with the other user
 # units; the script and the runtime config live under ~/.config/<APP_NAME>/.
+step "Installing the server-statistics collector"
 SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 APP_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/${APP_NAME}"
 mkdir -p "$SYSTEMD_USER_DIR" "$APP_CONFIG_DIR/serverstats"
@@ -109,9 +219,12 @@ fi
 # One data volume per service, matching the VolumeName= in the *.volume quadlets. The
 # crudman/sqlmesh/proxy volumes currently hold only the log the entrypoint tees, but are
 # general per-service data volumes.
-for vol in postgresql_data grafana_data crudman_data sftp_data sqlmesh_data proxy_data uploads_data; do
+step "Creating data volumes"
+VOLUMES="postgresql_data grafana_data crudman_data sftp_data sqlmesh_data proxy_data uploads_data"
+for vol in $VOLUMES; do
   podman volume exists "$vol" || podman volume create "$vol" >/dev/null
 done
+echo "  $(echo $VOLUMES | wc -w) data volumes ready"
 
 # --- machine secrets ------------------------------------------------------------------
 # One secret per non-human credential, generated locally with openssl. Human logins (the
@@ -120,6 +233,7 @@ done
 create_secret() {  # name, value-producing command
   podman secret exists "$1" 2>/dev/null || printf '%s' "$2" | podman secret create "$1" - >/dev/null
 }
+step "Creating machine secrets"
 create_secret django_secret_key "$(openssl rand -hex 32)"
 create_secret crudman_password  "$(openssl rand -hex 32)"
 create_secret sqlmesh_password  "$(openssl rand -hex 32)"
@@ -151,6 +265,7 @@ if [ ! -f "$IO_DROPIN" ] && command -v sudo >/dev/null 2>&1; then
 fi
 
 # --- enable lingering so the pod runs without an active login ------------------------
+step "Enabling the system units"
 loginctl enable-linger "$(id -un)" 2>/dev/null || true
 systemctl --user daemon-reload
 
@@ -158,62 +273,104 @@ systemctl --user daemon-reload
 # without a manual step. enable --now both enables it for future boots and starts it now.
 systemctl --user enable --now server-stats.timer 2>/dev/null || true
 
+# --- start the stack ------------------------------------------------------------------
+# Quadlet gives the pod unit a Wants=/Before= on every container unit, so starting
+# main-pod.service brings the whole system up in one command.
+#
+# The container units are stopped first because that Wants= is a weak dependency: on a
+# reinstall over a running stack, restarting the pod alone would leave the old containers
+# running on the previous images. Stopping them lets the pod start them again from the
+# images just loaded. On a first install there is nothing to stop and this does nothing.
+# A failure here is not fatal -- everything is installed by now, and the cheat sheet below
+# says how to start the system by hand.
+step "Starting ${APP_NAME}"
+for u in $QUADLETS; do
+  case "$u" in
+    *.container) systemctl --user stop "$(basename "$u" .container).service" 2>/dev/null || true ;;
+  esac
+done
+
+if systemctl --user restart main-pod.service 2>/dev/null; then
+  echo "  started; the database needs a few seconds to initialise on the first run"
+else
+  echo "  could not start main-pod.service; start it manually (see the cheat sheet)." >&2
+  # A refused port bind is the usual cause when the preflight above found something, so
+  # point at that rather than leaving the operator with journalctl and a guess.
+  [ -n "$PORT_HINTS" ] && echo "  most likely a port could not be bound -- see the port hints above." >&2
+fi
+
 # --- helpfile + cheat sheet -----------------------------------------------------------
 # Store the cheat sheet in the user's home so it is available later, and print it now.
 HELP="$HOME/${APP_NAME}-help.txt"
 EDITOR_CMD="${EDITOR:-${VISUAL:-nano}}"
-PG_VOL="postgresql_data"
-GF_VOL="grafana_data"
+
+# The addresses as seen from outside, not "localhost": SERVER_NAME is the host name the
+# proxy serves and the certificate is issued for, so it is the address a user's browser
+# actually reaches. It is baked into the images at build time and carried here in the
+# release manifest, which is also why no separate runtime setting is needed. DEBUG picks
+# the scheme, exactly as the proxy and the dropzone admin pages do.
+if [ "${DEBUG}" = "true" ]; then SCHEME="http"; else SCHEME="https"; fi
+BASE_URL="${SCHEME}://${SERVER_NAME}"
+
+# The login is deliberately absent below: the superuser password was entered above (or
+# already existed as a secret) and must not be written to a file that stays in $HOME.
+# The port fixes found by the preflight need root, so they cannot be applied here. They go
+# into the cheat sheet as well as the install output: an operator who has to fetch an admin
+# to run them should not have to scroll back through the install log to find them.
+if [ -n "$PORT_HINTS" ]; then
+  PORT_SECTION="Ports that are still blocked -- run these (as an admin) to reach the system:
+${PORT_HINTS}
+
+"
+else
+  PORT_SECTION=""
+fi
 
 cat > "$HELP" <<EOF
 ${APP_NAME} control cheat sheet
 ============================
 
-Start the system now:
+  Admin panel:  ${BASE_URL}/${CRUDMAN_PATH}/
+  Grafana:      ${BASE_URL}/${GRAFANA_PATH}/
+  PostgreSQL:   host=${SERVER_NAME} port=5432 dbname=postgres user=${SUPERUSER_NAME}
+                psql "host=${SERVER_NAME} port=5432 dbname=postgres user=${SUPERUSER_NAME}"
+
+${PORT_SECTION}Follow the combined live log of the whole system:
+  journalctl --user -f -u 'main-pod.service' -u 'postgresql.service' \\
+    -u 'crudman.service' -u 'sftp.service' -u 'flight.service' -u 'sqlmesh.service' \\
+    -u 'grafana.service' -u 'proxy.service'
+
+View the persistent combined log (survives a crash, unlike journald). Every line starts
+with its timestamp, so sorting the files together puts the services in one timeline.
+PostgreSQL and Grafana keep their own log formats under the log/ directory of their
+volumes (see the paths below) and are not part of this merge:
+  cat \$(podman volume inspect crudman_data -f '{{.Mountpoint}}')/*.log \\
+      \$(podman volume inspect sqlmesh_data -f '{{.Mountpoint}}')/*.log \\
+      \$(podman volume inspect proxy_data -f '{{.Mountpoint}}')/*.log | sort
+
+Shut the system down:
+  systemctl --user stop main-pod.service
+
+Start the system up again:
   systemctl --user start main-pod.service
 
 Run a database backup now:
   podman exec postgresql sh -c 'pg_dumpall -U "\$POSTGRES_USER"' > backup-\$(date +%F).sql
 
-Follow the combined live log of the whole system:
-  journalctl --user -f -u 'main-pod.service' -u 'postgresql.service' \\
-    -u 'crudman.service' -u 'sftp.service' -u 'flight.service' -u 'sqlmesh.service' \\
-    -u 'grafana.service' -u 'proxy.service'
-
-Follow the live log of a single component:
-  journalctl --user -f -u postgresql.service     # or crudman / sftp / flight / sqlmesh / grafana / proxy
-
-Dropzone SFTP uploads connect to port 2222 and Arrow Flight uploads to port 8815;
-each dropzone's admin page shows its address (and, for Arrow Flight, a client script).
-
 Volume paths (cd into them to inspect data):
-  postgresql: \$(podman volume inspect ${PG_VOL} -f '{{.Mountpoint}}')
-  grafana:    \$(podman volume inspect ${GF_VOL} -f '{{.Mountpoint}}')
+  postgresql: \$(podman volume inspect postgresql_data -f '{{.Mountpoint}}')
+  grafana:    \$(podman volume inspect grafana_data -f '{{.Mountpoint}}')
+  crudman:    \$(podman volume inspect crudman_data -f '{{.Mountpoint}}')
+  sqlmesh:    \$(podman volume inspect sqlmesh_data -f '{{.Mountpoint}}')
+  proxy:      \$(podman volume inspect proxy_data -f '{{.Mountpoint}}')
+  sftp:       \$(podman volume inspect sftp_data -f '{{.Mountpoint}}')
   uploads:    \$(podman volume inspect uploads_data -f '{{.Mountpoint}}')
 
 Edit the runtime configuration in your default editor:
   ${EDITOR_CMD} \$HOME/.config/${APP_NAME}/runtime.env
 
-Reset the runtime configuration to its shipped default (next install restores it):
-  rm -f \$HOME/.config/${APP_NAME}/runtime.env
-
-Update to the latest version (re-runs this installer; keeps your config and secrets):
-  curl -fsSL ${REPO}/releases/latest/download/install.sh | bash
-
-Server-statistics sampling (resource usage for sizing, query stats for indexing):
-  systemctl --user status server-stats.timer        # is sampling active?
-  systemctl --user start server-stats.service       # take a sample right now
-  journalctl --user -f -u server-stats.service      # follow the sampler
-  The data lives in the '${SERVER_STATS_SCHEMA:-server_stats}' schema of the database.
-
-View the persistent log of a component (survives a crash, unlike journald):
-  cat \$(podman volume inspect ${PG_VOL} -f '{{.Mountpoint}}')/log/postgresql-*.log
-  cat \$(podman volume inspect ${GF_VOL} -f '{{.Mountpoint}}')/log/grafana.log
-  cat \$(podman volume inspect crudman_data -f '{{.Mountpoint}}')/crudman.log
-  cat \$(podman volume inspect crudman_data -f '{{.Mountpoint}}')/sftp.log
-  cat \$(podman volume inspect crudman_data -f '{{.Mountpoint}}')/flight.log
-  cat \$(podman volume inspect sqlmesh_data -f '{{.Mountpoint}}')/sqlmesh.log
-  cat \$(podman volume inspect proxy_data   -f '{{.Mountpoint}}')/proxy.log
+Uninstall the system (asks before deleting the data volumes and secrets):
+  curl -fsSL ${REPO}/releases/latest/download/uninstall.sh | bash
 EOF
 
 cat "$HELP"

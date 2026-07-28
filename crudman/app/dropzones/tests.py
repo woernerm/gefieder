@@ -15,6 +15,7 @@ from django.contrib import admin
 from django.contrib.auth.models import AnonymousUser, User
 from django.core.exceptions import ImproperlyConfigured
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import (
     SimpleTestCase,
     TestCase,
@@ -29,6 +30,24 @@ from .admin import DropzoneAdmin, DropzoneForm, UploadAdmin
 from .forms import UploadForm
 from .models import Dropzone, Upload, UploadFile, remove_upload_directory
 from .services import UploadError, process_upload
+
+
+def setUpModule():
+    """Keep the endpoints' warnings out of the test output.
+
+    Rejected logins, abandoned sessions and refused uploads are what many of the SFTP
+    and Flight tests provoke on purpose, and each one logs a warning. Nothing configures
+    a handler for them, so logging's last resort prints every one to stderr, burying the
+    actual test results. The warnings matter in a deployment, so they are silenced for
+    the run rather than removed.
+    """
+    for logger in (sftp.logger, flight.logger):
+        logger.disabled = True
+
+
+def tearDownModule():
+    for logger in (sftp.logger, flight.logger):
+        logger.disabled = False
 
 
 class TempMediaMixin:
@@ -1372,6 +1391,17 @@ class FlightTests(TempMediaMixin, TransactionTestCase):
     def stored_names(self, upload):
         return sorted(str(f) for f in upload.files.all())
 
+    def server_connections(self):
+        """The endpoint's own backends: every connection to the test database except
+        the one this test is asking through. Postgres is the only vantage point here —
+        the server's connections live in other threads' thread-locals."""
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM pg_stat_activity "
+                "WHERE datname = current_database() AND pid <> pg_backend_pid()"
+            )
+            return cursor.fetchone()[0]
+
     def test_a_single_table_shall_be_stored_as_one_parquet_file(self):
         client, options = self.connect()
         self.send(client, options, "issues", self.table(id=[1, 2, 3]))
@@ -1555,6 +1585,16 @@ class FlightTests(TempMediaMixin, TransactionTestCase):
             ["open", "done"],
         )
 
+    def test_a_whole_upload_shall_leave_no_connection_open_on_the_server(self):
+        """The commit reports a file count, which is a query of its own: asked after
+        _fresh has closed up, it would open a second connection on the gRPC thread that
+        nothing closes again. Counting the server's connections is what catches that."""
+        client, options = self.connect()
+        self.send(client, options, "issues", self.table())
+        self.commit(client, options)
+
+        self.assertEqual(self.server_connections(), 0)
+
     def test_the_dropzone_default_validity_shall_apply(self):
         self.zone.default_validity = Dropzone.Validity.ALWAYS
         self.zone.save()
@@ -1565,6 +1605,61 @@ class FlightTests(TempMediaMixin, TransactionTestCase):
         upload = Upload.objects.get()
         self.assertIsNone(upload.valid_from)
         self.assertIsNone(upload.valid_until)
+
+
+class ConnectionHygieneTests(TransactionTestCase):
+    """Neither endpoint may leave a database connection behind on a worker thread.
+
+    Both servers answer on threads of their own — Flight on a gRPC pool, SFTP on the
+    sync_to_async executor — and a Django connection belongs to the thread that opened
+    it. Nothing signals the end of such a call the way request_finished does for a view,
+    so a connection left open there is held until the process exits: the endpoints pile
+    up idle connections, and a test run cannot drop its test database afterwards.
+
+    `connection.connection` is the live driver connection, and it is thread-local, so
+    checking it from inside the worker is what tells whether _fresh cleaned up.
+    """
+
+    def on_worker_thread(self, func):
+        """Run func on a fresh thread; return whether it left a connection open there."""
+        left_open = []
+
+        def worker():
+            func()
+            left_open.append(connection.connection is not None)
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        thread.join(10)
+        # Without this the assertion would silently pass on a thread that died early.
+        self.assertEqual(len(left_open), 1, "the worker thread did not finish")
+        return left_open[0]
+
+    def test_fresh_shall_close_the_connection_it_opened(self):
+        for module in (flight, sftp):
+            with self.subTest(module=module.__name__):
+                left_open = self.on_worker_thread(
+                    lambda m=module: m._fresh(lambda: Dropzone.objects.count())
+                )
+                self.assertFalse(left_open)
+
+    def test_fresh_shall_close_the_connection_when_the_call_raises(self):
+        """The rejection path matters just as much: a checker refusing an upload is
+        routine, not exceptional, so it must not leak a connection per rejection."""
+
+        def boom():
+            # Query first: a call that raises before touching the database opens no
+            # connection at all, so it would pass even with the cleanup removed.
+            Dropzone.objects.count()
+            raise UploadError("rejected")
+
+        for module in (flight, sftp):
+            with self.subTest(module=module.__name__):
+                def call(m=module):
+                    with self.assertRaises(UploadError):
+                        m._fresh(boom)
+
+                self.assertFalse(self.on_worker_thread(call))
 
 
 class FlightModelTests(TestCase):

@@ -77,25 +77,31 @@ sudo firewall-cmd --permanent --add-service=http --add-service=https && sudo fir
 sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
 ```
 
+You can skip this and go straight to the installer: it checks the ports it needs (80, 443,
+5432, 2222 and 8815) and, for anything reserved or blocked, prints the exact command for
+the firewall your server actually runs. The install itself carries on either way, and the
+commands are repeated in the cheat sheet, so you can hand them to an admin afterwards.
+The database, SFTP and Arrow Flight ports are yours to decide on — you may prefer to open
+them only to a VPN or a specific subnet rather than to everyone.
+
 **3. Install from the release.** The installer downloads each asset, loads the image
 tarballs into rootless podman, installs the quadlets, creates the machine secrets
-(prompting once for the superuser password), and prints a control cheat sheet. Point the
-command at your own repository (the `REPO` you set in `buildtime.env`, which may be an
-enterprise GitHub instance):
+(prompting once for the superuser password), starts the system, and prints a control
+cheat sheet with the addresses and the everyday commands. Point the command at your own
+repository (the `REPO` you set in `buildtime.env`, which may be an enterprise GitHub
+instance):
 
 ```bash
 curl -fsSL https://github.example.com/myorg/myrepo/releases/latest/download/install.sh | bash
 ```
 
-Then start the pod and verify in a browser that `http://` redirects to `https://`:
-
-```bash
-systemctl --user start main-pod.service
-```
+The stack is up when it finishes (the database takes a few seconds to initialise on the
+first run). Open the admin panel address it printed and verify that `http://` redirects
+to `https://`.
 
 **Updating** is the same step again with a newer release: re-run the installer, which
-loads the new image tarballs, then restart the services. (There is no registry
-auto-update; the release tarballs are the unit of delivery.)
+loads the new image tarballs and restarts the system. (There is no registry auto-update;
+the release tarballs are the unit of delivery.)
 
 
 ## Automate deployments
@@ -115,7 +121,8 @@ builds through `build.sh`, so CI and a developer build identically.
 The system is a single pod (named after `APP_NAME`, `gefieder` by default; the pod file
 is `main.pod`, so the systemd unit is `main-pod.service`) of seven containers:
 
-- `postgresql` — the database holding the engineering, analytics and application data
+- `postgresql` — the database holding the engineering, analytics and application data,
+  published on port 5432 so external tools can read and write it
 - `crudman` — the Django administration panel, reachable through the proxy
 - `sftp` — the SFTP endpoint for dropzone uploads (the crudman image in a second role),
   published on port 2222
@@ -310,7 +317,7 @@ writing your own.
 | Script | What it does |
 | --- | --- |
 | `./build.sh` | build the five images with docker (REGISTRY/IMAGE_TAG from `buildtime.env`) |
-| `./install.sh` | install from a GitHub release: load the image tarballs, install the quadlets, create secrets |
+| `./install.sh` | install from a GitHub release: load the image tarballs, install the quadlets, create secrets, start the system |
 | `./run-tests.sh [production]` | build a throwaway stack, run the integration suite, tear it down |
 | `./dev.sh serverstats` | take one server-statistics sample against the local dev stack |
 
@@ -325,18 +332,23 @@ podman logs -f sqlmesh                    # follow a container's live log
 
 ## Connecting directly
 - **Admin panel / Grafana**: log in with `SUPERUSER_NAME` and the `superuser_password`.
-- **PostgreSQL** (with the same password): the database port is not published in
-  production; add `PublishPort=5432:5432` to the pod file
-  (`~/.config/containers/systemd/main.pod`, then `daemon-reload`) if you need it, or
-  connect from inside the pod:
+- **PostgreSQL** (with the same password): the pod publishes port 5432, so reporting
+  tools and the tools that fill the bronze schemas connect straight to `SERVER_NAME`:
+
+  ```bash
+  psql "host=SERVER_NAME port=5432 dbname=postgres user=admin"
+  ```
+
+  On the server itself you can also skip the network:
 
   ```bash
   podman exec -it postgresql psql -U admin -d postgres
   ```
 
 ## Using custom ports
-The pod publishes ports 80 and 443. To serve on different ports (and skip the sysctl
-step above), edit the two `PublishPort` lines in the installed pod file and reload:
+The pod publishes ports 80 and 443 for the web services, 5432 for the database, and 2222
+and 8815 for the dropzone endpoints. To serve on different ports (and skip the sysctl
+step above), edit the `PublishPort` lines in the installed pod file and reload:
 
 ```bash
 sed -i 's/^PublishPort=80:80/PublishPort=8080:80/; s/^PublishPort=443:443/PublishPort=8443:443/' \

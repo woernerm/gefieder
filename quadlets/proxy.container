@@ -10,6 +10,13 @@ After=crudman.service grafana.service
 ContainerName=proxy
 Pod=main.pod
 Image=${REGISTRY}/proxy:${IMAGE_TAG}
+# An init at PID 1 forwards the stop signal past the entrypoint's tee pipeline; see
+# crudman.container for why the shell alone cannot. SIGQUIT is nginx's graceful shutdown
+# (its SIGTERM is a fast one that drops open connections); the nginx image sets it as the
+# image's StopSignal, but that is inherited by PID 1 -- now the init -- so name it here to
+# be explicit about what the proxy is sent.
+RunInit=true
+StopSignal=SIGQUIT
 Environment=DEBUG=${DEBUG}
 Environment=CRUDMAN_PATH=${CRUDMAN_PATH}
 Environment=GRAFANA_PATH=${GRAFANA_PATH}

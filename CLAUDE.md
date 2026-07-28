@@ -121,7 +121,7 @@
 
 # Testing & Debugging
 - The integration tests are run using run-tests.sh.
-- A local development system can be started using dev.sh.
+- A local development system can be started using dev.sh.  
 
 # Style
 - Follow podman/container deployment best practices.

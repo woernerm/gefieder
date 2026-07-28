@@ -23,7 +23,7 @@ import asyncssh
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.core.files import File
-from django.db import close_old_connections
+from django.db import close_old_connections, connections
 from django.utils import timezone
 
 from .models import Dropzone
@@ -42,13 +42,22 @@ _tasks = set()
 
 
 def _fresh(func, *args):
-    """Run a database-facing function on a healthy connection.
+    """Run a database-facing function on a healthy connection, and leave none behind.
 
     The server runs for weeks, so a connection the database dropped in the meantime
     (restart, idle timeout) is discarded before the call instead of failing it.
+
+    sync_to_async runs this on a worker thread, and a connection opened there belongs to
+    that thread forever: nothing signals the end of the call the way a request does for
+    a view, so it would be held until the process exits. Closing afterwards keeps the
+    endpoint down to the connections it is actually using, which is also what lets the
+    test database be dropped at the end of a test run.
     """
     close_old_connections()
-    return func(*args)
+    try:
+        return func(*args)
+    finally:
+        connections.close_all()
 
 
 def _authenticate(username, password):

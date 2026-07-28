@@ -93,6 +93,8 @@ jobs:
           {
             echo "APP_NAME=${APP_NAME}"
             echo "SUPERUSER_NAME=${SUPERUSER_NAME}"
+            echo "SERVER_NAME=${SERVER_NAME}"
+            echo "DEBUG=${DEBUG}"
             echo "CRUDMAN_PATH=${CRUDMAN_PATH}"
             echo "GRAFANA_PATH=${GRAFANA_PATH}"
             echo "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}"
@@ -109,7 +111,16 @@ jobs:
           fi
           envsubst '${REPO}' < install.sh > dist/install.sh
 
+          # The uninstaller downloads nothing, so it ships verbatim; it discovers what to
+          # remove from the files install.sh left on the machine.
+          cp uninstall.sh dist/uninstall.sh
+
+      # --latest moves GitHub's "latest release" pointer to this release, which is what
+      # ${REPO}/releases/latest/download/... in install.sh resolves to. Without it gh
+      # infers the latest release by sorting tags as semver, where 26.7.2 outranks
+      # 26.12.11 -- a December release would leave the pointer on an older one. The
+      # pointer is a single marker, so exactly one release ever carries it.
       - name: Publish the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$TAG" dist/* --title "$TAG" --generate-notes
+        run: gh release create "$TAG" dist/* --title "$TAG" --generate-notes --latest

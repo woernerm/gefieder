@@ -32,7 +32,7 @@ import pyarrow.flight as flight
 import pyarrow.parquet as parquet
 from django.conf import settings
 from django.core.files import File
-from django.db import close_old_connections
+from django.db import close_old_connections, connections
 from django.utils import timezone
 
 from .models import Dropzone
@@ -64,13 +64,22 @@ class Session:
 
 
 def _fresh(func, *args):
-    """Run a database-facing function on a healthy connection.
+    """Run a database-facing function on a healthy connection, and leave none behind.
 
     The server runs for weeks, so a connection the database dropped in the meantime
     (restart, idle timeout) is discarded before the call instead of failing it.
+
+    Flight answers on a thread pool, and a connection opened on one of those threads
+    belongs to that thread forever: nothing signals the end of a call the way a request
+    does for a view, so it would be held until the process exits. Closing afterwards
+    keeps the endpoint down to the connections it is actually using, which is also what
+    lets the test database be dropped at the end of a test run.
     """
     close_old_connections()
-    return func(*args)
+    try:
+        return func(*args)
+    finally:
+        connections.close_all()
 
 
 def _authenticate(name, secret):
@@ -81,6 +90,16 @@ def _authenticate(name, secret):
     if dropzone is not None and dropzone.flight_secret_matches(secret):
         return dropzone
     return None
+
+
+def _stored_file_count(dropzone_id, directory):
+    """_store_session, reduced to the file count the commit reports back.
+
+    The count is a query of its own, so it has to happen inside the same _fresh call:
+    asking afterwards would open a second connection on the calling thread that nothing
+    closes again.
+    """
+    return _store_session(dropzone_id, directory).files.count()
 
 
 def _store_session(dropzone_id, directory):
@@ -211,7 +230,9 @@ class FlightEndpoint(flight.FlightServerBase):
             if not any(session.directory.iterdir()):
                 raise flight.FlightServerError("The upload contains no tables.")
             try:
-                upload = _fresh(_store_session, session.dropzone_id, session.directory)
+                count = _fresh(
+                    _stored_file_count, session.dropzone_id, session.directory
+                )
             except UploadError as error:
                 # The checker/converter verdict; unlike SFTP the uploader is still
                 # connected, so the rejection reaches them instead of only the log.
@@ -219,7 +240,6 @@ class FlightEndpoint(flight.FlightServerBase):
                     "Dropzone '%s': upload rejected: %s", session.name, error
                 )
                 raise flight.FlightServerError(str(error)) from error
-            count = upload.files.count()
             logger.info(
                 "Dropzone '%s': upload accepted, %d file(s) stored", session.name, count
             )

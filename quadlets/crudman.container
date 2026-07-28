@@ -12,6 +12,12 @@ ContainerName=crudman
 Pod=main.pod
 Image=${REGISTRY}/crudman:${IMAGE_TAG}
 Notify=healthy
+# The entrypoint pipes itself through tee to persist its log, so the container's PID 1 is
+# a shell blocked on a pipeline -- which does not forward signals to its children. Without
+# an init, podman's SIGTERM never reaches gunicorn: the stop hangs for the full timeout and
+# ends in SIGKILL, cutting in-flight requests instead of draining them. RunInit puts a real
+# init at PID 1 that forwards the signal to the whole tree and reaps it.
+RunInit=true
 Environment=APP_NAME=${APP_NAME}
 Environment=SERVER_NAME=${SERVER_NAME}
 Environment=SUPERUSER_NAME=${SUPERUSER_NAME}
