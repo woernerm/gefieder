@@ -172,7 +172,8 @@ img_total=$(echo $IMAGES | wc -w)
 img_n=0
 for img in $IMAGES; do
   img_n=$((img_n + 1))
-  echo "  [${img_n}/${img_total}] ${img}"
+  echo
+  echo "[${img_n}/${img_total}] ${img}"
   curl -fL $CURL_PROGRESS "${BASE}/${img}.tar" -o "${WORK}/${img}.tar"
   podman load $PODMAN_QUIET -i "${WORK}/${img}.tar"
 done
@@ -233,7 +234,7 @@ echo "  $(echo $VOLUMES | wc -w) data volumes ready"
 create_secret() {  # name, value-producing command
   podman secret exists "$1" 2>/dev/null || printf '%s' "$2" | podman secret create "$1" - >/dev/null
 }
-step "Creating machine secrets"
+step "Creating secrets"
 create_secret django_secret_key "$(openssl rand -hex 32)"
 create_secret crudman_password  "$(openssl rand -hex 32)"
 create_secret sqlmesh_password  "$(openssl rand -hex 32)"
@@ -327,7 +328,7 @@ else
 fi
 
 cat > "$HELP" <<EOF
-${APP_NAME} control cheat sheet
+${APP_NAME} Cheat sheet
 ============================
 
   Admin panel:  ${BASE_URL}/${CRUDMAN_PATH}/
@@ -340,10 +341,7 @@ ${PORT_SECTION}Follow the combined live log of the whole system:
     -u 'crudman.service' -u 'sftp.service' -u 'flight.service' -u 'sqlmesh.service' \\
     -u 'grafana.service' -u 'proxy.service'
 
-View the persistent combined log (survives a crash, unlike journald). Every line starts
-with its timestamp, so sorting the files together puts the services in one timeline.
-PostgreSQL and Grafana keep their own log formats under the log/ directory of their
-volumes (see the paths below) and are not part of this merge:
+View persistent log:
   cat \$(podman volume inspect crudman_data -f '{{.Mountpoint}}')/*.log \\
       \$(podman volume inspect sqlmesh_data -f '{{.Mountpoint}}')/*.log \\
       \$(podman volume inspect proxy_data -f '{{.Mountpoint}}')/*.log | sort
@@ -366,7 +364,7 @@ Volume paths (cd into them to inspect data):
   sftp:       \$(podman volume inspect sftp_data -f '{{.Mountpoint}}')
   uploads:    \$(podman volume inspect uploads_data -f '{{.Mountpoint}}')
 
-Edit the runtime configuration in your default editor:
+Edit the runtime configuration:
   ${EDITOR_CMD} \$HOME/.config/${APP_NAME}/runtime.env
 
 Uninstall the system (asks before deleting the data volumes and secrets):
