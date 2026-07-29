@@ -38,7 +38,15 @@ HealthCmd=python -c 'import socket; socket.create_connection(("127.0.0.1", 8815)
 HealthInterval=10s
 HealthTimeout=5s
 HealthRetries=10
-HealthStartPeriod=20s
+# The same probe again as a startup healthcheck, polled every second instead of every ten.
+# Like the SFTP endpoint it waits for the database and for crudman's migrations, so it can
+# come up at any point between two of the regular polls -- and Notify=healthy holds the unit
+# "starting" until a poll happens to look. Polling once a second reports it ready as soon as
+# it is, without a start period that delays the first look; podman switches to the regular
+# interval above after the first success, so the steady-state load is unchanged.
+HealthStartupCmd=python -c 'import socket; socket.create_connection(("127.0.0.1", 8815), 5).close()'
+HealthStartupInterval=1s
+HealthStartupTimeout=5s
 
 [Service]
 Restart=always

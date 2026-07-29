@@ -44,7 +44,15 @@ HealthCmd=python -c 'import os,urllib.request; urllib.request.urlopen("http://12
 HealthInterval=10s
 HealthTimeout=5s
 HealthRetries=10
-HealthStartPeriod=20s
+# The same probe again as a startup healthcheck, polled every second instead of every ten.
+# Migrations, collectstatic and the superuser update run before gunicorn binds, so readiness
+# lands at an unpredictable point; without this, Notify=healthy waits out the start period
+# and then up to a full interval before the first look. Polling once a second reports the
+# panel ready as soon as it answers; podman switches to the regular interval above after the
+# first success, leaving the steady-state load unchanged.
+HealthStartupCmd=python -c 'import os,urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/"+os.environ["CRUDMAN_PATH"]+"/").read()'
+HealthStartupInterval=1s
+HealthStartupTimeout=5s
 
 [Service]
 Restart=always
