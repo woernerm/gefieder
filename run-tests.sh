@@ -31,21 +31,27 @@ if ! grep -qE "^($(id -un)|$(id -u)):" /etc/subuid 2>/dev/null \
   exit 1
 fi
 
-# The suite connects to the database as each role using these secrets (read below). They
-# are created by the install script; a fresh checkout has none, so check before building.
-for secret in grafana_password superuser_password crudman_password sqlmesh_password; do
-  if ! podman secret exists "$secret" 2>/dev/null; then
-    echo "Missing podman secret '$secret'; the test stack needs it to start." >&2
-    echo "Create the stack's secrets first (see install.sh)." >&2
-    exit 1
-  fi
-done
-
 # Load the build-time settings so the suite tests the configured stack (CRUDMAN_PATH,
 # GRAFANA_PATH, APP_NAME, SUPERUSER_NAME, ...) rather than assuming the defaults.
 set -a
 . ./buildtime.env
 set +a
+
+# --- secrets ----------------------------------------------------------------------------
+# The stack does not start without them and the suite reads them back below to connect as
+# each role. install.sh creates them on a deployment; a fresh checkout has none, so create
+# whatever is missing here, exactly as dev.sh does. Existing secrets are left alone: the
+# test host may already hold the credentials of the database volume being reused.
+create_secret() {  # name, value
+  podman secret exists "$1" 2>/dev/null || printf '%s' "$2" | podman secret create "$1" - >/dev/null
+}
+create_secret django_secret_key "$(openssl rand -hex 32)"
+create_secret crudman_password  "$(openssl rand -hex 32)"
+create_secret sqlmesh_password  "$(openssl rand -hex 32)"
+create_secret grafana_password  "$(openssl rand -hex 32)"
+# The superuser gets the well-known build-time default rather than a random value, so the
+# tests run unattended without a prompt (install.sh asks for it interactively).
+create_secret superuser_password "$SUPERUSER_DEFAULT_PASSWORD"
 
 # Isolated host ports so a running stack on the default ports is not disturbed.
 HTTP_PORT=18080
@@ -73,7 +79,7 @@ for svc in postgresql crudman sqlmesh proxy grafana; do
 done
 
 # The suite connects to the database as each role to check its access boundary; the
-# passwords come from the podman secrets that exist on the test host.
+# passwords come from the podman secrets created above.
 GRAFANA_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' grafana_password)"
 SUPERUSER_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' superuser_password)"
 CRUDMAN_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' crudman_password)"
