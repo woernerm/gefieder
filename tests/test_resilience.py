@@ -6,17 +6,30 @@ These tests stop/kill containers, so they run after the read-only startup/http/d
 """
 import time
 
-from conftest import inspect, podman
+from conftest import inspect_container, podman
 
 
-def _wait_running(container, timeout=60):
+def _container_id(container):
+    """Return the container's id, or None while it does not exist."""
+    info = inspect_container(container)
+    return info["Id"] if info else None
+
+
+def _wait_replaced(container, old_id, timeout=180):
+    """Wait until `container` is running under a different id than `old_id`.
+
+    Anchored on the container id rather than on State.Running, because systemd recreates
+    the container instead of restarting it in place: a plain liveness check can pass on
+    the *old* container, since `podman kill` returns once the signal is sent rather than
+    once the process is gone. Requiring a new id makes the check independent of how long
+    the recreate takes, so a slow machine only waits longer instead of reporting a
+    spurious pass or failure.
+    """
     deadline = time.time() + timeout
     while time.time() < deadline:
-        try:
-            if inspect(container)["State"]["Running"] is True:
-                return True
-        except Exception:  # noqa: BLE001 - container may be mid-recreate
-            pass
+        info = inspect_container(container)
+        if info and info["Id"] != old_id and info["State"]["Running"] is True:
+            return True
         time.sleep(2)
     return False
 
@@ -27,9 +40,13 @@ class TestAutoRestart:
     def test_a_killed_container_shall_be_restarted(self):
         # sqlmesh is the safest to kill: it owns no inbound traffic and no other test's
         # connection. Killing it makes systemd (Restart=always) bring the service back.
-        # The container may be recreated (resetting RestartCount), so assert on liveness.
+        old_id = _container_id("sqlmesh")
+        assert old_id, "sqlmesh was not running before the kill"
+
         podman("kill", "sqlmesh")
-        assert _wait_running("sqlmesh"), "sqlmesh was not restarted after being killed"
+        assert _wait_replaced("sqlmesh", old_id), (
+            "sqlmesh was not restarted after being killed"
+        )
 
 
 class TestVolumePersistence:

@@ -26,6 +26,23 @@ def inspect(target):
     return json.loads(podman("inspect", target))[0]
 
 
+def inspect_container(name):
+    """Return the `podman inspect` object for a container, or None if it does not exist.
+
+    Scoped to containers with an explicit --type: bare `podman inspect` falls back to
+    images when no container matches, and every service here shares its name with its
+    image, so a container that is mid-recreate would otherwise return the image manifest
+    (which has no "State") instead of signalling absence.
+    """
+    result = subprocess.run(
+        ["podman", "inspect", "--type", "container", name],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return json.loads(result.stdout)[0]
+
+
 def volume_mountpoint(volume):
     """Return the host filesystem path backing a named podman volume."""
     return podman("volume", "inspect", volume, "-f", "{{.Mountpoint}}").strip()
@@ -117,6 +134,13 @@ USER_OWNED_LOGS = ["crudman", "sftp", "flight", "sqlmesh", "proxy"]
 # verification is disabled for the test run.
 VERIFY_TLS = False
 
+# How long to allow for a service to come back after being killed or restarted, and for
+# the whole stack to become ready at session start. The resilience checks wait on an
+# observable state change rather than on a fixed delay, so these are only upper bounds
+# for a machine that never gets there; raise TEST_RESTART_TIMEOUT on a very slow host.
+RESTART_TIMEOUT = int(os.environ.get("TEST_RESTART_TIMEOUT", "180"))
+STARTUP_TIMEOUT = int(os.environ.get("TEST_STARTUP_TIMEOUT", "300"))
+
 
 def pytest_configure(config):
     # Deselect production-only assertions unless we run the production profile.
@@ -188,8 +212,12 @@ class _ReconnectingConnection:
             self._reconnect()
 
     def _reconnect(self):
-        # Retry until the freshly restarted server accepts connections again.
-        for _ in range(30):
+        # Retry until the freshly restarted server accepts connections again. Bounded by
+        # a deadline rather than an attempt count so the budget stays a wall-clock
+        # allowance on a slow machine, where each failing attempt itself takes longer and
+        # would otherwise burn through the attempts well before the server is back.
+        deadline = time.time() + RESTART_TIMEOUT
+        while time.time() < deadline:
             try:
                 self._conn = _connect(self._user)
                 return
@@ -266,7 +294,7 @@ def wait_for_stack():
     engine's first `sqlmesh plan` at runtime (not by database init), so the schema and
     access-control tests would race a slow first plan; wait for it here too.
     """
-    deadline = time.time() + 180
+    deadline = time.time() + STARTUP_TIMEOUT
     targets = [CRUDMAN_LOGIN, GRAFANA_LOGIN]
     with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS,
                       follow_redirects=True, timeout=5) as client:

@@ -8,7 +8,14 @@ import time
 
 import pytest
 
-from conftest import CONTAINERS, inspect as _inspect
+from conftest import CONTAINERS, RESTART_TIMEOUT, inspect_container
+
+
+def _inspect(container):
+    """Inspect a container, failing with a clear message when it does not exist."""
+    info = inspect_container(container)
+    assert info is not None, f"container {container} does not exist"
+    return info
 
 
 class TestStartup:
@@ -30,7 +37,7 @@ class TestStartup:
         # app being healthy), so the suite checks their healthchecks. A container may
         # still be within its start_period when the apps already answer, so poll until
         # it settles.
-        deadline = time.time() + 60
+        deadline = time.time() + RESTART_TIMEOUT
         while True:
             health = _inspect(container)["State"].get("Health", {}).get("Status")
             if health == "healthy" or time.time() > deadline:
