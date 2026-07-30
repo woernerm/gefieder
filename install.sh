@@ -247,6 +247,28 @@ echo "  $(echo $VOLUMES | wc -w) data volumes ready"
 create_secret() {  # name, value-producing command
   podman secret exists "$1" 2>/dev/null || printf '%s' "$2" | podman secret create "$1" - >/dev/null
 }
+read_superuser_password() {
+  if [ -t 0 ]; then
+    tty_fd=0
+  elif [ -r /dev/tty ]; then
+    tty_fd=/dev/tty
+  else
+    echo "No interactive terminal is available; the superuser password could not be read." >&2
+    return 1
+  fi
+
+  printf 'Set the superuser (admin) password: ' >&2
+  stty -echo <"$tty_fd" 2>/dev/null || true
+  if ! IFS= read -r SU_PW <"$tty_fd"; then
+    stty echo <"$tty_fd" 2>/dev/null || true
+    printf '\n' >&2
+    return 1
+  fi
+  stty echo <"$tty_fd" 2>/dev/null || true
+
+  printf '\n' >&2
+  printf '%s' "$SU_PW"
+}
 step "Creating secrets"
 create_secret django_secret_key "$(openssl rand -hex 32)"
 create_secret crudman_password  "$(openssl rand -hex 32)"
@@ -254,8 +276,10 @@ create_secret sqlmesh_password  "$(openssl rand -hex 32)"
 create_secret grafana_password  "$(openssl rand -hex 32)"
 
 if ! podman secret exists superuser_password 2>/dev/null; then
-  printf 'Set the superuser (admin) password: '
-  stty -echo; read -r SU_PW; stty echo; echo
+  if ! SU_PW="$(read_superuser_password)"; then
+    echo "The superuser password was not created because it could not be read." >&2
+    exit 1
+  fi
   printf '%s' "$SU_PW" | podman secret create superuser_password - >/dev/null
   unset SU_PW
 fi

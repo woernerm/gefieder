@@ -204,7 +204,13 @@ if [ -e "$QUADLET_DIR/main.pod" ]; then
   echo "A deployment is already installed in $QUADLET_DIR."
   echo "Running the tests requires removing it, including its volumes and all data in them."
   printf "Delete the deployment and continue? [y/N] "
-  read -r reply
+  if [ -t 0 ] && [ -t 1 ]; then
+    read -r reply
+  elif [ -r /dev/tty ]; then
+    read -r reply </dev/tty
+  else
+    reply="n"
+  fi
   case "$reply" in
     y|Y|yes|YES|Yes)
       echo "Removing the existing deployment ..."
