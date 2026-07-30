@@ -102,6 +102,10 @@ curl -fsSL "${BASE}/manifest.env" -o "${WORK}/manifest.env"
 # checked here rather than left to be discovered later. Neither aborts the install: the
 # stack is still worth having with, say, only the database port open, so this reports what
 # is wrong and prints the exact command that fixes it on *this* host.
+if systemctl --user is-active main-pod.service >/dev/null 2>&1; then
+  echo "Stopping the currently running deployment before install"
+  systemctl --user stop main-pod.service >/dev/null 2>&1 || true
+fi
 step "Checking the published ports"
 PORTS="80 443 5432 2222 8815"
 PORT_HINTS=""   # collected fixes, repeated in the cheat sheet at the end
