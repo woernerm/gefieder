@@ -377,7 +377,7 @@ fi
 
 # --- helpfile + cheat sheet -----------------------------------------------------------
 # Store the cheat sheet in the user's home so it is available later, and print it now.
-HELP="$HOME/${APP_NAME}-help.txt"
+HELP="$HOME/${APP_NAME,,}-help.txt"
 EDITOR_CMD="${EDITOR:-${VISUAL:-nano}}"
 
 # The addresses as seen from outside, not "localhost": SERVER_NAME is the host name the
@@ -417,9 +417,14 @@ ${PORT_SECTION}Follow the combined live log of the whole system:
     -u 'grafana.service' -u 'proxy.service'
 
 View persistent log:
-  cat \$(podman volume inspect crudman_data -f '{{.Mountpoint}}')/*.log \\
-      \$(podman volume inspect sqlmesh_data -f '{{.Mountpoint}}')/*.log \\
-      \$(podman volume inspect proxy_data -f '{{.Mountpoint}}')/*.log | sort
+  PostgreSQL:
+    cat \$(podman volume inspect postgresql_data -f '{{.Mountpoint}}')/*.log
+  Grafana:
+    cat \$(podman volume inspect grafana_data -f '{{.Mountpoint}}')/*.log
+  Other:
+    cat \$(podman volume inspect crudman_data -f '{{.Mountpoint}}')/*.log \\
+        \$(podman volume inspect sqlmesh_data -f '{{.Mountpoint}}')/*.log \\
+        \$(podman volume inspect proxy_data -f '{{.Mountpoint}}')/*.log | sort
 
 Shut the system down:
   systemctl --user stop main-pod.service
@@ -431,13 +436,13 @@ Run a database backup now:
   podman exec postgresql sh -c 'pg_dumpall -U "\$POSTGRES_USER"' > backup-\$(date +%F).sql
 
 Volume paths (cd into them to inspect data):
-  postgresql: \$(podman volume inspect postgresql_data -f '{{.Mountpoint}}')
-  grafana:    \$(podman volume inspect grafana_data -f '{{.Mountpoint}}')
-  crudman:    \$(podman volume inspect crudman_data -f '{{.Mountpoint}}')
-  sqlmesh:    \$(podman volume inspect sqlmesh_data -f '{{.Mountpoint}}')
-  proxy:      \$(podman volume inspect proxy_data -f '{{.Mountpoint}}')
-  sftp:       \$(podman volume inspect sftp_data -f '{{.Mountpoint}}')
-  uploads:    \$(podman volume inspect uploads_data -f '{{.Mountpoint}}')
+  postgresql: $(podman volume inspect postgresql_data -f '{{.Mountpoint}}')
+  grafana:    $(podman volume inspect grafana_data -f '{{.Mountpoint}}')
+  crudman:    $(podman volume inspect crudman_data -f '{{.Mountpoint}}')
+  sqlmesh:    $(podman volume inspect sqlmesh_data -f '{{.Mountpoint}}')
+  proxy:      $(podman volume inspect proxy_data -f '{{.Mountpoint}}')
+  sftp:       $(podman volume inspect sftp_data -f '{{.Mountpoint}}')
+  uploads:    $(podman volume inspect uploads_data -f '{{.Mountpoint}}')
 
 Edit the runtime configuration:
   ${EDITOR_CMD} \$HOME/.config/${APP_NAME}/runtime.env
