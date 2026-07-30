@@ -29,9 +29,10 @@ Environment=POSTGRES_USER=crudman
 # its flight.log sits next to crudman.log. Unlike SFTP it keeps no state of its own —
 # uploads in progress live in the container's temporary directory and are deliberately
 # lost on a restart, because an upload that was never committed is incomplete.
-Volume=crudman_data.volume:/var/log/app
+# RHEL/Fedora SELinux needs a relabeled volume for rootless podman to mount it.
+Volume=crudman_data.volume:/var/log/app:z
 Environment=UPLOADS_DIR=/var/lib/app/uploads
-Volume=uploads_data.volume:/var/lib/app/uploads
+Volume=uploads_data.volume:/var/lib/app/uploads:z
 Secret=django_secret_key
 Secret=crudman_password
 HealthCmd=python -c 'import socket; socket.create_connection(("127.0.0.1", 8815), 5).close()'

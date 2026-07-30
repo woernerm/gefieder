@@ -27,11 +27,12 @@ Environment=POSTGRES_DB=postgres
 Environment=POSTGRES_USER=crudman
 # The log volume is crudman's: the endpoint is part of the same Django application,
 # so its sftp.log sits next to crudman.log. The host key lives on its own volume.
-Volume=crudman_data.volume:/var/log/app
+# RHEL/Fedora SELinux needs a relabeled volume for rootless podman to mount it.
+Volume=crudman_data.volume:/var/log/app:z
 Environment=UPLOADS_DIR=/var/lib/app/uploads
-Volume=uploads_data.volume:/var/lib/app/uploads
+Volume=uploads_data.volume:/var/lib/app/uploads:z
 Environment=SFTP_DIR=/var/lib/app/sftp
-Volume=sftp_data.volume:/var/lib/app/sftp
+Volume=sftp_data.volume:/var/lib/app/sftp:z
 Secret=django_secret_key
 Secret=crudman_password
 HealthCmd=python -c 'import socket; socket.create_connection(("127.0.0.1", 2222), 5).close()'

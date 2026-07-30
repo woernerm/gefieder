@@ -21,10 +21,11 @@ Environment=POSTGRES_DB=postgres
 Environment=SQLMESH_RUN_INTERVAL=10
 # Data volume; the entrypoint tees its output to /var/log/app here so a crash
 # leaves a log on disk rather than only in the container's stdout.
-Volume=sqlmesh_data.volume:/var/log/app
+# RHEL/Fedora SELinux needs a relabeled volume for rootless podman to mount it.
+Volume=sqlmesh_data.volume:/var/log/app:z
 # The dropzones uploads, read-only: analytics models open the files whose paths the
 # crudman.dropzones_upload rows carry, under the same mount point crudman writes to.
-Volume=uploads_data.volume:/var/lib/app/uploads:ro
+Volume=uploads_data.volume:/var/lib/app/uploads:ro,z
 Secret=sqlmesh_password
 # The slim image has no pgrep and psycopg2 lives in the uv venv, not the system python,
 # so check liveness with a stdlib-only TCP connect to the database the engine needs.

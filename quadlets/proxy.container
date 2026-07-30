@@ -23,7 +23,8 @@ Environment=GRAFANA_PATH=${GRAFANA_PATH}
 Volume=%h/.config/${APP_NAME}/certs:/etc/nginx/proxy/certs:ro,z
 # Data volume; the entrypoint tees its output to /var/log/app here so a crash
 # leaves a log on disk rather than only in the container's stdout.
-Volume=proxy_data.volume:/var/log/app
+# RHEL/Fedora SELinux needs a relabeled volume for rootless podman to mount it.
+Volume=proxy_data.volume:/var/log/app:z
 HealthCmd=pgrep -x nginx
 HealthInterval=10s
 HealthTimeout=5s

@@ -28,7 +28,8 @@ Environment=GF_SERVER_SERVE_FROM_SUB_PATH=true
 # would set GF_LOG_MODE=console only, dropping the "file" sink.
 Environment="GF_LOG_MODE=console file"
 Environment=GF_PATHS_LOGS=/var/lib/grafana/log
-Volume=grafana_data.volume:/var/lib/grafana
+# RHEL/Fedora SELinux needs a relabeled volume for rootless podman to mount it.
+Volume=grafana_data.volume:/var/lib/grafana:z
 # superuser_password for the admin login, grafana_password for the data source.
 Secret=superuser_password
 Secret=grafana_password

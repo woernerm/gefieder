@@ -14,7 +14,8 @@ Notify=healthy
 Environment=POSTGRES_DB=postgres
 Environment=POSTGRES_USER=${SUPERUSER_NAME}
 Environment=POSTGRES_PASSWORD_FILE=/run/secrets/superuser_password
-Volume=postgresql_data.volume:/var/lib/postgresql/data
+# RHEL/Fedora SELinux needs a relabeled volume for rootless podman to mount it.
+Volume=postgresql_data.volume:/var/lib/postgresql/data:z
 Secret=superuser_password
 Secret=crudman_password
 Secret=sqlmesh_password
