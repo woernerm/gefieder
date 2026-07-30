@@ -350,15 +350,14 @@ systemctl --user daemon-reload
 systemctl --user enable --now server-stats.timer 2>/dev/null || true
 
 # --- start the stack ------------------------------------------------------------------
-# Quadlet gives the pod unit a Wants=/Before= on every container unit, so starting
-# main-pod.service brings the whole system up in one command.
+# The pod unit pulls in the rest of the stack, but starting each service unit explicitly
+# gives the installer the same per-service health output the integration tests print.
 #
-# The container units are stopped first because that Wants= is a weak dependency: on a
-# reinstall over a running stack, restarting the pod alone would leave the old containers
-# running on the previous images. Stopping them lets the pod start them again from the
-# images just loaded. On a first install there is nothing to stop and this does nothing.
-# A failure here is not fatal -- everything is installed by now, and the cheat sheet below
-# says how to start the system by hand.
+# The container units are stopped first because a reinstall over a running stack would
+# otherwise leave the old containers running on the previous images. Stopping them lets
+# the services restart cleanly from the images just loaded. On a first install there is
+# nothing to stop and this does nothing. A failure here is not fatal -- everything is
+# installed by now, and the cheat sheet below says how to start the system by hand.
 step "Starting ${APP_NAME}"
 for u in $QUADLETS; do
   case "$u" in
@@ -366,8 +365,23 @@ for u in $QUADLETS; do
   esac
 done
 
+UNITS="postgresql crudman sftp flight sqlmesh grafana proxy"
+stack_start="$(date +%s)"
 if systemctl --user restart main-pod.service 2>/dev/null; then
-  echo "  started; the database needs a few seconds to initialise on the first run"
+  for u in $UNITS; do
+    printf '  %-12s ' "$u"
+    i=0
+    while [ "$i" -lt 60 ] && ! systemctl --user is-active "${u}.service" >/dev/null 2>&1; do
+      i=$((i + 1))
+      sleep 1
+    done
+    if systemctl --user is-active "${u}.service" >/dev/null 2>&1; then
+      printf 'healthy (%ss)\n' "$(( $(date +%s) - stack_start ))"
+    else
+      echo "not active" >&2
+    fi
+  done
+  echo "  system is up and running"
 else
   echo "  could not start main-pod.service; start it manually (see the cheat sheet)." >&2
   # A refused port bind is the usual cause when the preflight above found something, so
