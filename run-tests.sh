@@ -21,14 +21,58 @@ if ! command -v podman >/dev/null 2>&1; then
   exit 1
 fi
 
-# Rootless podman needs subuid/subgid mappings for the current user (same requirement the
-# install script checks). Without them the containers cannot map their users and fail to
-# start. grep matches an entry keyed by either the username or the numeric uid.
-if ! grep -qE "^($(id -un)|$(id -u)):" /etc/subuid 2>/dev/null \
-   || ! grep -qE "^($(id -un)|$(id -u)):" /etc/subgid 2>/dev/null; then
-  echo "No subuid/subgid mappings for $(id -un); rootless podman cannot run." >&2
-  echo "Add them with: sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $(id -un)" >&2
+# envsubst renders the quadlet and server-stats templates below. It comes from gettext-base,
+# which minimal Ubuntu and RHEL images do not install, and the rendering happens only after
+# the image build -- without this check a missing package costs a full build before the
+# templates silently render empty.
+if ! command -v envsubst >/dev/null 2>&1; then
+  echo "envsubst is not installed; it renders the quadlet templates." >&2
+  echo "Install it with: sudo apt install gettext-base   (RHEL: sudo dnf install gettext)" >&2
   exit 1
+fi
+
+# uv runs the test suites at the end of the script, likewise long after the build.
+if ! command -v uv >/dev/null 2>&1; then
+  echo "uv is not installed; it provides the test dependencies." >&2
+  echo "Install it with: curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
+  exit 1
+fi
+
+# Rootless podman needs a usable subuid/subgid range for the current user (same requirement
+# the install script checks, and checked the same way). Rather than grep /etc/subuid, which
+# misses realm-joined users like name@domain whose ranges come from SSSD/nss and are not
+# listed there, ask podman itself: `unshare` only succeeds when a real user namespace with
+# the range can be set up.
+if ! podman unshare sh -c 'true' >/dev/null 2>&1; then
+  echo "Rootless podman cannot set up a user namespace for '$(id -un)'." >&2
+  echo "This usually means no subuid/subgid range is mapped. Ask an admin to run:" >&2
+  echo "  sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $(id -un)" >&2
+  echo "Realm-joined users (name@domain) may need the range added to their directory." >&2
+  exit 1
+fi
+
+# The whole run drives "systemd --user", and a run takes minutes: the image build and the
+# healthcheck-blocked starts below are long, silent waits. Without lingering, systemd stops
+# the user manager the moment the user's last session ends -- taking its D-Bus socket with
+# it -- and every systemctl call in flight dies with "D-Bus connection terminated while
+# waiting for jobs" / "Connection reset by peer", leaving the pod and volumes behind for the
+# next run to trip over. install.sh enables lingering for a deployment; do the same here.
+# Check the result rather than the exit status: where polkit denies the request without a way
+# to prompt, loginctl still reports success but the setting does not stick.
+linger_enabled() { [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)" = "yes" ]; }
+if ! linger_enabled; then
+  # Unprivileged first, escalating only if polkit denies it, exactly as install.sh does.
+  loginctl enable-linger "$(id -un)" >/dev/null 2>&1 || true
+  if ! linger_enabled && command -v sudo >/dev/null 2>&1; then
+    if sudo -n true 2>/dev/null || [ -t 0 ]; then
+      sudo loginctl enable-linger "$(id -un)" >/dev/null 2>&1 || true
+    fi
+  fi
+  if ! linger_enabled; then
+    echo "Could not enable lingering for $(id -un); the user manager may be torn down mid-run," >&2
+    echo "failing systemctl with \"D-Bus connection terminated while waiting for jobs\"." >&2
+    exit 1
+  fi
 fi
 
 # Load the build-time settings so the suite tests the configured stack (CRUDMAN_PATH,

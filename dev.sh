@@ -28,6 +28,13 @@ set -e
 
 cd "$(dirname "$0")"
 
+# podman builds and runs everything here. Checked up front, as install.sh and run-tests.sh
+# do, so a missing install says so rather than failing further down the script.
+if ! command -v podman >/dev/null 2>&1; then
+  echo "podman is not installed; it is required to build and run the dev stack." >&2
+  exit 1
+fi
+
 # Build-time settings (image names, app name, paths). DEBUG is forced on below.
 set -a
 . ./buildtime.env

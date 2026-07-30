@@ -267,7 +267,41 @@ fi
 
 # --- enable lingering so the pod runs without an active login ------------------------
 step "Enabling the system units"
-loginctl enable-linger "$(id -un)" 2>/dev/null || true
+# Without lingering, systemd stops the user manager as soon as the last session of the user
+# ends, taking the whole stack down with it at logout. Check the result rather than the exit
+# status: where polkit denies the request without a way to prompt, loginctl still reports
+# success but the setting does not stick, and the deployment would silently die at logout.
+linger_enabled() { [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)" = "yes" ]; }
+if ! linger_enabled; then
+  # Unprivileged first: on most hosts polkit lets a user linger themselves, so this is all
+  # it takes. Where it is denied, escalate the same way the io drop-in above does rather
+  # than leaving the deployment to die at the next logout.
+  loginctl enable-linger "$(id -un)" >/dev/null 2>&1 || true
+  if ! linger_enabled && command -v sudo >/dev/null 2>&1; then
+    if sudo -n true 2>/dev/null || [ -t 0 ]; then
+      sudo loginctl enable-linger "$(id -un)" >/dev/null 2>&1 || true
+    fi
+  fi
+  if linger_enabled; then
+    echo "Enabled lingering for $(id -un) (${APP_NAME} keeps running after you log out)."
+  else
+    echo "Could not enable lingering for $(id -un); ${APP_NAME} will stop when you log out." >&2
+  fi
+fi
+
+# enable-linger only asks logind to start user@$(id -u).service; that start is asynchronous,
+# so on a user with no running manager yet (a service account deployed over SSH, a first
+# boot) the systemctl calls below can beat the manager's D-Bus socket into existence and
+# fail with "Connection reset by peer". Wait for the bus to answer before using it.
+# Any answer counts as ready, including "degraded" -- that reports the health of the units,
+# not of the connection, and a host with an unrelated failed unit is still perfectly able to
+# run the stack. Only a manager that cannot be reached at all keeps us waiting.
+i=0
+while [ "$i" -lt 30 ] && ! systemctl --user show -p Version >/dev/null 2>&1; do
+  i=$((i + 1))
+  sleep 1
+done
+
 systemctl --user daemon-reload
 
 # Enable the server-statistics timer so sampling starts (and resumes after a reboot)
