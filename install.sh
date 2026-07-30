@@ -33,7 +33,20 @@ else
 fi
 
 QUADLET_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/containers/systemd"
-WORK="$(mktemp -d)"
+
+# --- scratch space --------------------------------------------------------------------
+# The image tarballs are downloaded here before being loaded, so this needs room for the
+# whole release. TEMPDIR is baked in from buildtime.env (like REPO above) because it is
+# needed before manifest.env is downloaded into it; empty means the system default. It
+# names the *parent*: the scratch directory below is still one we created ourselves, so
+# the trap only ever deletes our own files, never the operator's directory.
+TEMPDIR="${TEMPDIR}"
+if [ -n "$TEMPDIR" ]; then
+  mkdir -p "$TEMPDIR" || { echo "TEMPDIR '$TEMPDIR' is not usable." >&2; exit 1; }
+  WORK="$(mktemp -d -p "$TEMPDIR")"
+else
+  WORK="$(mktemp -d)"
+fi
 trap 'rm -rf "$WORK"' EXIT
 
 # The images built and saved by the workflow, and the unit files it ships. Keep these in

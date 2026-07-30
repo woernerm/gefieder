@@ -100,16 +100,17 @@ jobs:
             echo "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}"
           } > dist/manifest.env
 
-          # Bake the repository URL into the installer so the curl one-liner points at this
-          # repository (github.com or an enterprise instance). Only ${REPO} is substituted;
-          # the installer's own shell variables ($WORK, $BASE, ...) are left untouched.
-          # REPO has no default, so fail here rather than publish an installer that would
-          # download from an empty URL.
+          # Bake the repository URL and the scratch directory into the installer: the
+          # installer runs standalone from the release, so neither can come from
+          # buildtime.env, and TEMPDIR is needed before manifest.env is downloaded into it.
+          # Only these two are substituted; the installer's own shell variables ($WORK,
+          # $BASE, ...) are left untouched. REPO has no default, so fail here rather than
+          # publish an installer that would download from an empty URL.
           if [ -z "${REPO}" ]; then
             echo "REPO is not set in buildtime.env; set it to this repository's URL." >&2
             exit 1
           fi
-          envsubst '${REPO}' < install.sh > dist/install.sh
+          envsubst '${REPO} ${TEMPDIR}' < install.sh > dist/install.sh
 
           # The uninstaller downloads nothing, so it ships verbatim; it discovers what to
           # remove from the files install.sh left on the machine.

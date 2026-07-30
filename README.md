@@ -156,6 +156,7 @@ adjust:
 | `GRAFANA_PATH` | the base path of Grafana, e.g. `grafana` → `https://SERVER_NAME/grafana/` |
 | `SERVER_STATS_SCHEMA` | the schema that holds the server-usage and query statistics (see [Server statistics](#server-statistics)) |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | company proxy for image builds (empty = direct) |
+| `TEMPDIR` | where the scripts put their scratch files (empty = `/tmp`); set it if `/tmp` is too small for the downloaded images or is cleared while the installer runs |
 | `DEBUG` | development vs. production mode (see below) |
 
 A second file, `runtime.env`, holds settings read when the system runs rather than when

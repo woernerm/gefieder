@@ -81,6 +81,18 @@ set -a
 . ./buildtime.env
 set +a
 
+# Scratch space for the throwaway files below, under TEMPDIR from buildtime.env when set
+# and the system default otherwise. TEMPDIR names the parent, so what the cleanup trap
+# removes is always a directory this script created.
+make_tempdir() {
+  if [ -n "$TEMPDIR" ]; then
+    mkdir -p "$TEMPDIR" || { echo "TEMPDIR '$TEMPDIR' is not usable." >&2; exit 1; }
+    mktemp -d -p "$TEMPDIR"
+  else
+    mktemp -d
+  fi
+}
+
 # --- secrets ----------------------------------------------------------------------------
 # The stack does not start without them and the suite reads them back below to connect as
 # each role. install.sh creates them on a deployment; a fresh checkout has none, so create
@@ -304,7 +316,7 @@ export TEST_COLLECTOR="$APP_CONFIG_DIR/serverstats/collect.sh"
 # database password from, the only way in (settings.py takes it from the secret file,
 # not from the environment).
 echo "Running the crudman unit tests ..."
-UNIT_SECRET_DIR="$(mktemp -d)"
+UNIT_SECRET_DIR="$(make_tempdir)"
 podman secret inspect --showsecret -f '{{.SecretData}}' superuser_password \
   > "$UNIT_SECRET_DIR/crudman_password"
 # collectstatic first: the tests render admin pages, and the manifest static files
