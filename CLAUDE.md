@@ -42,6 +42,8 @@
 - The silver schema contains data in a standardized model. 
 - The gold schema contains materialized tables with precomputed metrics and statistics
   derived from standardized model data in the silver schema.  
+- Extensions shall be downloaded during image build so that no internet connection is 
+  required for downloading PostgreSQL extensions on the target machine.
 
 ### Administration Panel
 - `crudman` mainly uses Django's "free" admin feature, styled with the Unfold package.

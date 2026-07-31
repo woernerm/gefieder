@@ -154,6 +154,7 @@ for svc in $SERVICES; do
       --build-arg "http_proxy=${HTTP_PROXY}" \
       --build-arg "https_proxy=${HTTPS_PROXY}" \
       --build-arg "no_proxy=${NO_PROXY}" \
+      --build-arg "DUCKDB_EXTENSIONS=${DUCKDB_EXTENSIONS}" \
       -t "${REGISTRY}/${svc}:${IMAGE_TAG}" \
       -f "${svc}/Dockerfile" .
   }

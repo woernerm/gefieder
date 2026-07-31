@@ -131,7 +131,9 @@ mkdir -p "$CERT_DIR"
 # build.sh/dev.sh do; otherwise the COPY of grafana/.provisioning/ has no source.
 ./grafana/render.sh grafana/.provisioning
 for svc in postgresql crudman sqlmesh proxy grafana; do
-  podman build -t "${REGISTRY}/${svc}:${IMAGE_TAG}" -f "${svc}/Dockerfile" .
+  podman build \
+    --build-arg "DUCKDB_EXTENSIONS=${DUCKDB_EXTENSIONS}" \
+    -t "${REGISTRY}/${svc}:${IMAGE_TAG}" -f "${svc}/Dockerfile" .
 done
 
 # The suite connects to the database as each role to check its access boundary; the

@@ -3,6 +3,11 @@
 echo "duckdb.allow_unsigned_extensions = true" >> "$PGDATA/postgresql.conf"
 echo "duckdb.allow_community_extensions = true" >> "$PGDATA/postgresql.conf"
 
+# Read the DuckDB extensions from the image instead of the default location inside
+# $PGDATA. The image ships them pre-downloaded (see the Dockerfile), so the server never
+# needs internet access to fetch one, and a fresh data volume starts out complete.
+echo "duckdb.extension_directory = '/opt/duckdb-extensions'" >> "$PGDATA/postgresql.conf"
+
 # Load pg_stat_statements so the server records per-query execution statistics (calls,
 # total time, rows, shared-buffer hits/reads). The collector snapshots these to find the
 # queries worth optimising, e.g. a frequent sequential scan that an index would fix.

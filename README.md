@@ -157,6 +157,7 @@ adjust:
 | `CRUDMAN_PATH` | the base path of the admin panel, e.g. `crudman` → `https://SERVER_NAME/crudman/` |
 | `GRAFANA_PATH` | the base path of Grafana, e.g. `grafana` → `https://SERVER_NAME/grafana/` |
 | `SERVER_STATS_SCHEMA` | the schema that holds the server-usage and query statistics (see [Server statistics](#server-statistics)) |
+| `DUCKDB_EXTENSIONS` | the DuckDB extensions baked into the database image, comma-separated; they are downloaded at build time, so the server needs no internet access to use them |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | company proxy for image builds (empty = direct) |
 | `TEMPDIR` | where the installer puts its scratch files (empty = `/tmp`); set it if `/tmp` is too small for the downloaded images or is cleared while the installer runs |
 | `DEBUG` | development vs. production mode (see below) |
@@ -382,9 +383,10 @@ The software it builds on keeps its own license. Two cases to be aware of:
   a network service, you have to make your modified source available to its users.
   Shipping the stock image as-is is fine; just don't patch Grafana and keep the changes
   private. This says nothing about the rest of the project, which stays Apache-2.0.
-- **The DuckDB extensions** in `postgresql/initdb/` are just examples, pulled from the
-  community repo at runtime. Licenses and quality vary, so trim the list to what you
-  actually use before going to production.
+- **The DuckDB extensions** listed in `DUCKDB_EXTENSIONS` (`buildtime.env`) are just
+  examples, taken from the community repo and baked into the image at build time.
+  Licenses and quality vary, so trim the list to what you actually use before going to
+  production.
 
 Everything else — the base images (PostgreSQL/pgduckdb, nginx, Python) and the Python
 dependencies (Django, gunicorn, SQLMesh, ...) — is permissively licensed; check the
