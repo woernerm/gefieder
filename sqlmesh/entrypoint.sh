@@ -1,33 +1,24 @@
 #!/bin/sh
 set -e
 
-# Persist everything this script and the engine print into the mounted log volume while
-# still echoing to stdout, so "podman logs"/journald keep working and a crash also leaves
-# its cause on disk. Process substitution is a bashism unavailable in this dash /bin/sh,
-# so on first entry the script re-runs itself with stdout+stderr piped through tee -a
-# (which appends, so logs survive restarts); ENTRYPOINT_LOGGING guards against looping. A
-# pipeline cannot be exec'd and its status would be tee's, so the real exit status is
-# captured via a status file and re-raised, keeping the container's exit code (and thus
-# Restart=) honest on a crash. The SIGTERM trap below still fires: it runs in the re-run
-# child, which is the foreground process here. The volume is owned by the podman user.
-LOG_DIR=/var/log/app
-if [ -z "$ENTRYPOINT_LOGGING" ]; then
-  mkdir -p "$LOG_DIR"
-  export ENTRYPOINT_LOGGING=1
-  STATUS_FILE="$(mktemp)"
-  # Prefix every line with an ISO-8601 timestamp before persisting it, so each line on
-  # disk can be placed in time. This script's echoes and sqlmesh's plan/run output are
-  # not timestamped on their own. A shell read loop is used rather than awk because mawk
-  # (this image's awk) buffers its input in large blocks, so a slow stream like the run
-  # loop would sit unwritten for a long time; `read` emits each line at once. The
-  # `|| [ -n "$line" ]` flushes a final line that lacks a trailing newline.
-  { "$0" "$@"; echo $? > "$STATUS_FILE"; } 2>&1 \
-    | while IFS= read -r line || [ -n "$line" ]; do
-        printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$line"
-      done | tee -a "$LOG_DIR/sqlmesh.log" || true
-  status="$(cat "$STATUS_FILE" 2>/dev/null || echo 1)"; rm -f "$STATUS_FILE"
-  exit "$status"
-fi
+# This script and the engine log to stdout/stderr only; journald captures the stream and
+# is what survives a crash, a container replacement and a restart. It rotates and
+# size-caps the log on its own, which a file on the volume did not.
+#
+# Every sqlmesh invocation below therefore passes --log-to-stdout, which adds the stdout
+# handler its own logger otherwise lacks: without it the engine's INFO/ERROR records (the
+# detail behind a failed plan or run) go only to its log files and never reach journald.
+# SQLMesh always writes those files as well -- the file handler cannot be turned off, only
+# pointed elsewhere -- so --log-file-dir sends them to a tmpfs-like path under /tmp that is
+# discarded with the container, rather than accumulating in the image's project directory.
+#
+# These lines carry SQLMesh's own timestamp in addition to journald's, which is the one
+# place the "a single timestamp per message" rule cannot be met: SQLMesh formats its
+# records with a hardcoded module constant that no setting or environment variable
+# overrides. The container therefore runs on the host's timezone (Timezone=local in
+# sqlmesh.container) so that the second stamp at least agrees with journald's instead of
+# reading hours apart from it.
+SQLMESH_LOG_ARGS="--log-to-stdout --log-file-dir /tmp/sqlmesh-logs"
 
 # Expose the database password from the mounted secret to the env_var() templating
 # in config.yaml.
@@ -52,8 +43,9 @@ psycopg2.connect(
   sleep 2
 done
 
-# Apply the current state of the project before starting the scheduling loop.
-uv run --project /sqlmesh sqlmesh plan --auto-apply --no-prompts
+# Apply the current state of the project before starting the scheduling loop. The log
+# options are global to the sqlmesh command group, so they precede the subcommand.
+uv run --project /sqlmesh sqlmesh $SQLMESH_LOG_ARGS plan --auto-apply --no-prompts
 
 # Exit promptly on SIGTERM/SIGINT so "podman stop" does not have to resort to
 # SIGKILL. The shell only handles signals once the current foreground command has
@@ -64,7 +56,8 @@ trap 'exit 0' TERM INT
 # Execute the models that are due according to their cron schedules. A failed run
 # only logs an error so that a transient database outage does not kill the loop.
 while true; do
-  uv run --project /sqlmesh sqlmesh run || echo "sqlmesh run failed, retrying after the next interval"
+  uv run --project /sqlmesh sqlmesh $SQLMESH_LOG_ARGS run \
+    || echo "sqlmesh run failed, retrying after the next interval"
   sleep "${SQLMESH_RUN_INTERVAL:-10}" &
   wait $!
 done

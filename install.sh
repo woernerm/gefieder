@@ -55,7 +55,7 @@ IMAGES="postgresql crudman sqlmesh proxy grafana"
 QUADLETS="main.pod postgresql.container crudman.container sftp.container \
   flight.container sqlmesh.container grafana.container proxy.container \
   postgresql_data.volume \
-  grafana_data.volume crudman_data.volume sftp_data.volume sqlmesh_data.volume \
+  grafana_data.volume sftp_data.volume \
   proxy_data.volume uploads_data.volume"
 
 # --- progress reporting ---------------------------------------------------------------
@@ -231,14 +231,13 @@ fi
 
 # --- create the volumes up front so we own their contents -----------------------------
 # Creating the volumes here (rather than letting the first container start create them)
-# means the directories are owned by the rootless user from the start, so writing logs
-# and data needs no `podman unshare`. The container's own user inside its namespace maps
-# back to this user.
-# One data volume per service, matching the VolumeName= in the *.volume quadlets. The
-# crudman/sqlmesh/proxy volumes currently hold only the log the entrypoint tees, but are
-# general per-service data volumes.
+# means the directories are owned by the rootless user from the start, so writing data
+# needs no `podman unshare`. The container's own user inside its namespace maps back to
+# this user.
+# One data volume per service that keeps state, matching the VolumeName= in the *.volume
+# quadlets. Services that only log have none: their logs go to journald.
 step "Creating data volumes"
-VOLUMES="postgresql_data grafana_data crudman_data sftp_data sqlmesh_data proxy_data uploads_data"
+VOLUMES="postgresql_data grafana_data sftp_data proxy_data uploads_data"
 for vol in $VOLUMES; do
   podman volume exists "$vol" || podman volume create "$vol" >/dev/null
 done
@@ -247,7 +246,9 @@ echo "  $(echo $VOLUMES | wc -w) data volumes ready"
 # --- machine secrets ------------------------------------------------------------------
 # One secret per non-human credential, generated locally with openssl. Human logins (the
 # superuser) are NOT created here: the superuser password is prompted once below so it
-# never lands in a file or the shell history. A secret that already exists is left as is.
+# never lands in the shell history. Answering the prompt with an empty line falls back to
+# SUPERUSER_DEFAULT_PASSWORD from buildtime.env, which is the well-known value meant for
+# trying the system out. A secret that already exists is left as is.
 create_secret() {  # name, value-producing command
   podman secret exists "$1" 2>/dev/null || printf '%s' "$2" | podman secret create "$1" - >/dev/null
 }
@@ -261,7 +262,7 @@ read_superuser_password() {
     return 1
   fi
 
-  printf 'Set the superuser (admin) password: ' >&2
+  printf 'Set the superuser (admin) password (leave empty for default): ' >&2
   stty -echo <"$tty_fd" 2>/dev/null || true
   if ! IFS= read -r SU_PW <"$tty_fd"; then
     stty echo <"$tty_fd" 2>/dev/null || true
@@ -271,7 +272,7 @@ read_superuser_password() {
   stty echo <"$tty_fd" 2>/dev/null || true
 
   printf '\n' >&2
-  printf '%s' "$SU_PW"
+  printf '%s' "${SU_PW:-$SUPERUSER_DEFAULT_PASSWORD}"
 }
 step "Creating secrets"
 create_secret django_secret_key "$(openssl rand -hex 32)"
@@ -282,6 +283,13 @@ create_secret grafana_password  "$(openssl rand -hex 32)"
 if ! podman secret exists superuser_password 2>/dev/null; then
   if ! SU_PW="$(read_superuser_password)"; then
     echo "The superuser password was not created because it could not be read." >&2
+    exit 1
+  fi
+  # Empty only if the release manifest carries no default either; an empty secret would
+  # lock the superuser out, so say what to fix rather than create one.
+  if [ -z "$SU_PW" ]; then
+    echo "No password was entered and the release has no SUPERUSER_DEFAULT_PASSWORD." >&2
+    echo "Run the installer again and enter a password." >&2
     exit 1
   fi
   printf '%s' "$SU_PW" | podman secret create superuser_password - >/dev/null
@@ -425,20 +433,8 @@ ${APP_NAME} Cheat sheet
   PostgreSQL:   host=${SERVER_NAME} port=5432 dbname=postgres user=${SUPERUSER_NAME}
                 psql "host=${SERVER_NAME} port=5432 dbname=postgres user=${SUPERUSER_NAME}"
 
-${PORT_SECTION}Follow the combined live log of the whole system:
-  journalctl --user -f -u 'main-pod.service' -u 'postgresql.service' \\
-    -u 'crudman.service' -u 'sftp.service' -u 'flight.service' -u 'sqlmesh.service' \\
-    -u 'grafana.service' -u 'proxy.service'
-
-View persistent log:
-  PostgreSQL:
-    cat \$(podman volume inspect postgresql_data -f '{{.Mountpoint}}')/*.log
-  Grafana:
-    cat \$(podman volume inspect grafana_data -f '{{.Mountpoint}}')/*.log
-  Other:
-    cat \$(podman volume inspect crudman_data -f '{{.Mountpoint}}')/*.log \\
-        \$(podman volume inspect sqlmesh_data -f '{{.Mountpoint}}')/*.log \\
-        \$(podman volume inspect proxy_data -f '{{.Mountpoint}}')/*.log | sort
+${PORT_SECTION}Follow the combined live log of all components:
+  journalctl --user -f -u main-pod -u postgresql -u crudman -u sftp -u flight -u sqlmesh -u grafana -u proxy
 
 Shut the system down:
   systemctl --user stop main-pod.service
@@ -452,11 +448,12 @@ Run a database backup now:
 Volume paths (cd into them to inspect data):
   postgresql: $(podman volume inspect postgresql_data -f '{{.Mountpoint}}')
   grafana:    $(podman volume inspect grafana_data -f '{{.Mountpoint}}')
-  crudman:    $(podman volume inspect crudman_data -f '{{.Mountpoint}}')
-  sqlmesh:    $(podman volume inspect sqlmesh_data -f '{{.Mountpoint}}')
   proxy:      $(podman volume inspect proxy_data -f '{{.Mountpoint}}')
   sftp:       $(podman volume inspect sftp_data -f '{{.Mountpoint}}')
   uploads:    $(podman volume inspect uploads_data -f '{{.Mountpoint}}')
+
+The postgresql and grafana volumes are written by a user inside the container, so
+reading their contents from the host needs: podman unshare ls <path>
 
 Edit the runtime configuration:
   ${EDITOR_CMD} \$HOME/.config/${APP_NAME}/runtime.env

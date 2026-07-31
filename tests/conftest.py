@@ -48,14 +48,6 @@ def volume_mountpoint(volume):
     return podman("volume", "inspect", volume, "-f", "{{.Mountpoint}}").strip()
 
 
-def mount_in_container(container, volume):
-    """Return the destination path the named volume is mounted at inside the container."""
-    for m in inspect(container).get("Mounts", []):
-        if m.get("Name") == volume:
-            return m["Destination"]
-    raise AssertionError(f"{volume} is not mounted in {container}")
-
-
 def allowed(conn, sql):
     """Assert that running sql as this role succeeds (the role has the privilege)."""
     with conn.cursor() as cur:
@@ -102,33 +94,19 @@ CONTAINERS = ["postgresql", "crudman", "sftp", "flight", "sqlmesh", "grafana",
 # The systemd unit that owns the pod (the quadlet file is named main.pod).
 POD_SERVICE = "main-pod.service"
 
-# The named data volumes the quadlets declare: one per service, plus the uploads
-# volume crudman and sqlmesh share for the dropzones files.
+# The named data volumes the quadlets declare: one per service that keeps state, plus the
+# uploads volume crudman and sqlmesh share for the dropzones files. Services that only log
+# have no volume -- their logs go to journald.
 DATA_VOLUMES = [
-    "postgresql_data", "grafana_data", "crudman_data", "sftp_data", "sqlmesh_data",
-    "proxy_data", "uploads_data",
+    "postgresql_data", "grafana_data", "sftp_data", "proxy_data", "uploads_data",
 ]
 
-# Where each service writes its persistent log, as (container, volume, path-in-volume).
-# crudman/sftp/flight/sqlmesh/proxy tee their entrypoint output to a file the rootless
-# user owns (sftp and flight run the crudman application, so their logs share crudman's
-# volume); postgresql and grafana are configured to log into a subdir of their data
-# volume.
-PERSISTENT_LOGS = [
-    ("crudman", "crudman_data", "crudman.log"),
-    ("sftp", "crudman_data", "sftp.log"),
-    ("flight", "crudman_data", "flight.log"),
-    ("sqlmesh", "sqlmesh_data", "sqlmesh.log"),
-    ("proxy", "proxy_data", "proxy.log"),
-    ("postgresql", "postgresql_data", "log"),   # directory of dated log files
-    ("grafana", "grafana_data", "log/grafana.log"),
+# The systemd unit of each service, whose journal holds that service's log. Every service
+# logs to stdout/stderr only; podman forwards the stream to journald, which persists,
+# rotates and size-caps it.
+LOGGING_UNITS = [
+    "postgresql", "crudman", "sftp", "flight", "sqlmesh", "grafana", "proxy",
 ]
-
-# The services whose entrypoint tees the log as the rootless user (uid 0 in-container,
-# mapped to the host user), so the log file is owned by that user without `podman
-# unshare`. postgresql/grafana run as a non-root in-container user, so their files land
-# on a mapped subuid instead and are excluded from the ownership assertion.
-USER_OWNED_LOGS = ["crudman", "sftp", "flight", "sqlmesh", "proxy"]
 
 # In the production profile the proxy serves a self-signed certificate, so TLS
 # verification is disabled for the test run.

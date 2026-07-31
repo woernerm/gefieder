@@ -116,7 +116,7 @@ from other systems, files agreed upon with their producers.
   preserving the multi-file contract of the other methods. A session that ends in a
   connection error stores nothing, like an aborted POST — the uploader's client shows
   the failure and they retry. A checker/converter rejection after the disconnect can
-  only be logged (visible in sftp.log), not shown to the uploader.
+  only be logged (visible in the sftp service's journal), not shown to the uploader.
 - Every session is chrooted into its own throwaway directory: uploaders see only their
   own running session, never stored uploads or other dropzones' data.
 - The validity is the dropzone's default validity ("until replaced" or "always"; SFTP

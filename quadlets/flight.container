@@ -25,12 +25,9 @@ Environment=POSTGRES_HOST=localhost
 Environment=POSTGRES_PORT=5432
 Environment=POSTGRES_DB=postgres
 Environment=POSTGRES_USER=crudman
-# The log volume is crudman's: the endpoint is part of the same Django application, so
-# its flight.log sits next to crudman.log. Unlike SFTP it keeps no state of its own —
-# uploads in progress live in the container's temporary directory and are deliberately
-# lost on a restart, because an upload that was never committed is incomplete.
-# RHEL/Fedora SELinux needs a relabeled volume for rootless podman to mount it.
-Volume=crudman_data.volume:/var/log/app:z
+# Unlike SFTP this endpoint keeps no state of its own — uploads in progress live in the
+# container's temporary directory and are deliberately lost on a restart, because an
+# upload that was never committed is incomplete.
 Environment=UPLOADS_DIR=/var/lib/app/uploads
 Volume=uploads_data.volume:/var/lib/app/uploads:z
 Secret=django_secret_key

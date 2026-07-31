@@ -21,8 +21,9 @@ Environment=DEBUG=${DEBUG}
 Environment=CRUDMAN_PATH=${CRUDMAN_PATH}
 Environment=GRAFANA_PATH=${GRAFANA_PATH}
 Volume=%h/.config/${APP_NAME}/certs:/etc/nginx/proxy/certs:ro,z
-# Data volume; the entrypoint tees its output to /var/log/app here so a crash
-# leaves a log on disk rather than only in the container's stdout.
+# Data volume. nginx writes visits.log here: one JSON line per page navigation, which the
+# server-statistics collector drains by byte offset into the dashboard_visit table. It is
+# data for the collector, not a human log -- those go to stdout and thus journald.
 # RHEL/Fedora SELinux needs a relabeled volume for rootless podman to mount it.
 Volume=proxy_data.volume:/var/log/app:z
 HealthCmd=pgrep -x nginx

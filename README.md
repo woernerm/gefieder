@@ -86,7 +86,8 @@ them only to a VPN or a specific subnet rather than to everyone.
 
 **3. Install from the release.** The installer downloads each asset, loads the image
 tarballs into rootless podman, installs the quadlets, creates the machine secrets
-(prompting once for the superuser password), starts the system, and prints a control
+(prompting once for the superuser password, or leave it empty to take the
+`SUPERUSER_DEFAULT_PASSWORD` from `buildtime.env`), starts the system, and prints a control
 cheat sheet with the addresses and the everyday commands. Point the command at your own
 repository (the `REPO` you set in `buildtime.env`, which may be an enterprise GitHub
 instance):
@@ -151,12 +152,13 @@ adjust:
 | `IMAGE_TAG` | the image tag, e.g. `latest` |
 | `SUPERUSER_NAME` | the name of the PostgreSQL, Django and Grafana superuser |
 | `SUPERUSER_EMAIL` | the email address of the Django superuser |
+| `SUPERUSER_DEFAULT_PASSWORD` | the password used when the installer's password prompt is left empty |
 | `SERVER_NAME` | the public host name, e.g. `mysite.com`; the admin panel also accepts `localhost` |
 | `CRUDMAN_PATH` | the base path of the admin panel, e.g. `crudman` → `https://SERVER_NAME/crudman/` |
 | `GRAFANA_PATH` | the base path of Grafana, e.g. `grafana` → `https://SERVER_NAME/grafana/` |
 | `SERVER_STATS_SCHEMA` | the schema that holds the server-usage and query statistics (see [Server statistics](#server-statistics)) |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | company proxy for image builds (empty = direct) |
-| `TEMPDIR` | where the scripts put their scratch files (empty = `/tmp`); set it if `/tmp` is too small for the downloaded images or is cleared while the installer runs |
+| `TEMPDIR` | where the installer puts its scratch files (empty = `/tmp`); set it if `/tmp` is too small for the downloaded images or is cleared while the installer runs |
 | `DEBUG` | development vs. production mode (see below) |
 
 A second file, `runtime.env`, holds settings read when the system runs rather than when
@@ -211,30 +213,29 @@ user owns their contents):
   [Uploading files](#uploading-files-with-dropzones))
 - `sftp_data` — the host key of the SFTP upload endpoint, so uploaders' SFTP clients
   keep trusting the server across updates
-- `crudman_data`, `sqlmesh_data`, `proxy_data` — currently the persistent logs of each
-  service (see [Logs](#logs))
+- `proxy_data` — the page-visit records the server statistics are built from
 
 They survive stopping the stack. Inspect them with `podman volume ls`. To delete the
 data, remove the volume explicitly, e.g. `podman volume rm postgresql_data`.
 
+The `postgresql` and `grafana` volumes are written by a user inside the container, so
+listing their contents from the host needs `podman unshare ls <path>`.
+
 ## Logs
-Every service keeps a persistent log on its volume, so a crash leaves its cause on disk
-(not just in `podman logs`, which is lost when the container is replaced):
-
-- `postgresql` and `grafana` are configured to log into a `log/` subdirectory of their
-  data volume.
-- `crudman`, `sftp`, `flight`, `sqlmesh` and `proxy` tee their entrypoint output to a
-  log file on their data volume (the SFTP and Arrow Flight endpoints are part of the
-  crudman application, so their `sftp.log` and `flight.log` sit next to `crudman.log`);
-  those files are owned by the rootless podman user, so you can read them without
-  `podman unshare`.
-
-Follow the live logs through journald, or read the persistent files from the volumes:
+Every service logs to the journal, which keeps the logs across restarts and updates, so a
+crash leaves its cause on disk. Old logs are rotated away automatically, and you need no
+special permissions to read them:
 
 ```bash
-journalctl --user -f -u crudman.service                       # live log of one service
-cat "$(podman volume inspect crudman_data -f '{{.Mountpoint}}')/crudman.log"
+journalctl --user -f -u crudman                   # follow one component
+journalctl --user -u crudman --since '2 hours ago'
+journalctl --user -f -u main-pod -u postgresql -u crudman -u sftp -u flight -u sqlmesh -u grafana -u proxy
 ```
+
+Use `postgresql`, `crudman`, `sftp`, `flight`, `sqlmesh`, `grafana` or `proxy` as the
+component name. The SFTP and Arrow Flight endpoints are part of the crudman application
+but run as their own services, so they have their own logs. The last command combines all
+of them into one stream, and the cheat sheet the installer prints repeats it.
 
 ## Server statistics
 Gefieder records how much of the server it actually uses, so you can right-size the next

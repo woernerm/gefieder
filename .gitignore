@@ -47,3 +47,8 @@ grafana/.provisioning/
 
 # Django
 staticfiles/
+
+# SQLMesh writes its own log files next to the project when it is run from the host.
+# In the container they go to /tmp instead (see sqlmesh/entrypoint.sh) and the engine
+# logs to stdout, so these are only a local artefact and must not reach the image.
+sqlmesh/logs/

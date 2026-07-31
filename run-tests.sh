@@ -81,13 +81,13 @@ set -a
 . ./buildtime.env
 set +a
 
-# Scratch space for the throwaway files below, under TEMPDIR from buildtime.env when set
-# and the system default otherwise. TEMPDIR names the parent, so what the cleanup trap
-# removes is always a directory this script created.
+# Scratch space for the throwaway files below, under TEMPDIR_TESTS from buildtime.env when
+# set and the system default otherwise. TEMPDIR_TESTS names the parent, so what the cleanup
+# trap removes is always a directory this script created.
 make_tempdir() {
-  if [ -n "$TEMPDIR" ]; then
-    mkdir -p "$TEMPDIR" || { echo "TEMPDIR '$TEMPDIR' is not usable." >&2; exit 1; }
-    mktemp -d -p "$TEMPDIR"
+  if [ -n "$TEMPDIR_TESTS" ]; then
+    mkdir -p "$TEMPDIR_TESTS" || { echo "TEMPDIR_TESTS '$TEMPDIR_TESTS' is not usable." >&2; exit 1; }
+    mktemp -d -p "$TEMPDIR_TESTS"
   else
     mktemp -d
   fi
@@ -165,7 +165,11 @@ SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 mkdir -p "$QUADLET_DIR"
 
 UNITS="postgresql crudman sftp flight sqlmesh grafana proxy"
-VOLUMES="postgresql_data grafana_data crudman_data sftp_data sqlmesh_data proxy_data uploads_data"
+# The volumes the current deployment uses, plus crudman_data/sqlmesh_data: those held only
+# the persistent logs that now go to journald, and listing them here still removes them
+# from a deployment installed before that change.
+VOLUMES="postgresql_data grafana_data sftp_data proxy_data uploads_data \
+  crudman_data sqlmesh_data"
 
 # Stop the stack's services and drop its pod, volumes and unit files. Shared by the
 # teardown of our own test stack and by the removal of a pre-existing deployment, which

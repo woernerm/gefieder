@@ -15,20 +15,15 @@ echo "shared_preload_libraries = 'pg_duckdb,pg_stat_statements'" >> "$PGDATA/pos
 # them), so SQLMesh models wrapped in calls still show up individually.
 echo "pg_stat_statements.track = all" >> "$PGDATA/postgresql.conf"
 
-# Persist the server log into the data volume (under $PGDATA/log) instead of only the
-# container's stdout, so a crash leaves a log on disk to diagnose it from. The files are
-# written by the postgres user, which the rootless container maps back to the podman
-# user, so they need no chown. log_min_messages stays at the server default.
+# Log to the container's stderr (the server default, so logging_collector stays off),
+# which podman forwards to journald like every other service. journald rotates and
+# size-caps the log; a file under $PGDATA/log did not, and grew unbounded next to the
+# data. log_min_messages stays at the server default.
 #
-# jsonlog (not the default stderr text format) so every record is a single line carrying
-# its own "timestamp" field. A logged multi-line statement -- e.g. the STATEMENT detail of
-# a failed query -- would otherwise be split across several lines with only the first
-# timestamped, leaving continuation lines on disk that cannot be placed in time. One JSON
-# object per line keeps the whole statement on one timestamped line instead.
-echo "logging_collector = on" >> "$PGDATA/postgresql.conf"
-echo "log_destination = 'jsonlog'" >> "$PGDATA/postgresql.conf"
-echo "log_directory = 'log'" >> "$PGDATA/postgresql.conf"
-echo "log_filename = 'postgresql-%Y-%m-%d.log'" >> "$PGDATA/postgresql.conf"
+# The default stderr format is kept rather than jsonlog: journald records each entry with
+# its own reception timestamp, so a multi-line statement detail no longer leaves
+# untimestamped continuation lines on disk, which was the reason jsonlog was chosen.
+echo "log_line_prefix = '%m [%p] '" >> "$PGDATA/postgresql.conf"
 
 # Reload PostgreSQL configuration to apply the new settings.
 pg_ctl reload -D "$PGDATA" || true  # || true ignores error if not running yet

@@ -93,6 +93,7 @@ jobs:
           {
             echo "APP_NAME=${APP_NAME}"
             echo "SUPERUSER_NAME=${SUPERUSER_NAME}"
+            echo "SUPERUSER_DEFAULT_PASSWORD=${SUPERUSER_DEFAULT_PASSWORD}"
             echo "SERVER_NAME=${SERVER_NAME}"
             echo "DEBUG=${DEBUG}"
             echo "CRUDMAN_PATH=${CRUDMAN_PATH}"

@@ -70,10 +70,17 @@
   uploaded as github release.
 - The system shall be installable from a github release using a curl command similar to 
   this: `curl -fsSL https://github.com/your-org/gefieder/releases/latest/install.sh | bash`
-- The system shall use the entrypoint.sh scripts to write persistent logs to the volume
-  (e.g. using `awk`). The logs shall be owned by the rootless podman user.
+- The services shall log to stdout/stderr only. Podman forwards the stream to journald,
+  which persists the logs across restarts, container replacements and crashes, and
+  rotates and size-caps them. The services shall not write their own log files to a
+  volume: those grew unbounded, and a file written by a non-root user inside a container
+  lands on a mapped subuid the host user cannot read without `podman unshare`.
 - The persistent logs shall contain one (and only one) timestamp at the beginning of 
-  each message.
+  each message. journald stamps every entry it records, so a service shall not add a
+  second timestamp of its own where it can be configured not to.
+- Logs of apps like PostgreSQL, Grafana, crudman, sqlmesh shall be accessible by using
+  journalctl on the host system by the host user. This rule does not apply to the 
+  proxy's `visits.log` file. 
 
 ## Configuration
 - There shall be a `buildtime.env` configuration file for all variables that need to be
@@ -115,7 +122,8 @@
     - The path of each volume (so that the user can cd into the respective directories).
     - Control command for opening the runtime.env configuration file with the host
       system's default editor (or nano if there is no default).
-    - A `cat` command for viewing the persistent logs of each software component.
+    - A `journalctl` command for reading the persistent log of each software component
+      (the logs live in the journal, so there is no file to `cat`).
 - The install script shall store a helpfile in the rootless podman user's home 
   directory.
 

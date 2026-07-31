@@ -192,7 +192,7 @@ printf '%s' "$SUPERUSER_DEFAULT_PASSWORD" | podman secret create superuser_passw
 # --- volumes --------------------------------------------------------------------------
 # Created up front so the rootless user owns their contents from the start (same reason as
 # install.sh), one per service matching the *.volume quadlets.
-for vol in postgresql_data grafana_data crudman_data sftp_data sqlmesh_data proxy_data uploads_data; do
+for vol in postgresql_data grafana_data sftp_data proxy_data uploads_data; do
   podman volume exists "$vol" || podman volume create "$vol" >/dev/null
 done
 
@@ -234,19 +234,17 @@ podman run -d --pod "$POD" --name crudman --restart always \
   -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 \
   -e POSTGRES_DB=postgres -e POSTGRES_USER=crudman \
   -e UPLOADS_DIR=/var/lib/app/uploads \
-  -v crudman_data:/var/log/app \
   -v uploads_data:/var/lib/app/uploads \
   --secret django_secret_key --secret crudman_password --secret superuser_password \
   "${REGISTRY}/crudman:${IMAGE_TAG}" >/dev/null
 
 # The dropzones SFTP endpoint: the crudman image in its "sftp" role (same entrypoint,
-# sftp argument), sharing crudman's log volume and writing uploads like crudman does.
+# sftp argument), writing uploads like crudman does.
 podman run -d --pod "$POD" --name sftp --restart always \
   -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 \
   -e POSTGRES_DB=postgres -e POSTGRES_USER=crudman \
   -e UPLOADS_DIR=/var/lib/app/uploads \
   -e SFTP_DIR=/var/lib/app/sftp \
-  -v crudman_data:/var/log/app \
   -v uploads_data:/var/lib/app/uploads \
   -v sftp_data:/var/lib/app/sftp \
   --secret django_secret_key --secret crudman_password \
@@ -256,15 +254,15 @@ podman run -d --pod "$POD" --name flight --restart always \
   -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 \
   -e POSTGRES_DB=postgres -e POSTGRES_USER=crudman \
   -e UPLOADS_DIR=/var/lib/app/uploads \
-  -v crudman_data:/var/log/app \
   -v uploads_data:/var/lib/app/uploads \
   --secret django_secret_key --secret crudman_password \
   "${REGISTRY}/crudman:${IMAGE_TAG}" /crudman/entrypoint.sh flight >/dev/null
 
-podman run -d --pod "$POD" --name sqlmesh --restart always \
+# --tz=local matches the quadlet's Timezone=local: SQLMesh stamps its own log records, so
+# on the image's UTC they would read hours apart from journald's stamp next to them.
+podman run -d --pod "$POD" --name sqlmesh --restart always --tz=local \
   -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 -e POSTGRES_DB=postgres \
   -e SQLMESH_RUN_INTERVAL=10 \
-  -v sqlmesh_data:/var/log/app \
   -v uploads_data:/var/lib/app/uploads:ro \
   --secret sqlmesh_password \
   "${REGISTRY}/sqlmesh:${IMAGE_TAG}" >/dev/null
@@ -275,8 +273,7 @@ podman run -d --pod "$POD" --name grafana --restart always \
   -e GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/superuser_password \
   -e "GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/${GRAFANA_PATH}/" \
   -e GF_SERVER_SERVE_FROM_SUB_PATH=true \
-  -e "GF_LOG_MODE=console file" \
-  -e GF_PATHS_LOGS=/var/lib/grafana/log \
+  -e GF_LOG_MODE=console \
   -v grafana_data:/var/lib/grafana \
   --secret superuser_password --secret grafana_password \
   "${REGISTRY}/grafana:${IMAGE_TAG}" >/dev/null

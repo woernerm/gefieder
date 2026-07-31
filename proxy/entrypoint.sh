@@ -1,34 +1,16 @@
 #!/bin/sh
 set -e
 
-# Persist everything this script and nginx print into the mounted log volume while still
-# echoing to stdout, so "podman logs"/journald keep working and a crash also leaves its
-# cause on disk. Process substitution is a bashism unavailable in this BusyBox /bin/sh,
-# so on first entry the script re-runs itself with stdout+stderr piped through tee -a
-# (which appends, so logs survive restarts); ENTRYPOINT_LOGGING guards against looping. A
-# pipeline cannot be exec'd and its status would be tee's, so the real exit status is
-# captured via a status file and re-raised, keeping the container's exit code (and thus
-# Restart=) honest on a crash. The nginx image already sends its access/error logs to
-# stdout/stderr, so this captures them too. The volume is owned by the podman user.
+# This script and nginx log to stdout/stderr only; journald captures the stream and is
+# what survives a crash, a container replacement and a restart. It rotates and size-caps
+# the log on its own, which a file on the volume did not. The nginx image already sends
+# its access/error logs to stdout/stderr, so they are covered too.
+#
+# The volume is still mounted at $LOG_DIR: nginx writes visits.log there (see the
+# access_log directives in the conf templates), which the server-statistics collector
+# drains by byte offset. That file is data for the collector, not a human log.
 LOG_DIR=/var/log/app
-if [ -z "$ENTRYPOINT_LOGGING" ]; then
-  mkdir -p "$LOG_DIR"
-  export ENTRYPOINT_LOGGING=1
-  STATUS_FILE="$(mktemp)"
-  # Prefix every line with an ISO-8601 timestamp before persisting it, so each line on
-  # disk can be placed in time. nginx's access log uses a DD/Mon/YYYY timestamp and this
-  # script's echoes have none, so a uniform leading timestamp makes every line sortable.
-  # A shell read loop is used rather than awk because BusyBox awk buffers its input in
-  # large blocks, so a slow stream like the access log would sit unwritten for a long
-  # time; `read` emits each line at once. The `|| [ -n "$line" ]` flushes a final line
-  # that lacks a trailing newline.
-  { "$0" "$@"; echo $? > "$STATUS_FILE"; } 2>&1 \
-    | while IFS= read -r line || [ -n "$line" ]; do
-        printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$line"
-      done | tee -a "$LOG_DIR/proxy.log" || true
-  status="$(cat "$STATUS_FILE" 2>/dev/null || echo 1)"; rm -f "$STATUS_FILE"
-  exit "$status"
-fi
+mkdir -p "$LOG_DIR"
 
 # The base paths under which the administration panel and Grafana are served. They
 # must match CRUDMAN_PATH of the crudman service and GRAFANA_PATH of the grafana
