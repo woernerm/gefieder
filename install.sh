@@ -91,6 +91,28 @@ if ! podman unshare sh -c 'true' >/dev/null 2>&1; then
   exit 1
 fi
 
+# --- preflight: the journal has to be persistent ---------------------------------------
+# The services log to stdout/stderr and podman hands that to journald, which is the only
+# place their history lives. Without /var/log/journal, journald keeps everything in
+# /run/log/journal instead: the logs are gone after a reboot, and journalctl answers "No
+# journal files were found" -- so a stack that runs perfectly well has no readable log.
+# Ubuntu ships the directory, RHEL does not.
+#
+# Creating it needs root, which the user running this installer does not have, so this
+# only reports it and carries on: the stack itself runs fine either way.
+JOURNAL_HINT=""   # repeated in the cheat sheet, so it can be handed to an admin later
+if [ ! -d /var/log/journal ]; then
+  JOURNAL_HINT="The logs are kept in memory only: they are lost on reboot and journalctl
+reports \"No journal files were found\". Ask an admin to make the journal persistent:
+  sudo mkdir -p /var/log/journal
+  sudo systemd-tmpfiles --create --prefix /var/log/journal
+  sudo journalctl --flush
+
+"
+  echo "  /var/log/journal does not exist, so the logs are kept in memory and lost on" >&2
+  echo "  reboot; the cheat sheet has the commands an admin has to run." >&2
+fi
+
 # --- images: download each tarball with its own curl, then load it --------------------
 step "Downloading the release from ${BASE}"
 curl -fsSL "${BASE}/manifest.env" -o "${WORK}/manifest.env"
@@ -504,7 +526,7 @@ reading their contents from the host needs: podman unshare ls <path>
 Edit the runtime configuration:
   ${EDITOR_CMD} \$HOME/.config/${APP_NAME}/runtime.env
 
-${CERT_SECTION}Uninstall the system (asks before deleting the data volumes and secrets):
+${CERT_SECTION}${JOURNAL_HINT}Uninstall the system (asks before deleting the data volumes and secrets):
   curl -fsSL ${REPO}/releases/latest/download/uninstall.sh | bash
 EOF
 
