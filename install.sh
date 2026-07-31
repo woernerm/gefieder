@@ -229,6 +229,47 @@ if [ ! -f "$APP_CONFIG_DIR/runtime.env" ]; then
   cp "${WORK}/runtime.env" "$APP_CONFIG_DIR/runtime.env"
 fi
 
+# --- TLS certificate: the one host-local piece the proxy needs -------------------------
+# The proxy quadlet bind-mounts this directory, so it has to exist before the proxy starts
+# even in development mode, where nothing reads it: podman refuses to create a container
+# whose bind source is missing ("statfs ...: no such file or directory") and the proxy is
+# then the one service that never comes up while the rest of the stack runs fine.
+#
+# In production mode nginx also needs the two files themselves or it exits at startup. A
+# server on an internal network cannot fetch a certificate from a public CA, so rather
+# than leave the proxy dead, a self-signed one is generated to get the system up; it is
+# replaced by copying the company certificate over it (see the cheat sheet).
+step "Checking the TLS certificate"
+CERT_DIR="$APP_CONFIG_DIR/certs"
+CERT_SECTION=""   # repeated in the cheat sheet when the certificate needs attention
+mkdir -p "$CERT_DIR"
+if [ "${DEBUG}" = "true" ]; then
+  echo "  development mode: the proxy serves plain HTTP, no certificate needed"
+elif [ -f "$CERT_DIR/fullchain.pem" ] && [ -f "$CERT_DIR/privkey.pem" ]; then
+  echo "  using the certificate in ${CERT_DIR}"
+elif openssl req -x509 -newkey rsa:2048 -nodes -days 825 -subj "/CN=${SERVER_NAME}" \
+       -addext "subjectAltName=DNS:${SERVER_NAME}" \
+       -keyout "$CERT_DIR/privkey.pem" -out "$CERT_DIR/fullchain.pem" >/dev/null 2>&1; then
+  chmod 600 "$CERT_DIR/privkey.pem"
+  echo "  no certificate in ${CERT_DIR}; generated a self-signed one for ${SERVER_NAME}"
+  echo "  browsers will warn about it until you replace it -- see the cheat sheet" >&2
+  CERT_SECTION="The proxy is using a self-signed certificate, so browsers will warn about it.
+Replace it with the certificate for ${SERVER_NAME} and restart the proxy:
+  cp fullchain.pem privkey.pem ${CERT_DIR}/
+  systemctl --user restart proxy.service
+
+"
+else
+  echo "  could not generate a certificate in ${CERT_DIR}; the proxy will not start" >&2
+  echo "  until fullchain.pem and privkey.pem are placed there." >&2
+  CERT_SECTION="The proxy has no certificate and will not start. Put the certificate for
+${SERVER_NAME} in place and restart it:
+  cp fullchain.pem privkey.pem ${CERT_DIR}/
+  systemctl --user restart proxy.service
+
+"
+fi
+
 # --- create the volumes up front so we own their contents -----------------------------
 # Creating the volumes here (rather than letting the first container start create them)
 # means the directories are owned by the rootless user from the start, so writing data
@@ -385,8 +426,13 @@ if systemctl --user restart main-pod.service 2>/dev/null; then
     done
     if systemctl --user is-active "${u}.service" >/dev/null 2>&1; then
       printf 'healthy (%ss)\n' "$(( $(date +%s) - stack_start ))"
+    elif ! systemctl --user cat "${u}.service" >/dev/null 2>&1; then
+      # No unit at all: the quadlet generator rejected the file (a key this podman does
+      # not know skips the whole unit) so there is nothing to start and nothing in the
+      # journal either -- which looks the same as a crashed service unless we say so.
+      echo "no unit generated -- run: /usr/libexec/podman/quadlet -user -dryrun" >&2
     else
-      echo "not active" >&2
+      echo "not active -- see: journalctl --user -u ${u}" >&2
     fi
   done
   echo "  system is up and running"
@@ -458,7 +504,7 @@ reading their contents from the host needs: podman unshare ls <path>
 Edit the runtime configuration:
   ${EDITOR_CMD} \$HOME/.config/${APP_NAME}/runtime.env
 
-Uninstall the system (asks before deleting the data volumes and secrets):
+${CERT_SECTION}Uninstall the system (asks before deleting the data volumes and secrets):
   curl -fsSL ${REPO}/releases/latest/download/uninstall.sh | bash
 EOF
 
