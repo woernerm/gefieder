@@ -77,8 +77,10 @@ fi
 
 # Load the build-time settings so the suite tests the configured stack (CRUDMAN_PATH,
 # GRAFANA_PATH, APP_NAME, SUPERUSER_NAME, ...) rather than assuming the defaults.
+# runtime.env supplies SERVER_NAME; DEBUG comes from the profile selected below.
 set -a
 . ./buildtime.env
+. ./runtime.env
 set +a
 
 # Scratch space for the throwaway files below, under TEMPDIR_TESTS from buildtime.env when
@@ -158,12 +160,11 @@ else
 fi
 export DEBUG
 
-# A running "systemd --user" only scans this fixed path with its generator (it ignores an
-# XDG_CONFIG_HOME we might export here), so the test must install where the real
-# deployment installs. So the test never silently clobbers a deployment already there, it
-# asks for confirmation before removing it (below).
-QUADLET_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/containers/systemd"
-SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+# A running "systemd --user" only scans this fixed path with its generator, so the test
+# must install where the real deployment installs. So the test never silently clobbers a
+# deployment already there, it asks for confirmation before removing it (below).
+QUADLET_DIR="$HOME/.config/containers/systemd"
+SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 mkdir -p "$QUADLET_DIR"
 
 UNITS="postgresql crudman sftp flight sqlmesh grafana proxy"
@@ -262,13 +263,21 @@ UNIT_SECRET_DIR=""
 # suite exercises the real host-side sampler: render its units into the systemd user dir
 # and drop the collector and a runtime.env under ~/.config/<APP_NAME>/. The suite triggers
 # a sample itself (rather than waiting for the timer) and asserts rows appear.
-APP_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/${APP_NAME}"
+APP_CONFIG_DIR="$HOME/.config/${APP_NAME}"
 mkdir -p "$SYSTEMD_USER_DIR" "$APP_CONFIG_DIR/serverstats"
 for u in serverstats/server-stats.service serverstats/server-stats.timer; do
   envsubst "$VARS" < "$u" > "$SYSTEMD_USER_DIR/$(basename "$u")"
 done
 install -m 0755 serverstats/collect.sh "$APP_CONFIG_DIR/serverstats/collect.sh"
-cp runtime.env "$APP_CONFIG_DIR/runtime.env"
+# The quadlets read SERVER_NAME and DEBUG from here (EnvironmentFile=), so write the
+# profile's values rather than copying the repository defaults, which would put the
+# production profile back into DEBUG mode. Everything else is copied over unchanged; the
+# "|| true" keeps a repository file without those keys from aborting the run under set -e.
+{
+  echo "SERVER_NAME=${SERVER_NAME}"
+  echo "DEBUG=${DEBUG}"
+  grep -v -e '^SERVER_NAME=' -e '^DEBUG=' runtime.env || true
+} > "$APP_CONFIG_DIR/runtime.env"
 
 cleanup() {
   # Runs on EXIT after pytest prints its summary: stops the services, removes the pod and

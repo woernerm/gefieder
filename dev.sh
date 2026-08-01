@@ -35,9 +35,11 @@ if ! command -v podman >/dev/null 2>&1; then
   exit 1
 fi
 
-# Build-time settings (image names, app name, paths). DEBUG is forced on below.
+# Build-time settings (image names, app name, paths) and the runtime ones (SERVER_NAME).
+# DEBUG is forced on below, whatever runtime.env says.
 set -a
 . ./buildtime.env
+. ./runtime.env
 set +a
 
 POD="${APP_NAME}"

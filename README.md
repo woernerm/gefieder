@@ -35,14 +35,14 @@ root and work the same on Linux and on WSL.
 
 ## Run it locally
 
-The settings come from `buildtime.env` in the repository root; the default `DEBUG=false`
-serves HTTPS, so for a quick local try-out switch it to development mode (plain HTTP, no
-certificate) first. The simplest way to bring up a working stack on your machine is the
-test runner, which builds the images, renders the quadlets and starts the pod:
+The settings come from `buildtime.env` (image names, paths) and `runtime.env`
+(`SERVER_NAME`, `DEBUG`) in the repository root. The simplest way to bring up a working
+stack on your machine is the test runner, which builds the images, renders the quadlets
+and starts the pod. It picks the mode itself, so neither file needs editing first:
 
 ```bash
-sed -i 's/^DEBUG=.*/DEBUG=true/' buildtime.env   # development mode (plain HTTP)
-./run-tests.sh                                    # builds, starts the pod, runs the suite
+./run-tests.sh              # development mode (plain HTTP), builds and runs the suite
+./run-tests.sh production   # production mode (HTTPS with a throwaway certificate)
 ```
 
 `run-tests.sh` tears its stack down again at the end. To keep a stack running for manual
@@ -155,14 +155,23 @@ adjust:
 | `SUPERUSER_NAME` | the name of the PostgreSQL, Django and Grafana superuser |
 | `SUPERUSER_EMAIL` | the email address of the Django superuser |
 | `SUPERUSER_DEFAULT_PASSWORD` | the password used when the installer's password prompt is left empty |
-| `SERVER_NAME` | the full public host name, e.g. `abc123.mycompany.com` or `mysite.com`; a local development system uses `localhost` |
 | `CRUDMAN_PATH` | the base path of the admin panel, e.g. `crudman` → `https://SERVER_NAME/crudman/` |
 | `GRAFANA_PATH` | the base path of Grafana, e.g. `grafana` → `https://SERVER_NAME/grafana/` |
 | `SERVER_STATS_SCHEMA` | the schema that holds the server-usage and query statistics (see [Server statistics](#server-statistics)) |
 | `DUCKDB_EXTENSIONS` | the DuckDB extensions baked into the database image, comma-separated; they are downloaded at build time, so the server needs no internet access to use them |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | company proxy for image builds (empty = direct) |
 | `TEMPDIR` | where the installer puts its scratch files (empty = `/tmp`); set it if `/tmp` is too small for the downloaded images or is cleared while the installer runs |
+
+A second file, `runtime.env`, holds settings read when the system runs rather than when
+it is built, so changing one takes effect on the next restart without a rebuild. The
+installer places it at `~/.config/<APP_NAME>/runtime.env` and keeps the one already there
+on a reinstall, so your edits survive an upgrade.
+
+| Setting | Meaning |
+| --- | --- |
+| `SERVER_NAME` | the full public host name, e.g. `abc123.mycompany.com` or `mysite.com`; a local development system uses `localhost` |
 | `DEBUG` | development vs. production mode (see below) |
+| `SERVER_STATS_INTERVAL` | how often, in seconds, the server-statistics collector samples (default 60) |
 
 On a company network, give the server its full name in `SERVER_NAME`, domain included —
 `abc123.mycompany.com` rather than just `abc123`. A bare machine name usually does not work
@@ -171,24 +180,20 @@ resolving it, and the proxy answers with an error page rather than reaching the 
 installer warns about an unqualified name and checks that both applications answer at the
 address before it finishes.
 
-A second file, `runtime.env`, holds settings read when the system runs rather than when
-it is built, so changing one takes effect on the next run without a rebuild. The installer
-places it at `~/.config/<APP_NAME>/runtime.env`.
-
-| Setting | Meaning |
-| --- | --- |
-| `SERVER_STATS_INTERVAL` | how often, in seconds, the server-statistics collector samples (default 60) |
+After changing either, restart the system so the services pick the new value up:
+`systemctl --user restart main-pod.service`.
 
 ## Development vs. production mode
-The `DEBUG` setting in `buildtime.env` decides how the system runs:
+The `DEBUG` setting in `runtime.env` decides how the system runs:
 
 - `DEBUG=true` — development mode: the proxy serves plain HTTP without certificates and
   Django shows debug pages.
 - `DEBUG=false` — production mode (the default): the proxy serves HTTPS only, redirects
   HTTP to HTTPS, and needs a certificate (see below).
 
-`DEBUG` is rendered into the quadlets at build time, so changing it means rebuilding and
-re-installing (or, for a local stack, re-running the renderer and `daemon-reload`).
+Leave it `false` on a server other people reach: the debug pages show tracebacks, file
+paths and settings to anyone who triggers an error. Changing it needs no rebuild, only
+`systemctl --user restart main-pod.service`.
 
 ## Secrets
 All passwords and keys are podman secrets, so they never appear in the quadlets or the

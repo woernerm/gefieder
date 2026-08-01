@@ -17,11 +17,14 @@ Notify=healthy
 # by the SIGKILL that ends a timed-out stop.
 RunInit=true
 Environment=APP_NAME=${APP_NAME}
-Environment=SERVER_NAME=${SERVER_NAME}
+# SERVER_NAME and DEBUG come from the operator's runtime.env, so changing either needs a
+# restart rather than a rebuild. The installer writes the file before the units start;
+# podman rejects a missing env file, and systemd's optional "-" prefix is not supported
+# here -- quadlet passes the path to --env-file, which takes it literally.
+EnvironmentFile=%h/.config/${APP_NAME}/runtime.env
 Environment=SUPERUSER_NAME=${SUPERUSER_NAME}
 Environment=SUPERUSER_EMAIL=${SUPERUSER_EMAIL}
 Environment=CRUDMAN_PATH=${CRUDMAN_PATH}
-Environment=DEBUG=${DEBUG}
 Environment=POSTGRES_HOST=localhost
 Environment=POSTGRES_PORT=5432
 Environment=POSTGRES_DB=postgres

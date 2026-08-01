@@ -32,7 +32,10 @@ else
   BASE="${REPO}/releases/download/${TAG}"
 fi
 
-QUADLET_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/containers/systemd"
+# Deliberately $HOME/.config and not XDG_CONFIG_HOME: the quadlet generator scans this
+# fixed path, and the units resolve %h/.config for the certificate and runtime.env. An
+# XDG_CONFIG_HOME set in the installing shell would put the files where nothing looks.
+QUADLET_DIR="$HOME/.config/containers/systemd"
 
 # --- scratch space --------------------------------------------------------------------
 # The image tarballs are downloaded here before being loaded, so this needs room for the
@@ -118,6 +121,41 @@ step "Downloading the release from ${BASE}"
 curl -fsSL "${BASE}/manifest.env" -o "${WORK}/manifest.env"
 . "${WORK}/manifest.env"   # APP_NAME, SUPERUSER_NAME, CRUDMAN_PATH, GRAFANA_PATH, ...
 
+# --- runtime configuration -------------------------------------------------------------
+# The quadlets read this file through EnvironmentFile=, and the installer needs SERVER_NAME
+# and DEBUG now, for the certificate and the addresses it prints. An existing file is kept
+# so a reinstall never overwrites a tuned value, but one written by an older release can
+# lack a setting this one needs: append those rather than take "exists" for "current". An
+# absent SERVER_NAME would yield an empty address and a nameless certificate.
+APP_CONFIG_DIR="$HOME/.config/${APP_NAME}"
+mkdir -p "$APP_CONFIG_DIR"
+curl -fsSL "${BASE}/runtime.env" -o "${WORK}/runtime.env"
+if [ ! -f "$APP_CONFIG_DIR/runtime.env" ]; then
+  cp "${WORK}/runtime.env" "$APP_CONFIG_DIR/runtime.env"
+  echo "  wrote ${APP_CONFIG_DIR}/runtime.env"
+else
+  added=""
+  # Every "KEY=" line in the shipped file is a setting this release expects.
+  for key in $(sed -n 's/^\([A-Z_][A-Z0-9_]*\)=.*/\1/p' "${WORK}/runtime.env"); do
+    if ! grep -q "^${key}=" "$APP_CONFIG_DIR/runtime.env"; then
+      grep "^${key}=" "${WORK}/runtime.env" >> "$APP_CONFIG_DIR/runtime.env"
+      added="${added} ${key}"
+    fi
+  done
+  if [ -n "$added" ]; then
+    echo "  kept ${APP_CONFIG_DIR}/runtime.env, added the new setting(s):${added}"
+  else
+    echo "  keeping the existing ${APP_CONFIG_DIR}/runtime.env"
+  fi
+fi
+. "$APP_CONFIG_DIR/runtime.env"
+
+# The file is edited by hand, and a copy saved with CRLF leaves a carriage return on every
+# value: it would land inside the URLs and the certificate name, and make DEBUG match
+# neither branch. Strip it here once, as the Django settings and the proxy entrypoint do.
+SERVER_NAME="$(printf '%s' "${SERVER_NAME:-}" | tr -d '[:space:]')"
+DEBUG="$(printf '%s' "${DEBUG:-}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+
 # --- the server name ---------------------------------------------------------------
 # SERVER_NAME is used verbatim: the certificate is issued for it, Django accepts it
 # (ALLOWED_HOSTS, CSRF_TRUSTED_ORIGINS) and the dropzone pages hand it to uploaders. A
@@ -126,9 +164,9 @@ curl -fsSL "${BASE}/manifest.env" -o "${WORK}/manifest.env"
 # the network, and a short name is correct where it does resolve.
 case "${SERVER_NAME}" in
   *.*|localhost) : ;;
-  *) echo "  ${SERVER_NAME} is not fully qualified; set SERVER_NAME in buildtime.env to" >&2
-     echo "  the full name (e.g. ${SERVER_NAME}.mycompany.com) if browsers on your" >&2
-     echo "  network cannot reach it by its short name" >&2 ;;
+  *) echo "  ${SERVER_NAME} is not fully qualified; if browsers on your network cannot" >&2
+     echo "  reach it by its short name, set SERVER_NAME to the full name (e.g." >&2
+     echo "  ${SERVER_NAME}.mycompany.com) in ${APP_CONFIG_DIR}/runtime.env and restart" >&2 ;;
 esac
 
 # The address as seen from outside, not "localhost". DEBUG picks the scheme, as it does
@@ -241,7 +279,8 @@ step "Installing quadlet unit files"
 mkdir -p "$QUADLET_DIR"
 for q in $QUADLETS; do
   curl -fsSL "${BASE}/${q}" -o "${WORK}/${q}"
-  # The units ship with SERVER_NAME substituted at build time, so they install unchanged.
+  # The units ship fully rendered (the image names and paths were substituted at build
+  # time, the runtime values come from runtime.env), so they install unchanged.
   cp "${WORK}/${q}" "$QUADLET_DIR/$q"
 done
 echo "  $(echo $QUADLETS | wc -w) unit files installed in ${QUADLET_DIR}"
@@ -251,8 +290,7 @@ echo "  $(echo $QUADLETS | wc -w) unit files installed in ${QUADLET_DIR}"
 # counters, disk IOPS and network egress. Its systemd user units live with the other user
 # units; the script and the runtime config live under ~/.config/<APP_NAME>/.
 step "Installing the server-statistics collector"
-SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-APP_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/${APP_NAME}"
+SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 mkdir -p "$SYSTEMD_USER_DIR" "$APP_CONFIG_DIR/serverstats"
 
 for u in server-stats.service server-stats.timer; do
@@ -262,13 +300,6 @@ done
 
 curl -fsSL "${BASE}/collect.sh" -o "${WORK}/collect.sh"
 install -m 0755 "${WORK}/collect.sh" "$APP_CONFIG_DIR/serverstats/collect.sh"
-
-# Ship the default runtime config only if the user has none yet, so a reinstall never
-# overwrites an interval the operator has already tuned.
-if [ ! -f "$APP_CONFIG_DIR/runtime.env" ]; then
-  curl -fsSL "${BASE}/runtime.env" -o "${WORK}/runtime.env"
-  cp "${WORK}/runtime.env" "$APP_CONFIG_DIR/runtime.env"
-fi
 
 # --- TLS certificate: the one host-local piece the proxy needs -------------------------
 # The proxy quadlet bind-mounts this directory, so it has to exist before the proxy starts
@@ -562,8 +593,10 @@ Volume paths (cd into them to inspect data):
 The postgresql and grafana volumes are written by a user inside the container, so
 reading their contents from the host needs: podman unshare ls <path>
 
-Edit the runtime configuration:
+Edit the runtime configuration (SERVER_NAME, DEBUG, the server-stats interval). The
+services read it when they start, so restart them to pick a change up:
   ${EDITOR_CMD} \$HOME/.config/${APP_NAME}/runtime.env
+  systemctl --user restart main-pod.service
 
 ${CERT_SECTION}${JOURNAL_HINT}Uninstall the system (asks before deleting the data volumes and secrets):
   curl -fsSL ${REPO}/releases/latest/download/uninstall.sh | bash

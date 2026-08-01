@@ -79,7 +79,7 @@ jobs:
           # Render the quadlet templates and the server-stats systemd units, substituting
           # only the known tokens so nginx's $host and Grafana's %(domain)s are left
           # untouched. The units take ${APP_NAME} like the quadlets do.
-          VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SERVER_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${DEBUG}'
+          VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH}'
           for f in quadlets/* serverstats/server-stats.service serverstats/server-stats.timer; do
             envsubst "$VARS" < "$f" > "dist/$(basename "$f")"
           done
@@ -94,8 +94,6 @@ jobs:
             echo "APP_NAME=${APP_NAME}"
             echo "SUPERUSER_NAME=${SUPERUSER_NAME}"
             echo "SUPERUSER_DEFAULT_PASSWORD=${SUPERUSER_DEFAULT_PASSWORD}"
-            echo "SERVER_NAME=${SERVER_NAME}"
-            echo "DEBUG=${DEBUG}"
             echo "CRUDMAN_PATH=${CRUDMAN_PATH}"
             echo "GRAFANA_PATH=${GRAFANA_PATH}"
             echo "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}"

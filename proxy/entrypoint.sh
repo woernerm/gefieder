@@ -21,7 +21,13 @@ export GRAFANA_PATH="${GRAFANA_PATH:-grafana}"
 # Select the proxy configuration: plain HTTP for development (DEBUG=true), HTTPS with
 # an HTTP-to-HTTPS redirect for production. The certificate files are expected in
 # proxy/certs/, see the README.
-if [ "$DEBUG" = "true" ]; then
+#
+# DEBUG comes from runtime.env, which the operator edits by hand. Strip whitespace and
+# fold the case before comparing, the way the Django settings do: a file saved with CRLF
+# line endings yields "true\r", which matches neither branch cleanly and would otherwise
+# serve HTTPS while Django serves its debug pages -- a split state that is hard to spot.
+debug="$(printf '%s' "${DEBUG:-}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+if [ "$debug" = "true" ]; then
   template=/etc/nginx/proxy/http.conf.template
 else
   template=/etc/nginx/proxy/https.conf.template

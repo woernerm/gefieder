@@ -16,8 +16,8 @@
 # added to install.sh is therefore removed by this script without a matching edit here.
 set -e
 
-QUADLET_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/containers/systemd"
-SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+QUADLET_DIR="$HOME/.config/containers/systemd"
+SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 
 step() { echo; echo "==> $*"; }
 
@@ -48,7 +48,7 @@ command -v podman >/dev/null || { echo "podman is not installed." >&2; exit 1; }
 # there so this script needs no release download. The glob resolves to the single
 # directory holding a serverstats/ subdirectory, which is what install.sh creates.
 step "Looking for an installed deployment"
-CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+CONFIG_HOME="$HOME/.config"
 APP_NAME=""
 for d in "$CONFIG_HOME"/*/serverstats; do
   [ -d "$d" ] || continue

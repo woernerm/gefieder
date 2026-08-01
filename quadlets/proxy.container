@@ -1,6 +1,6 @@
 # The nginx reverse proxy that serves the admin panel and Grafana under SERVER_NAME.
 # The config is baked into the image; the entrypoint picks plain HTTP (DEBUG=true) or
-# HTTPS based on the DEBUG value rendered below (empty = production). The certificate is
+# HTTPS based on the DEBUG value from runtime.env (empty = production). The certificate is
 # the only host-local piece, bind-mounted from ~/.config/${APP_NAME}/certs.
 [Unit]
 Description=${APP_NAME} nginx reverse proxy
@@ -17,7 +17,11 @@ Image=${REGISTRY}/proxy:${IMAGE_TAG}
 # StopSignal= is set here -- that quadlet key only exists from podman 5.2 on and an older
 # podman skips the whole unit over it, leaving the stack running without a proxy.
 RunInit=true
-Environment=DEBUG=${DEBUG}
+# SERVER_NAME and DEBUG come from the operator's runtime.env, so changing either needs no
+# rebuild -- only "systemctl --user restart proxy.service", because the entrypoint picks
+# the HTTP or HTTPS template once at startup. See crudman.container on why the file must
+# exist.
+EnvironmentFile=%h/.config/${APP_NAME}/runtime.env
 Environment=CRUDMAN_PATH=${CRUDMAN_PATH}
 Environment=GRAFANA_PATH=${GRAFANA_PATH}
 Volume=%h/.config/${APP_NAME}/certs:/etc/nginx/proxy/certs:ro,z
