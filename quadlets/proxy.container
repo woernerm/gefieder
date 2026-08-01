@@ -26,7 +26,11 @@ Volume=%h/.config/${APP_NAME}/certs:/etc/nginx/proxy/certs:ro,z
 # data for the collector, not a human log -- those go to stdout and thus journald.
 # RHEL/Fedora SELinux needs a relabeled volume for rootless podman to mount it.
 Volume=proxy_data.volume:/var/log/app:z
-HealthCmd=pgrep -x nginx
+# Fetch a real page rather than checking that the process exists: an unreachable upstream
+# leaves the master process running while every request is reset, which "pgrep nginx"
+# reported as healthy. The redirect at "/" is served by the proxy itself, so this tests the
+# proxy's own health without depending on crudman or grafana being up yet.
+HealthCmd=wget -q --spider http://127.0.0.1/ || wget -q --spider --no-check-certificate https://127.0.0.1/
 HealthInterval=10s
 HealthTimeout=5s
 HealthRetries=10

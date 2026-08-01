@@ -155,7 +155,7 @@ adjust:
 | `SUPERUSER_NAME` | the name of the PostgreSQL, Django and Grafana superuser |
 | `SUPERUSER_EMAIL` | the email address of the Django superuser |
 | `SUPERUSER_DEFAULT_PASSWORD` | the password used when the installer's password prompt is left empty |
-| `SERVER_NAME` | the public host name, e.g. `mysite.com`; the admin panel also accepts `localhost` |
+| `SERVER_NAME` | the full public host name, e.g. `abc123.mycompany.com` or `mysite.com`; a local development system uses `localhost` |
 | `CRUDMAN_PATH` | the base path of the admin panel, e.g. `crudman` → `https://SERVER_NAME/crudman/` |
 | `GRAFANA_PATH` | the base path of Grafana, e.g. `grafana` → `https://SERVER_NAME/grafana/` |
 | `SERVER_STATS_SCHEMA` | the schema that holds the server-usage and query statistics (see [Server statistics](#server-statistics)) |
@@ -163,6 +163,13 @@ adjust:
 | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | company proxy for image builds (empty = direct) |
 | `TEMPDIR` | where the installer puts its scratch files (empty = `/tmp`); set it if `/tmp` is too small for the downloaded images or is cleared while the installer runs |
 | `DEBUG` | development vs. production mode (see below) |
+
+On a company network, give the server its full name in `SERVER_NAME`, domain included —
+`abc123.mycompany.com` rather than just `abc123`. A bare machine name usually does not work
+from a colleague's browser: it hands the short name to the company web proxy instead of
+resolving it, and the proxy answers with an error page rather than reaching the server. The
+installer warns about an unqualified name and checks that both applications answer at the
+address before it finishes.
 
 A second file, `runtime.env`, holds settings read when the system runs rather than when
 it is built, so changing one takes effect on the next run without a rebuild. The installer

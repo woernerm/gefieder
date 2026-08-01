@@ -118,6 +118,24 @@ step "Downloading the release from ${BASE}"
 curl -fsSL "${BASE}/manifest.env" -o "${WORK}/manifest.env"
 . "${WORK}/manifest.env"   # APP_NAME, SUPERUSER_NAME, CRUDMAN_PATH, GRAFANA_PATH, ...
 
+# --- the server name ---------------------------------------------------------------
+# SERVER_NAME is used verbatim: the certificate is issued for it, Django accepts it
+# (ALLOWED_HOSTS, CSRF_TRUSTED_ORIGINS) and the dropzone pages hand it to uploaders. A
+# short name usually fails on a company network, where the browser gives it to the web
+# proxy instead of resolving it. Only a warning: whether that happens is a property of
+# the network, and a short name is correct where it does resolve.
+case "${SERVER_NAME}" in
+  *.*|localhost) : ;;
+  *) echo "  ${SERVER_NAME} is not fully qualified; set SERVER_NAME in buildtime.env to" >&2
+     echo "  the full name (e.g. ${SERVER_NAME}.mycompany.com) if browsers on your" >&2
+     echo "  network cannot reach it by its short name" >&2 ;;
+esac
+
+# The address as seen from outside, not "localhost". DEBUG picks the scheme, as it does
+# for the proxy and the dropzone pages. Used by the check after startup and the cheat sheet.
+if [ "${DEBUG}" = "true" ]; then SCHEME="http"; else SCHEME="https"; fi
+BASE_URL="${SCHEME}://${SERVER_NAME}"
+
 # --- preflight: the published ports must be bindable and reachable ---------------------
 # The pod publishes 80, 443, 5432, 2222 and 8815 (see quadlets/main.pod). Two things can
 # stop them working, and both are silent until someone's browser times out, so they are
@@ -223,6 +241,7 @@ step "Installing quadlet unit files"
 mkdir -p "$QUADLET_DIR"
 for q in $QUADLETS; do
   curl -fsSL "${BASE}/${q}" -o "${WORK}/${q}"
+  # The units ship with SERVER_NAME substituted at build time, so they install unchanged.
   cp "${WORK}/${q}" "$QUADLET_DIR/$q"
 done
 echo "  $(echo $QUADLETS | wc -w) unit files installed in ${QUADLET_DIR}"
@@ -262,6 +281,9 @@ fi
 # than leave the proxy dead, a self-signed one is generated to get the system up; it is
 # replaced by copying the company certificate over it (see the cheat sheet).
 step "Checking the TLS certificate"
+# SERVER_NAME is the name the browser opens, so a certificate for it leaves the untrusted
+# issuer as the only warning, without a name mismatch on top.
+SAN="DNS:${SERVER_NAME}"
 CERT_DIR="$APP_CONFIG_DIR/certs"
 CERT_SECTION=""   # repeated in the cheat sheet when the certificate needs attention
 mkdir -p "$CERT_DIR"
@@ -270,7 +292,7 @@ if [ "${DEBUG}" = "true" ]; then
 elif [ -f "$CERT_DIR/fullchain.pem" ] && [ -f "$CERT_DIR/privkey.pem" ]; then
   echo "  using the certificate in ${CERT_DIR}"
 elif openssl req -x509 -newkey rsa:2048 -nodes -days 825 -subj "/CN=${SERVER_NAME}" \
-       -addext "subjectAltName=DNS:${SERVER_NAME}" \
+       -addext "subjectAltName=${SAN}" \
        -keyout "$CERT_DIR/privkey.pem" -out "$CERT_DIR/fullchain.pem" >/dev/null 2>&1; then
   chmod 600 "$CERT_DIR/privkey.pem"
   echo "  no certificate in ${CERT_DIR}; generated a self-signed one for ${SERVER_NAME}"
@@ -457,7 +479,32 @@ if systemctl --user restart main-pod.service 2>/dev/null; then
       echo "not active -- see: journalctl --user -u ${u}" >&2
     fi
   done
-  echo "  system is up and running"
+
+  # --- the pages must actually be served ------------------------------------------------
+  # An active unit is not a served page: a proxy whose upstream is unreachable still
+  # satisfies systemd, so fetch both applications the way a browser does. --insecure
+  # because the self-signed certificate is still in place; this checks reachability, not
+  # trust. No -f, which would hide the status code that makes a failure diagnosable.
+  # --retry-connrefused bridges the second or two between the unit going active and nginx
+  # accepting connections. The budget is deliberately small: curl also retries a 502, and
+  # that is the dead-upstream answer this check exists to report rather than wait out.
+  served=true
+  for app in "${CRUDMAN_PATH}" "${GRAFANA_PATH}"; do
+    code="$(curl -s --insecure -o /dev/null -w '%{http_code}' --max-time 10 \
+              --retry 5 --retry-delay 1 --retry-connrefused \
+              "${SCHEME}://localhost/${app}/" 2>/dev/null)"
+    case "$code" in
+      200|30[1237]) printf '  %-12s reachable at %s\n' "$app" "${BASE_URL}/${app}/" ;;
+      *) served=false
+         printf '  %-12s NOT reachable (%s)\n' "$app" "${code:-no response}" >&2 ;;
+    esac
+  done
+  if [ "$served" = "true" ]; then
+    echo "  system is up and running"
+  else
+    echo "  the services are running but the proxy does not serve them; check:" >&2
+    echo "    journalctl --user -u proxy" >&2
+  fi
 else
   echo "  could not start main-pod.service; start it manually (see the cheat sheet)." >&2
   # A refused port bind is the usual cause when the preflight above found something, so
@@ -469,14 +516,6 @@ fi
 # Store the cheat sheet in the user's home so it is available later, and print it now.
 HELP="$HOME/${APP_NAME,,}-help.txt"
 EDITOR_CMD="${EDITOR:-${VISUAL:-nano}}"
-
-# The addresses as seen from outside, not "localhost": SERVER_NAME is the host name the
-# proxy serves and the certificate is issued for, so it is the address a user's browser
-# actually reaches. It is baked into the images at build time and carried here in the
-# release manifest, which is also why no separate runtime setting is needed. DEBUG picks
-# the scheme, exactly as the proxy and the dropzone admin pages do.
-if [ "${DEBUG}" = "true" ]; then SCHEME="http"; else SCHEME="https"; fi
-BASE_URL="${SCHEME}://${SERVER_NAME}"
 
 # The login is deliberately absent below: the superuser password was entered above (or
 # already existed as a secret) and must not be written to a file that stays in $HOME.
