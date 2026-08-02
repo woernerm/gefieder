@@ -1,12 +1,12 @@
 #!/bin/sh
 # Server-statistics collector.
 #
-# Runs on the host as the rootless-podman user (a systemd user timer fires it every
-# SERVER_STATS_INTERVAL seconds), NOT inside a container: only the host can see the pod's
-# real CPU time, disk IOPS and throughput, and network egress. PostgreSQL itself cannot
-# report those, so they are read here from cgroup v2 and /sys and written into the
-# database, where the per-query and per-table statistics already live. One INSERT per tick
-# into the server-statistics schema, then a rollup/prune so the raw table stays small.
+# Runs on the host as the rootless-podman user (a systemd user timer owns the cadence), NOT
+# inside a container: only the host can see the pod's real CPU time, disk IOPS and
+# throughput, and network egress. PostgreSQL itself cannot report those, so they are read
+# here from cgroup v2 and /sys and written into the database, where the per-query and
+# per-table statistics already live. One INSERT per tick into the server-statistics schema,
+# then a rollup/prune so the raw table stays small.
 #
 # Everything is plain counters or sizes; rates are computed later as deltas between rows.
 # Each metric is best-effort: a value that cannot be read this tick is written as NULL
@@ -15,16 +15,11 @@
 set -eu
 
 # --- configuration --------------------------------------------------------------------
-# The schema name and the sampling interval come from the same config files the rest of
-# the system uses. The schema is fixed at build time (it must match what the init scripts
-# created); the interval is read from runtime.env so it can change without a rebuild. The
-# collector itself runs once per invocation; the timer owns the cadence, but the disk
-# sub-cadence below uses the interval to decide how often to run the expensive size probes.
+# The schema is fixed at build time, because it must match what the init scripts created.
+# This script takes exactly one sample per invocation and holds no cadence of its own: the
+# timer decides how often it runs.
 APP_NAME="${APP_NAME:?APP_NAME must be set (server-stats.service and dev.sh provide it)}"
 SCHEMA="${SERVER_STATS_SCHEMA:-server_stats}"
-RUNTIME_ENV="${RUNTIME_ENV:-$HOME/.config/${APP_NAME}/runtime.env}"
-[ -f "$RUNTIME_ENV" ] && . "$RUNTIME_ENV"
-INTERVAL="${SERVER_STATS_INTERVAL:-60}"
 
 # The container whose cgroup stands in for the whole pod: all pod containers share one
 # parent cgroup, and postgresql is always present, so its cgroup's parent is the pod's.

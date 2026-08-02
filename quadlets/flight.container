@@ -15,8 +15,8 @@ Pod=main.pod
 Image=${REGISTRY}/crudman:${IMAGE_TAG}
 Exec=/crudman/entrypoint.sh flight
 Notify=healthy
-# An init at PID 1 forwards the stop signal past the entrypoint's tee pipeline; see
-# crudman.container for why the shell alone cannot.
+# An init at PID 1 forwards the stop signal to the whole process tree and reaps it; see
+# crudman.container.
 RunInit=true
 Environment=APP_NAME=${APP_NAME}
 # SERVER_NAME and DEBUG come from the operator's runtime.env; see crudman.container.

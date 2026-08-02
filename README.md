@@ -157,6 +157,7 @@ adjust:
 | `CRUDMAN_PATH` | the base path of the admin panel, e.g. `crudman` → `https://SERVER_NAME/crudman/` |
 | `GRAFANA_PATH` | the base path of Grafana, e.g. `grafana` → `https://SERVER_NAME/grafana/` |
 | `SERVER_STATS_SCHEMA` | the schema that holds the server-usage and query statistics (see [Server statistics](#server-statistics)) |
+| `SERVER_STATS_INTERVAL` | how often, in seconds, the server statistics are sampled (default 60) |
 | `DUCKDB_EXTENSIONS` | the DuckDB extensions baked into the database image, comma-separated; they are downloaded at build time, so the server needs no internet access to use them |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | company proxy for image builds (empty = direct) |
 | `TEMPDIR` | where the installer puts its scratch files (empty = `/tmp`); set it if `/tmp` is too small for the downloaded images or is cleared while the installer runs |
@@ -170,7 +171,6 @@ on a reinstall, so your edits survive an upgrade.
 | --- | --- |
 | `SERVER_NAME` | the full public host name, e.g. `abc123.mycompany.com` or `mysite.com`; a local development system uses `localhost` |
 | `DEBUG` | development vs. production mode (see below) |
-| `SERVER_STATS_INTERVAL` | how often, in seconds, the server-statistics collector samples (default 60) |
 
 On a company network, give the server its full name in `SERVER_NAME`, domain included —
 `abc123.mycompany.com` rather than just `abc123`. A bare machine name usually does not work
@@ -288,8 +288,11 @@ systemctl --user start server-stats.service    # take a sample right now
 journalctl --user -u server-stats.service      # see what the collector did
 ```
 
-The sampling interval is the `SERVER_STATS_INTERVAL` value in `runtime.env`; the default
-of 60 seconds is plenty for sizing. Disk read/write speed and IOPS need the `io` control
+The sampling interval is the `SERVER_STATS_INTERVAL` value in `buildtime.env`; the default
+of 60 seconds is plenty for sizing. It is baked into the collector's systemd timer, so on a
+server that is already installed you change it by editing `OnUnitActiveSec` in
+`~/.config/systemd/user/server-stats.timer` and running `systemctl --user daemon-reload`.
+Disk read/write speed and IOPS need the `io` control
 group, which the installer delegates for you (it asks for `sudo` once); without it those
 two figures stay blank while everything else is still recorded.
 
@@ -391,8 +394,8 @@ the proxy cannot know which port you published it on. Reach it over `https://` d
 ## Testing
 The integration test suite spins up a throwaway stack and asserts the behaviour the
 system promises: containers start and stay healthy, the apps are reachable and serve
-their static files, the schemas exist with the right per-role access, each service writes
-a persistent log owned by the rootless user, a killed container is restarted, volume data
+their static files, the schemas exist with the right per-role access, each service's log
+reaches the journal, a killed container is restarted, volume data
 survives a restart, and no secret value leaks into an image or quadlet. It tears the
 stack down again. Run it away from any production system; the secrets must already exist.
 

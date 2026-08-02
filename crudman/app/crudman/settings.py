@@ -37,12 +37,12 @@ SECRET_KEY = (
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get("DEBUG", "false").strip().lower() == "true"
 
-# The public host name of the server, set via the .env file in the repository root.
+# The public host name of the server, set via runtime.env on the host.
 SERVER_NAME = os.environ.get("SERVER_NAME", "localhost")
 
-# The base path under which the administration panel is served, set via the .env file
-# in the repository root. It must match CRUDMAN_PATH of the proxy service and the URL
-# configuration in crudman/urls.py.
+# The base path under which the administration panel is served, set via buildtime.env.
+# It must match CRUDMAN_PATH of the proxy service and the URL configuration in
+# crudman/urls.py.
 CRUDMAN_PATH = os.environ.get("CRUDMAN_PATH", "crudman")
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", SERVER_NAME]

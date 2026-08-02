@@ -507,8 +507,11 @@ else
 fi
 
 # --- helpfile + cheat sheet -----------------------------------------------------------
-# Store the cheat sheet in the user's home so it is available later, and print it now.
-HELP="$HOME/${APP_NAME,,}-help.txt"
+# Store the cheat sheet in the user's home so it is available later, and print it now. The
+# name is lower-cased with tr rather than with "${APP_NAME,,}": that expansion is a bash
+# extension, and this script declares /bin/sh, which is dash on Ubuntu and would abort with
+# "Bad substitution". uninstall.sh derives the same name the same way.
+HELP="$HOME/$(printf '%s' "$APP_NAME" | tr '[:upper:]' '[:lower:]')-help.txt"
 EDITOR_CMD="${EDITOR:-${VISUAL:-nano}}"
 
 # The login is deliberately absent below: the superuser password was entered above (or
@@ -556,8 +559,8 @@ Volume paths (cd into them to inspect data):
 The postgresql and grafana volumes are written by a user inside the container, so
 reading their contents from the host needs: podman unshare ls <path>
 
-Edit the runtime configuration (SERVER_NAME, DEBUG, the server-stats interval). The
-services read it when they start, so restart them to pick a change up:
+Edit the runtime configuration (SERVER_NAME, DEBUG). The services read it when they
+start, so restart them to pick a change up:
   ${EDITOR_CMD} \$HOME/.config/${APP_NAME}/runtime.env
   systemctl --user restart main-pod.service
 

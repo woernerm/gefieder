@@ -6,7 +6,6 @@ uploader would: authenticate with the dropzone's name and secret, send one table
 DoPut, close the upload with the commit action. The dropzones use the default
 checker/converter functions baked into the image, so the whole pipeline is exercised.
 """
-import time
 import uuid
 from pathlib import Path
 

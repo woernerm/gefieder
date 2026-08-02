@@ -61,8 +61,8 @@ PG_DB="postgres"
 HOST_ADDR="127.0.0.1"
 SERVICES="postgresql crudman sqlmesh proxy grafana"
 
-# The sampling cadence for the background loop below, read from runtime.env like the
-# collector does (default 60s). Kept in one place so `serverstats` and the loop agree.
+# The sampling cadence for the background loop below, taken from buildtime.env, which is
+# where the deployment's systemd timer gets it from too, so dev samples at the same rate.
 SERVER_STATS_INTERVAL="${SERVER_STATS_INTERVAL:-60}"
 # Where the loop's PID is recorded so a later run or `down` can stop it. Under the same
 # state dir the collector already uses, so dev leaves nothing outside XDG paths.
@@ -71,11 +71,10 @@ STATS_PIDFILE="$STATE_DIR/dev-serverstats.pid"
 
 # Run the collector once against the dev stack. The deployment runs this on a systemd
 # timer; locally there is no user-systemd, so it is invoked directly. POSTGRES_USER lets it
-# authenticate as the dev superuser, and RUNTIME_ENV=/dev/null skips the runtime.env lookup
-# so the interval passed in the environment (or the default) applies.
+# authenticate as the dev superuser.
 run_collector_once() {
   POSTGRES_USER="$PG_USER" SERVER_STATS_SCHEMA="${SERVER_STATS_SCHEMA:-server_stats}" \
-    RUNTIME_ENV=/dev/null ./serverstats/collect.sh
+    ./serverstats/collect.sh
 }
 
 # Stop a previously started background collector loop, if one is running.

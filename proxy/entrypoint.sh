@@ -19,8 +19,8 @@ export CRUDMAN_PATH="${CRUDMAN_PATH:-crudman}"
 export GRAFANA_PATH="${GRAFANA_PATH:-grafana}"
 
 # Select the proxy configuration: plain HTTP for development (DEBUG=true), HTTPS with
-# an HTTP-to-HTTPS redirect for production. The certificate files are expected in
-# proxy/certs/, see the README.
+# an HTTP-to-HTTPS redirect for production. The certificate files are bind-mounted from
+# CERTIFICATE_PATH on the host, see the README.
 #
 # DEBUG comes from runtime.env, which the operator edits by hand. Strip whitespace and
 # fold the case before comparing, the way the Django settings do: a file saved with CRLF

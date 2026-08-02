@@ -10,8 +10,8 @@ After=crudman.service grafana.service
 ContainerName=proxy
 Pod=main.pod
 Image=${REGISTRY}/proxy:${IMAGE_TAG}
-# An init at PID 1 forwards the stop signal past the entrypoint's tee pipeline; see
-# crudman.container for why the shell alone cannot. The proxy is stopped with SIGQUIT,
+# An init at PID 1 forwards the stop signal to the whole process tree and reaps it; see
+# crudman.container. The proxy is stopped with SIGQUIT,
 # nginx's graceful shutdown (its SIGTERM is a fast one that drops open connections): the
 # nginx image already declares it as its StopSignal and podman takes it from there, so no
 # StopSignal= is set here -- that quadlet key only exists from podman 5.2 on and an older

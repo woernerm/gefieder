@@ -219,8 +219,10 @@ else
   echo "  none found"
 fi
 
+# The helpfile is named after the lower-cased application name, so it has to be lower-cased
+# here too: APP_NAME is recovered from the config directory, which keeps its original case.
 if [ -n "$APP_NAME" ]; then
-  rm -f "$HOME/${APP_NAME}-help.txt"
+  rm -f "$HOME/$(printf '%s' "$APP_NAME" | tr '[:upper:]' '[:lower:]')-help.txt"
 fi
 
 # --- the io-delegation drop-in ---------------------------------------------------------

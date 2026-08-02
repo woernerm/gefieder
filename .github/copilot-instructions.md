@@ -1,5 +1,12 @@
 # Instructions for Gefieder
 
+# General
+- You are running in a Ubuntu WSL. Podman 5.x is installed and configured to run 
+  rootless.
+- When executing you final tests, you can always use run-tests.sh to run the integration 
+  tests. It will start a local podman registry, build the images, start the services and 
+  run the tests. Do not skip that step if you changed code (apart from comments only).
+
 ## Purpose
 - The repository is named "Gefieder".
 - The repository is a template for data analytics systems. The included software 
@@ -16,7 +23,7 @@
 - The application is a multi-tenant data analytics application. A tenant can refer to a 
   real person or a project that shall be kept separate from other projects. 
 - The application is deployed as podman quadlets to a linux server.
-- It supports at least Ubuntu and RHEL. 
+- It supports at least Ubuntu and Red Hat. 
 - There is a django service `crudman` for administration and data entry (CRUD).
 - There is a PostgreSQL service for storing the analytics and django application data.
 - There is a SQLMesh analytics engine for running queries and generating reports.
@@ -35,14 +42,18 @@
 - The silver schema contains data in a standardized model. 
 - The gold schema contains materialized tables with precomputed metrics and statistics
   derived from standardized model data in the silver schema.  
+- Extensions shall be downloaded during image build so that no internet connection is 
+  required for downloading PostgreSQL extensions on the target machine.
 
 ### Administration Panel
 - `crudman` mainly uses Django's "free" admin feature, styled with the Unfold package.
+- Prefer Django's public and documented API instead of private methods and undocumented
+  workarounds. Likewise, only override functions that the Django team intended to be
+  overridden by the user.
 - It is used to add contextual/organizational data to the database, such as knowledge of 
   teams, projects, users, metadata or institutional knowledge that has not been 
-  documented and may vary from project to project. If this data was adequately 
-  documented, it would be extracted by another tool and stored in the database like the 
-  engineering data. 
+  documented otherwise and may vary from project to project. If this data was adequately 
+  documented, it would be extracted by another tool and stored in the database.
 - Data is added by filling out custom forms or by importing it from files.
 - It is exposed to non-admin users as well, so data entry can be shared rather than 
   relying solely on admin users.
@@ -61,16 +72,27 @@
   uploaded as github release.
 - The system shall be installable from a github release using a curl command similar to 
   this: `curl -fsSL https://github.com/your-org/gefieder/releases/latest/install.sh | bash`
-- The system shall use the entrypoint.sh scripts to write persistent logs to the volume
-  (e.g. using `tee`). The logs shall be owned by the rootless podman user.
+- The services shall log to stdout/stderr only. Podman forwards the stream to journald,
+  which persists the logs across restarts, container replacements and crashes, and
+  rotates and size-caps them. The services shall not write their own log files to a
+  volume: those grew unbounded, and a file written by a non-root user inside a container
+  lands on a mapped subuid the host user cannot read without `podman unshare`.
+- The persistent logs shall contain one (and only one) timestamp at the beginning of 
+  each message. journald stamps every entry it records, so a service shall not add a
+  second timestamp of its own where it can be configured not to.
+- Logs of apps like PostgreSQL, Grafana, crudman, sqlmesh shall be accessible by using
+  journalctl on the host system by the host user. This rule does not apply to the 
+  proxy's `visits.log` file. 
 
 ## Configuration
-- There shall be a buildtime.env configuration file for all variables that need to be
+- There shall be a `buildtime.env` configuration file for all variables that need to be
   known before the images are build.
-- There shall be a runtime.env configuration file for all variables that need to be 
+- There shall be a `runtime.env` configuration file for all variables that need to be 
   known before the images are run. These shall be made available as environment 
   variables in the images requiring them (not every variable in every image).
-- The buildtime.env configuration file shall have entries for company proxy settings.
+- The `buildtime.env` configuration file shall have entries for company proxy settings.
+- There shall be a setting for extra index URL (for uv or pip). If not empty, uv/pip
+  shall use the provided index url (e.g. --extra-index-url if pip is used).
 
 ## Build
 - Each service directory shall have a Dockerfile; 
@@ -81,6 +103,8 @@
   even when building from behind a company proxy.
 - The github release shall consist of separate files: One file for each quadlet file.
   One file for each docker image. 
+- The build script shall use full commit hashs for actions.
+- The build script shall be triggered by a commit to the main branch.
 
 ## Install Script
 - The install script shall test whether subuid and subgid mappings are available for the 
@@ -100,9 +124,14 @@
     - The path of each volume (so that the user can cd into the respective directories).
     - Control command for opening the runtime.env configuration file with the host
       system's default editor (or nano if there is no default).
-    - A `cat` command for viewing the persistent logs of each software component.
+    - A `journalctl` command for reading the persistent log of each software component
+      (the logs live in the journal, so there is no file to `cat`).
 - The install script shall store a helpfile in the rootless podman user's home 
   directory.
+
+# Testing & Debugging
+- The integration tests are run using run-tests.sh.
+- A local development system can be started using dev.sh.  
 
 # Style
 - Follow podman/container deployment best practices.
@@ -115,3 +144,55 @@
 - Comments first and foremost explain why something is done.
 - Filenames and folder structure should look clean and professional, following best 
   practices.
+- In `Readme.md`, keep a concise, natural human-like style with only user-level 
+  explainations. Don't fall into technical verbosity.
+- The `Readme.md` should be focused on the perspective of someone using the Gefieder
+  system as a productive system, not as someone developing Gefieder itself.
+- Use the type annotations that are considered best practice for the python version used 
+  in the respective docker containers.
+- Use sentece case (e.g. "Reject empty files") for the registry names of checker and 
+  converter functions of the dropzones django app in crudman. Stay with snake case for 
+  the actual python function names.
+
+# Example Tenants
+- There are three example tenants "Project A", "Project B" and "Project C"
+- "Project A" and "Project B" use sql transformations while "Project C" uses Python,
+  specifically Polars.
+- The example tenants are always created when the system first starts.
+- Having two example tenants should nicely illustrate to the user where to place files 
+  for real tenants.
+- The example tenants are intended to be deleted by the user when developing for
+  production.
+- There is some example seed data for both example tenants.
+
+# Data Sources
+- The system is designed to be used with multiple data sources.
+- The system shall support file uploads using the web browser or sftp.
+    - Files are not random uploads. Each file has a specific purpose and is expected to 
+      be in a specific format (e.g. Excel columns have been discussed with the 
+      prducing user and agreed upon). Therefore, each kind of files has its own 
+      dropzone (i.e. folder, API endpoint, sftp directory) and its own processing 
+      script. The name of the files on disk does not matter. It can be named 
+      after the uploaded files with a timestamp or (maybe partial) uuid or both.
+    - An upload may consist of multiple files.
+    - The user shall use crudman to define dropzones. A dropzone uniquely identifies
+      the source's purpose, the file format (e.g. Excel, CSV, Parquet) and the method
+      of upload (e.g. Post to API endpoint, sftp directory, browser file upload, 
+      variable values via a GET-Request, Arrow Flight).
+    - Crudman shall have a model for a dropzone. It contains at least its name, 
+      description, file format, file path, upload method, processing function to be 
+      used and authentication details (e.g. sftp username and password, API token, 
+      etc.).
+    - The web browser file upload shall be implemented as a drag-and-drop area 
+      (dropzone) in the crudman interface. It shall be possible to upload multiple files 
+      at once.
+    - Each drop zone shall have its own URL (e.g. API entpoint, browser upload URL, 
+      sftp address) to connect to.
+    - If the method of upload allows, the user shall be able to select a validity period
+      for the file upload. It determines the start and end dates, the content of the 
+      file where valid for a project. 
+    - There shall be a model for a file upload. It has at least the foreign key to the 
+      dropzone, the file path, the upload timestamp and the validity period. 
+    - Files shall be stored using django FileField. The file path shall be stored in the 
+      database. The file itself shall be stored in a volume.
+      

@@ -3,7 +3,8 @@
 
 # --- dashboard/page visit logging -----------------------------------------------------
 # A structured, filtered access log used for usage statistics (which dashboard is visited,
-# when, by which session). It is deliberately separate from the human proxy.log and only
+# when, by which session). It is deliberately separate from the access log nginx writes to
+# stdout for journald, and only
 # records real page navigations, because a single dashboard view triggers dozens of API,
 # asset and live-poll requests that would otherwise inflate every count. The maps below
 # classify each request; only those tagged with an app are logged. See the collector,
@@ -88,7 +89,7 @@ server {
     # path is forwarded unchanged.
     location /${CRUDMAN_PATH}/ {
         # Record page visits (the map drops assets/non-GET); other requests are not logged
-        # here. The human access log still captures everything in proxy.log.
+        # here. nginx's own access log on stdout still captures everything.
         access_log /var/log/app/visits.log visit_json if=$visit_log;
         # Dropzone file uploads pass through here; nginx's 1m default would reject them.
         client_max_body_size 512m;

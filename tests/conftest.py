@@ -21,11 +21,6 @@ def podman(*args):
     ).stdout
 
 
-def inspect(target):
-    """Return the parsed `podman inspect` object for a container or other resource."""
-    return json.loads(podman("inspect", target))[0]
-
-
 def inspect_container(name):
     """Return the `podman inspect` object for a container, or None if it does not exist.
 
@@ -71,7 +66,7 @@ SUPERUSER_PASSWORD = os.environ["TEST_SUPERUSER_PASSWORD"]
 CRUDMAN_PASSWORD = os.environ["TEST_CRUDMAN_PASSWORD"]
 SQLMESH_PASSWORD = os.environ["TEST_SQLMESH_PASSWORD"]
 
-# Values taken from the .env file by run-tests.sh, so the suite tests the configured
+# Values taken from buildtime.env by run-tests.sh, so the suite tests the configured
 # stack rather than the defaults.
 APP_NAME = os.environ["APP_NAME"]
 SUPERUSER_NAME = os.environ["SUPERUSER_NAME"]
@@ -90,16 +85,6 @@ GRAFANA_LOGIN = f"/{GRAFANA_PATH}/login"
 # The names of the containers that make up the stack.
 CONTAINERS = ["postgresql", "crudman", "sftp", "flight", "sqlmesh", "grafana",
               "proxy"]
-
-# The systemd unit that owns the pod (the quadlet file is named main.pod).
-POD_SERVICE = "main-pod.service"
-
-# The named data volumes the quadlets declare: one per service that keeps state, plus the
-# uploads volume crudman and sqlmesh share for the dropzones files. Services that only log
-# have no volume -- their logs go to journald.
-DATA_VOLUMES = [
-    "postgresql_data", "grafana_data", "sftp_data", "proxy_data", "uploads_data",
-]
 
 # The systemd unit of each service, whose journal holds that service's log. Every service
 # logs to stdout/stderr only; podman forwards the stream to journald, which persists,
