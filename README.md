@@ -63,9 +63,8 @@ and the TLS certificate.
 
 **1. Add the TLS certificate** for your host to `~/.config/gefieder/certs/`
 (`~/.config/<APP_NAME>/certs/` if you renamed the project): `fullchain.pem` (certificate
-incl. intermediates) and `privkey.pem` (private key). If you have none yet, the installer
-generates a self-signed certificate so the system comes up; browsers will warn about it
-until you replace it.
+incl. intermediates) and `privkey.pem` (private key). The proxy does not start without
+them and says so; see [Certificates](#certificates) to keep them elsewhere.
 
 **2. Allow the ports** — let rootless podman bind 80/443 and open the firewall:
 
@@ -217,11 +216,16 @@ host-local config (it is a secret, so it is never baked into an image), placed i
 - `~/.config/gefieder/certs/fullchain.pem` — the certificate including intermediates
 - `~/.config/gefieder/certs/privkey.pem` — the private key
 
-If both files are missing when you install, the installer writes a self-signed certificate
-for `SERVER_NAME` there. That keeps the system usable on a server with no internet access,
-but every browser will show a warning, so replace it with the certificate your
-organization issues and restart the proxy with
+Both files have to be there before you start the system: without them the proxy stops
+with a message naming what it did not find, and the installer says the same. Nothing is
+generated for you, so a browser never sees a certificate you did not choose. Renewing one
+is a copy over the two files followed by
 `systemctl --user restart proxy.service`.
+
+To keep the certificate somewhere else — a directory your PKI already fills, for instance
+— set `CERTIFICATE_PATH` in `buildtime.env` and rebuild. It is written in systemd syntax,
+where `%h` is the home directory of the user running the containers, and an absolute path
+such as `/etc/pki/gefieder` works as well.
 
 ## Storage
 Persistent data lives in named volumes, one per service, that the quadlets create

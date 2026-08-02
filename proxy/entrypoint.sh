@@ -31,6 +31,20 @@ if [ "$debug" = "true" ]; then
   template=/etc/nginx/proxy/http.conf.template
 else
   template=/etc/nginx/proxy/https.conf.template
+  # Check the certificate ourselves so a missing one is stated plainly. nginx would other-
+  # wise fail with a path inside the container, which says nothing about where the operator
+  # has to put the files. CERTIFICATE_HINT is that host directory, passed in by the quadlet
+  # because only systemd can resolve it; without it, name the mount point.
+  for f in fullchain.pem privkey.pem; do
+    if [ ! -f "/etc/nginx/proxy/certs/$f" ]; then
+      echo "TLS certificate missing: $f was not found in" >&2
+      echo "  ${CERTIFICATE_HINT:-/etc/nginx/proxy/certs (inside the container)}" >&2
+      echo "Production mode (DEBUG=false) serves HTTPS and needs both fullchain.pem and" >&2
+      echo "privkey.pem there. Put them in place, then:" >&2
+      echo "  systemctl --user restart proxy.service" >&2
+      exit 1
+    fi
+  done
 fi
 
 # Render the chosen template, substituting only our own variables so that nginx's

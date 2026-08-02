@@ -119,9 +119,12 @@ PG_PORT=15432
 SFTP_PORT=12222
 FLIGHT_PORT=18815
 
-# The host-local cert directory the proxy quadlet mounts (same path a deployment uses).
-# It must exist even in dev mode, where the proxy mounts but does not read it.
-CERT_DIR="$HOME/.config/${APP_NAME}/certs"
+# The production profile writes its throwaway certificate into the directory the proxy
+# quadlet mounts, before any container exists to resolve the path. CERTIFICATE_PATH is
+# written for systemd, so "%h" is spelled as $HOME here; a path the default does not use
+# would need its own translation, which is fine for a test script but is the reason the
+# installer never does this.
+CERT_DIR="$(printf '%s' "${CERTIFICATE_PATH}" | sed "s|^%h|${HOME}|")"
 mkdir -p "$CERT_DIR"
 
 # Build the custom images with podman, the engine that runs the quadlets, so the suite
@@ -232,7 +235,7 @@ fi
 
 # Render the quadlet templates the same way the release workflow does: substitute only
 # the known tokens so nginx's $host and Grafana's %(domain)s are left untouched.
-VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SERVER_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${DEBUG}'
+VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SERVER_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${DEBUG} ${CERTIFICATE_PATH}'
 for f in quadlets/*; do
   envsubst "$VARS" < "$f" > "$QUADLET_DIR/$(basename "$f")"
 done

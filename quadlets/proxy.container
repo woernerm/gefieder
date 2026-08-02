@@ -1,7 +1,7 @@
 # The nginx reverse proxy that serves the admin panel and Grafana under SERVER_NAME.
 # The config is baked into the image; the entrypoint picks plain HTTP (DEBUG=true) or
 # HTTPS based on the DEBUG value from runtime.env (empty = production). The certificate is
-# the only host-local piece, bind-mounted from ~/.config/${APP_NAME}/certs.
+# the only host-local piece, bind-mounted from CERTIFICATE_PATH (see buildtime.env).
 [Unit]
 Description=${APP_NAME} nginx reverse proxy
 After=crudman.service grafana.service
@@ -24,7 +24,11 @@ RunInit=true
 EnvironmentFile=%h/.config/${APP_NAME}/runtime.env
 Environment=CRUDMAN_PATH=${CRUDMAN_PATH}
 Environment=GRAFANA_PATH=${GRAFANA_PATH}
-Volume=%h/.config/${APP_NAME}/certs:/etc/nginx/proxy/certs:ro,z
+# The certificate directory as it looks on the host, for the entrypoint's message when the
+# certificate is missing. Inside the container only the mount point is visible, which would
+# not tell the operator where to put the files. systemd resolves the "%h" here.
+Environment=CERTIFICATE_HINT=${CERTIFICATE_PATH}
+Volume=${CERTIFICATE_PATH}:/etc/nginx/proxy/certs:ro,z
 # Data volume. nginx writes visits.log here: one JSON line per page navigation, which the
 # server-statistics collector drains by byte offset into the dashboard_visit table. It is
 # data for the collector, not a human log -- those go to stdout and thus journald.
@@ -42,6 +46,13 @@ HealthStartPeriod=10s
 
 [Service]
 Restart=always
+# Podman refuses to start a container whose bind source is missing ("statfs ...: no such
+# file or directory"), which would leave the proxy dead with only that in the journal.
+# Creating the directory here rather than in the installer keeps the resolution of "%h"
+# with systemd, the only thing that knows what it means. An empty directory is fine: in
+# development nothing reads it, and in production the entrypoint reports the missing
+# certificate itself.
+ExecStartPre=/usr/bin/mkdir -p ${CERTIFICATE_PATH}
 
 [Install]
 WantedBy=default.target

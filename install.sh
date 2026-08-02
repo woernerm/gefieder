@@ -33,8 +33,8 @@ else
 fi
 
 # Deliberately $HOME/.config and not XDG_CONFIG_HOME: the quadlet generator scans this
-# fixed path, and the units resolve %h/.config for the certificate and runtime.env. An
-# XDG_CONFIG_HOME set in the installing shell would put the files where nothing looks.
+# fixed path, and the units resolve %h/.config for runtime.env. An XDG_CONFIG_HOME set in
+# the installing shell would put the files where nothing looks.
 QUADLET_DIR="$HOME/.config/containers/systemd"
 
 # --- scratch space --------------------------------------------------------------------
@@ -123,10 +123,10 @@ curl -fsSL "${BASE}/manifest.env" -o "${WORK}/manifest.env"
 
 # --- runtime configuration -------------------------------------------------------------
 # The quadlets read this file through EnvironmentFile=, and the installer needs SERVER_NAME
-# and DEBUG now, for the certificate and the addresses it prints. An existing file is kept
-# so a reinstall never overwrites a tuned value, but one written by an older release can
-# lack a setting this one needs: append those rather than take "exists" for "current". An
-# absent SERVER_NAME would yield an empty address and a nameless certificate.
+# and DEBUG now, for the addresses it prints and the checks it runs. An existing file is
+# kept so a reinstall never overwrites a tuned value, but one written by an older release
+# can lack a setting this one needs: append those rather than take "exists" for "current".
+# An absent SERVER_NAME would yield an empty address.
 APP_CONFIG_DIR="$HOME/.config/${APP_NAME}"
 mkdir -p "$APP_CONFIG_DIR"
 curl -fsSL "${BASE}/runtime.env" -o "${WORK}/runtime.env"
@@ -151,8 +151,8 @@ fi
 . "$APP_CONFIG_DIR/runtime.env"
 
 # The file is edited by hand, and a copy saved with CRLF leaves a carriage return on every
-# value: it would land inside the URLs and the certificate name, and make DEBUG match
-# neither branch. Strip it here once, as the Django settings and the proxy entrypoint do.
+# value: it would land inside the URLs and make DEBUG match neither branch. Strip it here
+# once, as the Django settings and the proxy entrypoint do.
 SERVER_NAME="$(printf '%s' "${SERVER_NAME:-}" | tr -d '[:space:]')"
 DEBUG="$(printf '%s' "${DEBUG:-}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
 
@@ -300,50 +300,6 @@ done
 
 curl -fsSL "${BASE}/collect.sh" -o "${WORK}/collect.sh"
 install -m 0755 "${WORK}/collect.sh" "$APP_CONFIG_DIR/serverstats/collect.sh"
-
-# --- TLS certificate: the one host-local piece the proxy needs -------------------------
-# The proxy quadlet bind-mounts this directory, so it has to exist before the proxy starts
-# even in development mode, where nothing reads it: podman refuses to create a container
-# whose bind source is missing ("statfs ...: no such file or directory") and the proxy is
-# then the one service that never comes up while the rest of the stack runs fine.
-#
-# In production mode nginx also needs the two files themselves or it exits at startup. A
-# server on an internal network cannot fetch a certificate from a public CA, so rather
-# than leave the proxy dead, a self-signed one is generated to get the system up; it is
-# replaced by copying the company certificate over it (see the cheat sheet).
-step "Checking the TLS certificate"
-# SERVER_NAME is the name the browser opens, so a certificate for it leaves the untrusted
-# issuer as the only warning, without a name mismatch on top.
-SAN="DNS:${SERVER_NAME}"
-CERT_DIR="$APP_CONFIG_DIR/certs"
-CERT_SECTION=""   # repeated in the cheat sheet when the certificate needs attention
-mkdir -p "$CERT_DIR"
-if [ "${DEBUG}" = "true" ]; then
-  echo "  development mode: the proxy serves plain HTTP, no certificate needed"
-elif [ -f "$CERT_DIR/fullchain.pem" ] && [ -f "$CERT_DIR/privkey.pem" ]; then
-  echo "  using the certificate in ${CERT_DIR}"
-elif openssl req -x509 -newkey rsa:2048 -nodes -days 825 -subj "/CN=${SERVER_NAME}" \
-       -addext "subjectAltName=${SAN}" \
-       -keyout "$CERT_DIR/privkey.pem" -out "$CERT_DIR/fullchain.pem" >/dev/null 2>&1; then
-  chmod 600 "$CERT_DIR/privkey.pem"
-  echo "  no certificate in ${CERT_DIR}; generated a self-signed one for ${SERVER_NAME}"
-  echo "  browsers will warn about it until you replace it -- see the cheat sheet" >&2
-  CERT_SECTION="The proxy is using a self-signed certificate, so browsers will warn about it.
-Replace it with the certificate for ${SERVER_NAME} and restart the proxy:
-  cp fullchain.pem privkey.pem ${CERT_DIR}/
-  systemctl --user restart proxy.service
-
-"
-else
-  echo "  could not generate a certificate in ${CERT_DIR}; the proxy will not start" >&2
-  echo "  until fullchain.pem and privkey.pem are placed there." >&2
-  CERT_SECTION="The proxy has no certificate and will not start. Put the certificate for
-${SERVER_NAME} in place and restart it:
-  cp fullchain.pem privkey.pem ${CERT_DIR}/
-  systemctl --user restart proxy.service
-
-"
-fi
 
 # --- create the volumes up front so we own their contents -----------------------------
 # Creating the volumes here (rather than letting the first container start create them)
@@ -506,6 +462,12 @@ if systemctl --user restart main-pod.service 2>/dev/null; then
       # not know skips the whole unit) so there is nothing to start and nothing in the
       # journal either -- which looks the same as a crashed service unless we say so.
       echo "no unit generated -- run: /usr/libexec/podman/quadlet -user -dryrun" >&2
+    elif [ "$u" = "proxy" ] && [ "${DEBUG}" != "true" ]; then
+      # By far the most likely reason in production, and the one the operator can fix
+      # without reading a log: the entrypoint exits when the certificate is not there.
+      echo "not active -- the TLS certificate is most likely missing." >&2
+      echo "               The proxy names the file it did not find and where it looked:" >&2
+      echo "                 journalctl --user -u proxy -n 10" >&2
     else
       echo "not active -- see: journalctl --user -u ${u}" >&2
     fi
@@ -514,7 +476,8 @@ if systemctl --user restart main-pod.service 2>/dev/null; then
   # --- the pages must actually be served ------------------------------------------------
   # An active unit is not a served page: a proxy whose upstream is unreachable still
   # satisfies systemd, so fetch both applications the way a browser does. --insecure
-  # because the self-signed certificate is still in place; this checks reachability, not
+  # because the certificate is issued for SERVER_NAME while this fetches localhost, and
+  # may come from a company CA this host does not trust; it checks reachability, not
   # trust. No -f, which would hide the status code that makes a failure diagnosable.
   # --retry-connrefused bridges the second or two between the unit going active and nginx
   # accepting connections. The budget is deliberately small: curl also retries a 502, and
@@ -598,7 +561,7 @@ services read it when they start, so restart them to pick a change up:
   ${EDITOR_CMD} \$HOME/.config/${APP_NAME}/runtime.env
   systemctl --user restart main-pod.service
 
-${CERT_SECTION}${JOURNAL_HINT}Uninstall the system (asks before deleting the data volumes and secrets):
+${JOURNAL_HINT}Uninstall the system (asks before deleting the data volumes and secrets):
   curl -fsSL ${REPO}/releases/latest/download/uninstall.sh | bash
 EOF
 
