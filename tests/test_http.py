@@ -21,7 +21,13 @@ class TestRouting:
     def test_root_shall_redirect_to_the_admin_panel(self, http):
         resp = http.get("/")
         assert resp.status_code in (301, 302)
-        assert resp.headers["location"].endswith(f"/{CRUDMAN_PATH}/")
+        # The Location has to be the bare path. nginx builds an absolute URL from the port
+        # it listens on inside the pod, not the one the request came in on, so an absolute
+        # answer here sends the browser to port 80/443 -- and this suite, like dev.sh and
+        # the custom ports in the README, publishes the proxy on neither.
+        assert resp.headers["location"] == f"/{CRUDMAN_PATH}/", (
+            "the redirect is absolute; it drops the port the client is talking to"
+        )
 
 
 class TestStaticFiles:

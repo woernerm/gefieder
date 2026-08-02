@@ -46,13 +46,34 @@ log_format visit_json escape=json
     '"ua":"$http_user_agent",'
     '"grafana_session":"$cookie_grafana_session","crudman_session":"$cookie_sessionid"}';
 
+# --- WebSocket handshakes ---------------------------------------------------------------
+# The value for the Connection header sent upstream: "upgrade" for a handshake, "close" for
+# an ordinary request, which must not carry one. See the grafana location below.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
 server {
     listen 80;
+    listen [::]:80;
+    # Named without a port, so it points at 443. A deployment that publishes HTTPS on
+    # another port (see "Using custom ports" in the README) has to name it here.
     return 301 https://$host$request_uri;
 }
 
 server {
     listen 443 ssl;
+    # Also accept IPv6, which a company network's DNS may well answer with. The entrypoint
+    # drops this line on a host whose kernel offers no IPv6, where nginx would refuse to
+    # start over an address family it cannot bind.
+    listen [::]:443 ssl;
+
+    # Answer redirects with a path rather than a full URL. nginx builds an absolute one from
+    # the port it listens on inside the pod, not the one the request arrived on, so any
+    # deployment that publishes something other than 80/443 -- dev.sh, or the custom ports
+    # in the README -- would send the browser to a port where nothing listens.
+    absolute_redirect off;
 
     ssl_certificate /etc/nginx/proxy/certs/fullchain.pem;
     ssl_certificate_key /etc/nginx/proxy/certs/privkey.pem;
@@ -83,6 +104,13 @@ server {
     # path is forwarded unchanged.
     location /${GRAFANA_PATH}/ {
         access_log /var/log/app/visits.log visit_json if=$visit_log;
+        # Grafana Live streams dashboard updates over a WebSocket. Upgrade and Connection
+        # are hop-by-hop headers, which nginx drops, and the HTTP/1.0 it speaks upstream by
+        # default cannot carry an upgrade at all: without these three lines Grafana answers
+        # the handshake with 400. crudman serves no WebSocket and needs none of this.
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
         proxy_pass http://127.0.0.1:3000;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

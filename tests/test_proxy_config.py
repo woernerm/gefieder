@@ -31,6 +31,11 @@ GRAFANA_PORT = 3000
 CRUDMAN_BODY = "stub-crudman"
 GRAFANA_BODY = "stub-grafana"
 
+# A path on the grafana stub that echoes the headers of a WebSocket handshake back, so a
+# test can see which of them survived the proxy. Any path below the grafana one works; it
+# is passed through unchanged, so the stub has to answer on the full path.
+UPGRADE_PROBE = f"/{GRAFANA_PATH}/ws-probe"
+
 # Where the certificate directory is mounted inside the container. Fixed by the image (the
 # conf templates reference it), unlike the host side, which CERTIFICATE_PATH decides.
 CERT_MOUNT = "/etc/nginx/proxy/certs"
@@ -53,7 +58,10 @@ def _stub_upstreams():
         f'server {{ listen {CRUDMAN_PORT}; '
         f'location / {{ return 200 "{CRUDMAN_BODY}"; }} }}\n'
         f'server {{ listen {GRAFANA_PORT}; '
-        f'location / {{ return 200 "{GRAFANA_BODY}"; }} }}\n'
+        f'location / {{ return 200 "{GRAFANA_BODY}"; }} '
+        # Echoes back what the proxy forwarded, which is what the WebSocket test asserts on.
+        f'location = {UPGRADE_PROBE} '
+        f'{{ return 200 "upgrade=[$http_upgrade] connection=[$http_connection]"; }} }}\n'
     )
 
 
@@ -158,7 +166,7 @@ def _proxy_image():
 FETCH = """
 nginx
 for i in $(seq 1 40); do
-    wget -qS -O /tmp/body {args} http://127.0.0.1{path} 2>/tmp/head && break
+    wget -qS -O /tmp/body {args} http://{host}{path} 2>/tmp/head && break
     sleep 0.25
 done
 echo "--- headers ---"
@@ -166,6 +174,12 @@ cat /tmp/head
 echo "--- body ---"
 cat /tmp/body 2>/dev/null || true
 """
+
+
+def _fetch(path, args="", host="127.0.0.1"):
+    """The FETCH script for one request. `host` is the address nginx is asked on, which the
+    IPv6 test varies; the rest reach the proxy over IPv4 as every other test does."""
+    return FETCH.format(path=path, args=args, host=host)
 
 
 class TestConfigLoads:
@@ -335,7 +349,7 @@ class TestRoutingToUpstreams:
     ])
     def test_each_path_shall_reach_its_own_upstream(self, path, expected, fixtures):
         # Plain HTTP (DEBUG=true) keeps the assertion about routing rather than TLS.
-        result = _run_proxy(FETCH.format(path=path, args=""), "true", fixtures)
+        result = _run_proxy(_fetch(path), "true", fixtures)
         assert expected in result.stdout, (
             f"{path} did not reach its upstream:\n{result.stdout}\n{result.stderr}"
         )
@@ -343,6 +357,57 @@ class TestRoutingToUpstreams:
     def test_the_root_shall_redirect_to_the_admin_panel(self, fixtures):
         # --spider issues the request without following the redirect, so the 302 and its
         # Location header are what gets asserted. (busybox wget has no --max-redirect.)
-        result = _run_proxy(FETCH.format(path="/", args="--spider"), "true", fixtures)
+        result = _run_proxy(_fetch("/", args="--spider"), "true", fixtures)
         assert "302" in result.stdout, result.stdout + result.stderr
-        assert f"/{CRUDMAN_PATH}/" in result.stdout, result.stdout + result.stderr
+        # A bare path, not a full URL: nginx would build one from the port it listens on
+        # inside the pod, sending a client that reached the system on any other port (dev.sh
+        # publishes 8080, the README documents 8443) to a port where nothing listens.
+        assert f"Location: /{CRUDMAN_PATH}/" in result.stdout, (
+            "the redirect is absolute; it drops the port the client is talking to:\n"
+            + result.stdout + result.stderr
+        )
+
+
+class TestWebSockets:
+    """A WebSocket handshake survives the hop to Grafana.
+
+    Grafana Live streams dashboard updates over one. Upgrade and Connection are hop-by-hop
+    headers that nginx drops unless told otherwise, and its default HTTP/1.0 upstream cannot
+    carry an upgrade at all -- Grafana then answers the handshake with 400 while every
+    ordinary page still loads, so nothing else in this suite would notice.
+    """
+
+    def test_the_upgrade_headers_shall_reach_grafana(self, fixtures):
+        args = "--header 'Upgrade: websocket' --header 'Connection: Upgrade'"
+        result = _run_proxy(_fetch(UPGRADE_PROBE, args=args), "true", fixtures)
+        assert "upgrade=[websocket]" in result.stdout, (
+            "nginx dropped the Upgrade header; Grafana Live cannot connect:\n"
+            + result.stdout + result.stderr
+        )
+        assert "connection=[upgrade]" in result.stdout.lower(), (
+            "nginx dropped the Connection: upgrade header; Grafana Live cannot connect:\n"
+            + result.stdout + result.stderr
+        )
+
+
+class TestAddressFamilies:
+    """The proxy answers over IPv6 as well as IPv4.
+
+    A company network's DNS may answer with an AAAA record, and a browser then never tries
+    the IPv4 address at all: an IPv4-only listener is simply unreachable for that client,
+    while every check made from the server itself passes.
+    """
+
+    @pytest.mark.parametrize("debug", ["true", "false"])
+    def test_the_proxy_shall_listen_on_ipv6(self, debug, fixtures):
+        # The redirect at "/" is served by the proxy itself, so this needs no upstream. Both
+        # templates answer one on port 80 -- to the admin panel in development, to HTTPS in
+        # production -- so any 30x means the connection was accepted. --spider keeps wget
+        # from following it, which for production would need TLS.
+        # --no-check-certificate so production's redirect into HTTPS resolves against the
+        # throwaway certificate instead of retrying until the poll loop gives up.
+        args = "--spider --no-check-certificate"
+        result = _run_proxy(_fetch("/", args=args, host="[::1]"), debug, fixtures)
+        assert "HTTP/1.1 30" in result.stdout, (
+            "the proxy did not answer over IPv6:\n" + result.stdout + result.stderr
+        )

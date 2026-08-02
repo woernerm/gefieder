@@ -384,6 +384,10 @@ systemctl --user daemon-reload
 systemctl --user restart main-pod.service
 ```
 
+Everything then works on the new ports with one exception: opening the system over plain
+`http://` still sends the browser to the standard HTTPS port rather than yours, because
+the proxy cannot know which port you published it on. Reach it over `https://` directly.
+
 ## Testing
 The integration test suite spins up a throwaway stack and asserts the behaviour the
 system promises: containers start and stay healthy, the apps are reachable and serve

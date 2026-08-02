@@ -51,4 +51,14 @@ fi
 # variables ($host, $scheme, ...) are left untouched.
 envsubst '${CRUDMAN_PATH} ${GRAFANA_PATH}' < "$template" > /etc/nginx/conf.d/default.conf
 
+# The templates listen on IPv6 as well, so clients whose DNS answers with an AAAA record are
+# served. A kernel built or booted without IPv6 has no such address family, and nginx aborts
+# at startup rather than skipping the directive -- which would take the whole system down on
+# a host that was serving IPv4 clients perfectly well. Drop those lines there instead; this
+# is the check the nginx image makes for the configuration it ships itself.
+if [ ! -f /proc/net/if_inet6 ]; then
+  sed -i '/listen \[::\]/d' /etc/nginx/conf.d/default.conf
+  echo "IPv6 is not available on this host; serving IPv4 only" >&2
+fi
+
 exec nginx -g 'daemon off;'
