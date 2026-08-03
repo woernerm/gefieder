@@ -45,6 +45,12 @@ CERT_MOUNT = "/etc/nginx/proxy/certs"
 # removed would still look like a pass.
 REFUSAL = "TLS certificate missing"
 
+# podman copies the host's proxy variables into every container it starts. On a company
+# network they are set, and busybox wget honours them -- so the requests these tests make
+# to the proxy on the container's own loopback would be sent to the company proxy instead,
+# and every routing check would fail on a machine where the proxy itself is fine.
+NO_PROXY_ENV = "--http-proxy=false"
+
 
 def _stub_upstreams():
     """An nginx config serving a distinct body on each application port.
@@ -108,7 +114,7 @@ def _run_entrypoint(debug, certs, hint=None, timeout=60):
     # the running stack is using.
     name = f"certcheck-{uuid.uuid4().hex[:12]}"
     argv = ["podman", "run", "--rm", "--name", name, "--network", "none",
-            "-v", f"{certs}:{CERT_MOUNT}:ro,z", *env, _proxy_image()]
+            NO_PROXY_ENV, "-v", f"{certs}:{CERT_MOUNT}:ro,z", *env, _proxy_image()]
     try:
         return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -140,7 +146,7 @@ def _run_proxy(script, debug, fixtures):
         f" < /etc/nginx/proxy/{template}.conf.template > /etc/nginx/conf.d/default.conf",
     ])
     return subprocess.run(
-        ["podman", "run", "--rm",
+        ["podman", "run", "--rm", NO_PROXY_ENV,
          "-v", f"{fixtures}:/fixtures:ro,z",
          "-v", f"{fixtures / 'certs'}:{CERT_MOUNT}:ro,z",
          "--entrypoint", "sh", _proxy_image(), "-c", setup + "\n" + script],

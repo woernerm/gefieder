@@ -113,10 +113,15 @@ def pytest_configure(config):
                 else f"({config.option.markexpr}) and not production")
 
 
+# trust_env=False on every client below: on a company network the proxy variables are set
+# in the environment, and httpx would send the requests to the company proxy rather than to
+# the stack on localhost, unless no_proxy happens to name it.
+
+
 @pytest.fixture(scope="session")
 def http():
     """An HTTP client that does not follow redirects (so we can assert on them)."""
-    with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS,
+    with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS, trust_env=False,
                       follow_redirects=False, timeout=10) as client:
         yield client
 
@@ -124,7 +129,7 @@ def http():
 @pytest.fixture(scope="session")
 def http_follow():
     """An HTTP client that follows redirects, for fetching final pages and assets."""
-    with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS,
+    with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS, trust_env=False,
                       follow_redirects=True, timeout=10) as client:
         yield client
 
@@ -259,7 +264,7 @@ def wait_for_stack():
     """
     deadline = time.time() + STARTUP_TIMEOUT
     targets = [CRUDMAN_LOGIN, GRAFANA_LOGIN]
-    with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS,
+    with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS, trust_env=False,
                       follow_redirects=True, timeout=5) as client:
         for target in targets:
             while True:
