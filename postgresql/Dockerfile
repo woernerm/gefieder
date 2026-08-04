@@ -6,8 +6,9 @@
 # The CLI has to be the exact DuckDB version that pg_duckdb runs, because the extension
 # tree is version-scoped (<version>/<platform>/) and DuckDB ignores an extension built for
 # another version. That version is not hardcoded here: it is read from the base image's own
-# libduckdb.so, so bumping the base image cannot leave a stale version behind. libcurl4 is
-# what that library needs to be loadable at all; python3 only calls the exported function.
+# libduckdb.so, so bumping the base image cannot leave a stale version behind. Reading it only
+# needs a Python to call the exported function, and libcurl, which that library links against;
+# both come with the uv base image and its curl package.
 #
 # The base image is named once, in PGDUCKDB_IMAGE, because the stage that reads the DuckDB
 # version and the stage that finally runs it have to be the same image for the version to
@@ -16,7 +17,10 @@ ARG PGDUCKDB_IMAGE=docker.io/pgduckdb/pgduckdb:17-main
 
 FROM ${PGDUCKDB_IMAGE} AS pgduckdb
 
-FROM docker.io/library/debian:12-slim AS extensions
+# The same base image the crudman and sqlmesh services build on, so the build pulls one
+# base image fewer. Nothing here depends on it beyond its Python: the extensions are
+# downloaded prebuilt and only their files are copied into the final image.
+FROM ghcr.io/astral-sh/uv:python3.13-trixie-slim AS extensions
 
 # The extensions to ship, comma-separated. Deliberately without a default: the list lives
 # in DUCKDB_EXTENSIONS in buildtime.env (which also explains the separator) and build.sh
@@ -26,7 +30,7 @@ ARG DUCKDB_EXTENSIONS
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-         ca-certificates curl unzip python3 libcurl4 \
+         ca-certificates curl unzip \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=pgduckdb /usr/lib/postgresql/17/lib/libduckdb.so /tmp/libduckdb.so
