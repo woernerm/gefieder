@@ -10,17 +10,22 @@
 # needs a Python to call the exported function, and libcurl, which that library links against;
 # both come with the uv base image and its curl package.
 #
+# The registries the base images are pulled from, so a company mirror can stand in for a
+# slow-to-reach docker.io or ghcr.io (see the *_MIRROR settings in buildtime.env).
+ARG DOCKER_IO_MIRROR=docker.io
+ARG GHCR_IO_MIRROR=ghcr.io
+
 # The base image is named once, in PGDUCKDB_IMAGE, because the stage that reads the DuckDB
 # version and the stage that finally runs it have to be the same image for the version to
 # mean anything.
-ARG PGDUCKDB_IMAGE=docker.io/pgduckdb/pgduckdb:17-main
+ARG PGDUCKDB_IMAGE=${DOCKER_IO_MIRROR}/pgduckdb/pgduckdb:17-main
 
 FROM ${PGDUCKDB_IMAGE} AS pgduckdb
 
 # The same base image the crudman and sqlmesh services build on, so the build pulls one
 # base image fewer. Nothing here depends on it beyond its Python: the extensions are
 # downloaded prebuilt and only their files are copied into the final image.
-FROM ghcr.io/astral-sh/uv:python3.13-trixie-slim AS extensions
+FROM ${GHCR_IO_MIRROR}/astral-sh/uv:python3.13-trixie-slim AS extensions
 
 # The extensions to ship, comma-separated. Deliberately without a default: the list lives
 # in DUCKDB_EXTENSIONS in buildtime.env (which also explains the separator) and build.sh

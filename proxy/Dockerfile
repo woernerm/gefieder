@@ -1,4 +1,7 @@
-FROM docker.io/library/nginx:alpine
+# The registry the base image is pulled from, so a company mirror can stand in for a
+# slow-to-reach docker.io (see DOCKER_IO_MIRROR in buildtime.env).
+ARG DOCKER_IO_MIRROR=docker.io
+FROM ${DOCKER_IO_MIRROR}/library/nginx:alpine
 
 # Bake the proxy configuration (the two templates and the entrypoint) into the image so
 # the server needs no checkout to run it. The certificate is the only piece that stays

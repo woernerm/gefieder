@@ -137,6 +137,8 @@ mkdir -p "$CERT_DIR"
 ./grafana/render.sh grafana/.provisioning
 for svc in postgresql crudman sqlmesh proxy grafana; do
   podman build \
+    --build-arg "DOCKER_IO_MIRROR=${DOCKER_IO_MIRROR}" \
+    --build-arg "GHCR_IO_MIRROR=${GHCR_IO_MIRROR}" \
     --build-arg "DUCKDB_EXTENSIONS=${DUCKDB_EXTENSIONS}" \
     -t "${REGISTRY}/${svc}:${IMAGE_TAG}" -f "${svc}/Dockerfile" .
 done

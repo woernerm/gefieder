@@ -1,4 +1,7 @@
-FROM ghcr.io/astral-sh/uv:python3.13-trixie-slim
+# The registry the base image is pulled from, so a company mirror can stand in for a
+# slow-to-reach ghcr.io (see GHCR_IO_MIRROR in buildtime.env).
+ARG GHCR_IO_MIRROR=ghcr.io
+FROM ${GHCR_IO_MIRROR}/astral-sh/uv:python3.13-trixie-slim
 
 # Prevent Python from writing .pyc files. Since in a container, the Python process is
 # invoked only once, there is no need to write bytecode files.

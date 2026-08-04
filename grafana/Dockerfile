@@ -1,4 +1,7 @@
-FROM docker.io/grafana/grafana:latest
+# The registry the base image is pulled from, so a company mirror can stand in for a
+# slow-to-reach docker.io (see DOCKER_IO_MIRROR in buildtime.env).
+ARG DOCKER_IO_MIRROR=docker.io
+FROM ${DOCKER_IO_MIRROR}/grafana/grafana:latest
 
 # Bake the provisioning (the read-only PostgreSQL data source and the shipped dashboards)
 # into the image so the server needs no checkout. build.sh runs grafana/render.sh, which

@@ -160,6 +160,8 @@ adjust:
 | `SERVER_STATS_INTERVAL` | how often, in seconds, the server statistics are sampled (default 60) |
 | `DUCKDB_EXTENSIONS` | the DuckDB extensions baked into the database image, comma-separated; they are downloaded at build time, so the server needs no internet access to use them |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | company proxy for image builds (empty = direct) |
+| `PYTHON_INDEX` | additional Python package index for the build, e.g. a company mirror (empty = PyPI) |
+| `DOCKER_IO_MIRROR`, `GHCR_IO_MIRROR` | where the build pulls its base images from; set them to a company mirror if `docker.io` and `ghcr.io` are slow to reach |
 | `TEMPDIR` | where the installer puts its scratch files (empty = `/tmp`); set it if `/tmp` is too small for the downloaded images or is cleared while the installer runs |
 
 A second file, `runtime.env`, holds settings read when the system runs rather than when

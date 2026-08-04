@@ -7,8 +7,9 @@
 # Settings come from buildtime.env: REGISTRY/IMAGE_TAG name the images
 # (REGISTRY/<svc>:IMAGE_TAG, matching the Image= lines in the quadlets), the
 # HTTP(S)_PROXY/NO_PROXY values are passed as --build-arg so package installs work from
-# behind a company proxy, PYTHON_INDEX adds a company PyPI mirror for uv and
-# DUCKDB_EXTENSIONS selects the DuckDB extensions baked into the PostgreSQL image.
+# behind a company proxy, PYTHON_INDEX adds a company PyPI mirror for uv, the *_MIRROR
+# values name the registries the base images are pulled from and DUCKDB_EXTENSIONS selects
+# the DuckDB extensions baked into the PostgreSQL image.
 set -e
 
 cd "$(dirname "$0")"
@@ -29,6 +30,8 @@ for svc in postgresql crudman sqlmesh proxy grafana; do
     --build-arg "https_proxy=${HTTPS_PROXY}" \
     --build-arg "no_proxy=${NO_PROXY}" \
     --build-arg "PYTHON_INDEX=${PYTHON_INDEX}" \
+    --build-arg "DOCKER_IO_MIRROR=${DOCKER_IO_MIRROR}" \
+    --build-arg "GHCR_IO_MIRROR=${GHCR_IO_MIRROR}" \
     --build-arg "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}" \
     --build-arg "DUCKDB_EXTENSIONS=${DUCKDB_EXTENSIONS}" \
     -t "${REGISTRY}/${svc}:${IMAGE_TAG}" \
