@@ -157,7 +157,12 @@ SERVER_NAME="$(printf '%s' "${SERVER_NAME:-}" | tr -d '[:space:]')"
 DEBUG="$(printf '%s' "${DEBUG:-}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
 
 # --- the server name ---------------------------------------------------------------
-# SERVER_NAME is used verbatim: the certificate is issued for it, Django accepts it
+# SERVER_NAME is the host name the system is reached under, fully qualified, e.g.
+# "abc123.mycompany.com" -- or "localhost" for a local development system. A bare host
+# name or an address with a scheme, a port or a path ("https://abc123", "abc123:8443")
+# is not the expected format.
+#
+# It is used verbatim: the certificate is issued for it, Django accepts it
 # (ALLOWED_HOSTS, CSRF_TRUSTED_ORIGINS) and the dropzone pages hand it to uploaders. A
 # short name usually fails on a company network, where the browser gives it to the web
 # proxy instead of resolving it. Only a warning: whether that happens is a property of
@@ -476,21 +481,45 @@ if systemctl --user restart main-pod.service 2>/dev/null; then
   # --- the pages must actually be served ------------------------------------------------
   # An active unit is not a served page: a proxy whose upstream is unreachable still
   # satisfies systemd, so fetch both applications the way a browser does. --insecure
-  # because the certificate is issued for SERVER_NAME while this fetches localhost, and
-  # may come from a company CA this host does not trust; it checks reachability, not
-  # trust. No -f, which would hide the status code that makes a failure diagnosable.
-  # --retry-connrefused bridges the second or two between the unit going active and nginx
-  # accepting connections. The budget is deliberately small: curl also retries a 502, and
-  # that is the dead-upstream answer this check exists to report rather than wait out.
+  # because the certificate may come from a company CA this host does not trust; this
+  # checks reachability, not trust. No -f, which would hide the status code that makes a
+  # failure diagnosable. --retry-connrefused bridges the second or two between the unit
+  # going active and nginx accepting connections. The budget is deliberately small: curl
+  # also retries a 502, and that is the dead-upstream answer this check exists to report
+  # rather than wait out.
+  #
+  # The request is addressed to SERVER_NAME and pinned to the loopback address with
+  # --resolve, rather than fetching localhost: the certificate is issued for SERVER_NAME,
+  # and against any other name the handshake can fail outright -- no status code, curl
+  # exits non-zero -- which is what --insecure alone does not cover. Addressed this way
+  # the name matches the certificate and nginx's server_name, while the request never
+  # leaves the host, so the check also works before DNS for SERVER_NAME resolves here.
+  #
+  # This whole check is diagnostic: it must never end the install, which is finished by
+  # now and still owes the operator its cheat sheet. Under `set -e` a bare
+  # `code="$(curl ...)"` would abort the script with curl's exit status, silently, before
+  # the cheat sheet is printed -- so curl runs as an `if` condition, which `set -e`
+  # exempts, and a non-zero exit is reported instead of being fatal.
   served=true
+  # Never empty in practice (runtime.env ships SERVER_NAME=localhost), but an empty value
+  # would make --resolve malformed and turn the check into a false alarm.
+  probe_host="${SERVER_NAME:-localhost}"
   for app in "${CRUDMAN_PATH}" "${GRAFANA_PATH}"; do
-    code="$(curl -s --insecure -o /dev/null -w '%{http_code}' --max-time 10 \
-              --retry 5 --retry-delay 1 --retry-connrefused \
-              "${SCHEME}://localhost/${app}/" 2>/dev/null)"
+    if code="$(curl -s --insecure -o /dev/null -w '%{http_code}' --max-time 10 \
+                 --retry 5 --retry-delay 1 --retry-connrefused \
+                 --resolve "${probe_host}:443:127.0.0.1" \
+                 --resolve "${probe_host}:80:127.0.0.1" \
+                 "${SCHEME}://${probe_host}/${app}/" 2>/dev/null)"; then
+      why=""
+    else
+      # curl never reached an answer -- a handshake failure or a reset, where the status
+      # code above is empty and the exit status is the only thing that says what happened.
+      why=", curl exit $?"
+    fi
     case "$code" in
       200|30[1237]) printf '  %-12s reachable at %s\n' "$app" "${BASE_URL}/${app}/" ;;
       *) served=false
-         printf '  %-12s NOT reachable (%s)\n' "$app" "${code:-no response}" >&2 ;;
+         printf '  %-12s NOT reachable (%s)\n' "$app" "${code:-no response}${why}" >&2 ;;
     esac
   done
   if [ "$served" = "true" ]; then
