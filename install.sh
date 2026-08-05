@@ -95,25 +95,20 @@ if ! podman unshare sh -c 'true' >/dev/null 2>&1; then
 fi
 
 # --- preflight: the journal has to be persistent ---------------------------------------
-# The services log to stdout/stderr and podman hands that to journald, which is the only
-# place their history lives. Without /var/log/journal, journald keeps everything in
-# /run/log/journal instead: the logs are gone after a reboot, and journalctl answers "No
-# journal files were found" -- so a stack that runs perfectly well has no readable log.
-# Ubuntu ships the directory, RHEL does not.
+# The services log to stdout/stderr, and journald is the only place that history lives.
+# Without /var/log/journal it keeps everything in /run/log/journal, so the logs are gone
+# after a reboot. Ubuntu ships the directory, RHEL does not. Creating it needs root, so
+# this only reports it and carries on -- the stack runs fine either way.
 #
-# Creating it needs root, which the user running this installer does not have, so this
-# only reports it and carries on: the stack itself runs fine either way.
-JOURNAL_HINT=""   # repeated in the cheat sheet, so it can be handed to an admin later
+# tmpfiles applies the group and ACLs journalctl needs (mkdir alone leaves root:root 0755).
+# That suffices under the default Storage=auto ("persistent if the directory exists"); a
+# host pinned to Storage=volatile needs journald.conf edited too.
 if [ ! -d /var/log/journal ]; then
-  JOURNAL_HINT="The logs are kept in memory only: they are lost on reboot and journalctl
-reports \"No journal files were found\". Ask an admin to make the journal persistent:
-  sudo mkdir -p /var/log/journal
-  sudo systemd-tmpfiles --create --prefix /var/log/journal
-  sudo journalctl --flush
-
-"
-  echo "  /var/log/journal does not exist, so the logs are kept in memory and lost on" >&2
-  echo "  reboot; the cheat sheet has the commands an admin has to run." >&2
+  echo "  /var/log/journal does not exist, so the logs are lost on reboot. Ask an admin:" >&2
+  echo "    sudo mkdir -p /var/log/journal" >&2
+  echo "    sudo systemd-tmpfiles --create --prefix /var/log/journal" >&2
+  echo "    sudo journalctl --flush" >&2
+  echo "  If they are still gone afterwards, check Storage= in journald.conf." >&2
 fi
 
 # --- images: download each tarball with its own curl, then load it --------------------
@@ -478,6 +473,24 @@ if systemctl --user restart main-pod.service 2>/dev/null; then
     fi
   done
 
+  # --- which certificate is in use ------------------------------------------------------
+  # Naming the files actually found rules out the usual mix-ups: a certificate left in the
+  # wrong directory, or the right one holding last year's pair. The directory comes from
+  # the installed unit, where systemd has already expanded the "%h" the quadlet wrote into
+  # CERTIFICATE_HINT, so nothing here has to parse a specifier. Production only, since
+  # DEBUG=true serves plain HTTP and mounts no certificate.
+  if [ "${DEBUG}" != "true" ]; then
+    certdir="$(systemctl --user show -p Environment --value proxy.service 2>/dev/null \
+                 | tr ' ' '\n' | sed -n 's/^CERTIFICATE_HINT=//p')"
+    for f in ${certdir:+fullchain.pem privkey.pem}; do
+      if [ -f "${certdir}/${f}" ]; then
+        printf '  %-12s %s\n' "certificate" "${certdir}/${f}"
+      else
+        printf '  %-12s %s MISSING from %s\n' "certificate" "$f" "${certdir}/" >&2
+      fi
+    done
+  fi
+
   # --- the pages must actually be served ------------------------------------------------
   # An active unit is not a served page: a proxy whose upstream is unreachable still
   # satisfies systemd, so fetch both applications the way a browser does. --insecure
@@ -593,7 +606,7 @@ start, so restart them to pick a change up:
   ${EDITOR_CMD} \$HOME/.config/${APP_NAME}/runtime.env
   systemctl --user restart main-pod.service
 
-${JOURNAL_HINT}Uninstall the system (asks before deleting the data volumes and secrets):
+Uninstall the system (asks before deleting the data volumes and secrets):
   curl -fsSL ${REPO}/releases/latest/download/uninstall.sh | bash
 EOF
 
