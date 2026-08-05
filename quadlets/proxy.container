@@ -17,6 +17,10 @@ Image=${REGISTRY}/proxy:${IMAGE_TAG}
 # StopSignal= is set here -- that quadlet key only exists from podman 5.2 on and an older
 # podman skips the whole unit over it, leaving the stack running without a proxy.
 RunInit=true
+# Run on the host's timezone rather than the image's UTC. nginx stamps its error_log
+# records in a format no directive overrides, and that stamp names no zone -- on UTC it
+# reads hours off journald's with nothing to explain the gap.
+Timezone=local
 # SERVER_NAME and DEBUG come from the operator's runtime.env, so changing either needs no
 # rebuild -- only "systemctl --user restart proxy.service", because the entrypoint picks
 # the HTTP or HTTPS template once at startup. See crudman.container on why the file must

@@ -135,7 +135,7 @@ case "${1:-up}" in
 esac
 
 # --- build the images -----------------------------------------------------------------
-# Same Dockerfiles and proxy build-args as build.sh, but built with podman so the images
+# Same Dockerfiles and build settings as build.sh, but built with podman so the images
 # land directly in the local rootless store the containers run from. podman's layer cache
 # makes re-runs cheap: a service whose Dockerfile and inputs are unchanged reuses its
 # cached layers, so a plain `./dev.sh` on a running stack is a quick refresh rather than a
@@ -148,15 +148,18 @@ echo "Building images ..."
 # is deterministic, so an unchanged dashboard keeps the grafana COPY layer cached.
 ./grafana/render.sh grafana/.provisioning
 
+# The configurable buildtime.env settings, the same list build.sh and run-tests.sh pass:
+# one left out falls back to the Dockerfile's ARG default, building an image the rest of
+# the stack disagrees with. The proxy settings need no --build-arg here -- podman copies
+# them from its own environment, where the `set -a` above put them.
 for svc in $SERVICES; do
   printf '  %-11s ' "$svc"
   build_svc() {
     podman build \
-      --build-arg "http_proxy=${HTTP_PROXY}" \
-      --build-arg "https_proxy=${HTTPS_PROXY}" \
-      --build-arg "no_proxy=${NO_PROXY}" \
+      --build-arg "PYTHON_INDEX=${PYTHON_INDEX}" \
       --build-arg "DOCKER_IO_MIRROR=${DOCKER_IO_MIRROR}" \
       --build-arg "GHCR_IO_MIRROR=${GHCR_IO_MIRROR}" \
+      --build-arg "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}" \
       --build-arg "DUCKDB_EXTENSIONS=${DUCKDB_EXTENSIONS}" \
       -t "${REGISTRY}/${svc}:${IMAGE_TAG}" \
       -f "${svc}/Dockerfile" .
@@ -227,7 +230,9 @@ podman run -d --pod "$POD" --name postgresql --restart always \
   --health-interval 5s --health-retries 10 --health-start-period 10s \
   "${REGISTRY}/postgresql:${IMAGE_TAG}" >/dev/null
 
-podman run -d --pod "$POD" --name crudman --restart always \
+# --tz=local matches the quadlet: gunicorn stamps its own records, which on the image's
+# UTC would read hours apart from journald's stamp beside them.
+podman run -d --pod "$POD" --name crudman --restart always --tz=local \
   -e "APP_NAME=${APP_NAME}" \
   -e "SERVER_NAME=${SERVER_NAME}" \
   -e "SUPERUSER_NAME=${SUPERUSER_NAME}" \
@@ -283,8 +288,9 @@ podman run -d --pod "$POD" --name grafana --restart always \
   "${REGISTRY}/grafana:${IMAGE_TAG}" >/dev/null
 
 # DEBUG=true makes the proxy entrypoint pick the plain-HTTP template, so the certs mount
-# the quadlet uses is unnecessary and omitted here.
-podman run -d --pod "$POD" --name proxy --restart always \
+# the quadlet uses is unnecessary and omitted here. --tz=local matches the quadlet:
+# nginx's error_log stamp names no zone, so on UTC it reads hours off journald's.
+podman run -d --pod "$POD" --name proxy --restart always --tz=local \
   -e DEBUG=true \
   -e "CRUDMAN_PATH=${CRUDMAN_PATH}" \
   -e "GRAFANA_PATH=${GRAFANA_PATH}" \

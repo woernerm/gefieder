@@ -108,13 +108,17 @@ if [ -z "$UNITS" ] && [ -z "$VOLUMES" ] && [ -z "$LEFTOVERS" ] && [ ! -f "$QUADL
 fi
 
 # --- stop the services ----------------------------------------------------------------
-# Stop the units before removing anything they hold open. main-pod.service goes last:
-# stopping it first would make systemd restart the containers it still wants running.
+# Stop the whole stack in one go, the order run-tests.sh tears its stack down in. Quadlet
+# binds every container unit to main-pod.service, so stopping the pod takes them down
+# together, and a stop systemd ordered is not a failure -- Restart=always does not fire.
+# Unit by unit would stop the database first and leave the rest running against a gone
+# dependency: those fail their healthcheck and exit, which Restart=always *does* answer.
+# The per-unit stops below only confirm what is gone, and catch a unit that outlived the pod.
 step "Stopping the services"
+systemctl --user stop main-pod.service >/dev/null 2>&1 || true
 for u in $UNITS; do systemctl --user stop "$u" >/dev/null 2>&1 || true; done
 systemctl --user disable --now server-stats.timer >/dev/null 2>&1 || true
 systemctl --user stop server-stats.service >/dev/null 2>&1 || true
-systemctl --user stop main-pod.service >/dev/null 2>&1 || true
 echo "  $(echo $UNITS | wc -w) service units stopped"
 
 # --- remove the pod and its containers ------------------------------------------------

@@ -111,10 +111,11 @@ create_secret grafana_password  "$(openssl rand -hex 32)"
 # tests run unattended without a prompt (install.sh asks for it interactively).
 create_secret superuser_password "$SUPERUSER_DEFAULT_PASSWORD"
 
-# Isolated host ports so a running stack on the default ports is not disturbed.
+# Isolated host ports so a running stack on the default ports is not disturbed, one per
+# port the production pod publishes. Grafana is not among them: the suite reaches it
+# through the proxy, as a browser does.
 HTTP_PORT=18080
 HTTPS_PORT=18443
-GRAFANA_PORT=13000
 PG_PORT=15432
 SFTP_PORT=12222
 FLIGHT_PORT=18815
@@ -132,13 +133,21 @@ mkdir -p "$CERT_DIR"
 # workflow; docker and podman keep separate image stores, so a docker build would not be
 # visible to the podman-run stack here.) Tagged REGISTRY/<svc>:IMAGE_TAG to match the
 # Image= lines in the quadlets; built from the working tree, not pulled.
+#
+# Every configurable buildtime.env setting is passed, the same list build.sh uses: one left
+# out falls back to the Dockerfile's ARG default and builds an image the rest of the stack
+# disagrees with (SERVER_STATS_SCHEMA decides which schema the database creates). The proxy
+# settings need no --build-arg -- podman copies them from its own environment, where the
+# `set -a` above put them. docker does not, which is why build.sh names them.
 # Render the Grafana provisioning templates the grafana Dockerfile COPYs in first, as
 # build.sh/dev.sh do; otherwise the COPY of grafana/.provisioning/ has no source.
 ./grafana/render.sh grafana/.provisioning
 for svc in postgresql crudman sqlmesh proxy grafana; do
   podman build \
+    --build-arg "PYTHON_INDEX=${PYTHON_INDEX}" \
     --build-arg "DOCKER_IO_MIRROR=${DOCKER_IO_MIRROR}" \
     --build-arg "GHCR_IO_MIRROR=${GHCR_IO_MIRROR}" \
+    --build-arg "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}" \
     --build-arg "DUCKDB_EXTENSIONS=${DUCKDB_EXTENSIONS}" \
     -t "${REGISTRY}/${svc}:${IMAGE_TAG}" -f "${svc}/Dockerfile" .
 done
@@ -184,13 +193,11 @@ VOLUMES="postgresql_data grafana_data sftp_data proxy_data uploads_data \
 # are the same operation -- both are installed in the same place under the same names.
 remove_deployment() {
   stack_stop="$(date +%s)"
-  # Stop the whole stack in one go rather than unit by unit. Every container carries
-  # Restart=always, so stopping them individually makes systemd restart the ones whose
-  # dependencies just went away -- stopping postgresql first fails the healthchecks of
-  # everything behind it, and those units queue an auto-restart while this loop is still
-  # trying to shut the stack down. Stopping main-pod.service takes the pod and all its
-  # containers down together, and the per-unit stops below then only confirm what is
-  # already gone.
+  # Stop the whole stack in one go, the order uninstall.sh uses too. Quadlet binds every
+  # container unit to main-pod.service, so stopping the pod takes them down together, and a
+  # stop systemd ordered is not a failure -- Restart=always does not fire. Unit by unit
+  # would stop the database first and leave the rest running against a gone dependency:
+  # those fail their healthcheck and exit on their own, which Restart=always *does* answer.
   printf '  stopping the pod ... '
   systemctl --user stop main-pod.service >/dev/null 2>&1 || true
   printf 'stopped (%ss)\n' "$(( $(date +%s) - stack_stop ))"
@@ -237,22 +244,21 @@ fi
 
 # Render the quadlet templates the same way the release workflow does: substitute only
 # the known tokens so nginx's $host and Grafana's %(domain)s are left untouched.
-VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL}'
+VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA}'
 for f in quadlets/*; do
   envsubst "$VARS" < "$f" > "$QUADLET_DIR/$(basename "$f")"
 done
 
 # Quadlet does not expand variables in PublishPort, so overwrite the rendered pod file
-# with the isolated test ports. The test pod also publishes the database and Grafana
-# ports (the production pod publishes only 80/443) so the suite reaches them on
-# localhost directly. PodName stays ${APP_NAME} so podman shows the project name.
+# with the isolated test ports: the same five the production pod publishes (80, 443, 5432,
+# 2222 for the dropzones SFTP endpoint, 8815 for its Arrow Flight one), moved out of the
+# way. PodName stays ${APP_NAME} so podman shows the project name.
 cat > "$QUADLET_DIR/main.pod" <<EOF
 [Pod]
 PodName=${APP_NAME}
 PublishPort=${HTTP_PORT}:80
 PublishPort=${HTTPS_PORT}:443
 PublishPort=${PG_PORT}:5432
-PublishPort=${GRAFANA_PORT}:3000
 PublishPort=${SFTP_PORT}:2222
 PublishPort=${FLIGHT_PORT}:8815
 

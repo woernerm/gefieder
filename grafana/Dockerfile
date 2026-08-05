@@ -11,6 +11,9 @@ FROM ${DOCKER_IO_MIRROR}/grafana/grafana:latest
 # and sub-path are set via GF_* env in the quadlet.
 COPY grafana/.provisioning/ /etc/grafana/provisioning/
 
-# Bake the static, non-secret configuration (logging, optional SSO/SMTP) into the image.
+# Bake the configuration into the image: Grafana's own sample.ini at the defaults, where a
+# static setting (SSO, SMTP) is turned on by uncommenting it and rebuilding. Not logging,
+# though -- the image's entrypoint passes log.mode on the command line, which overrides
+# this file, so it is GF_LOG_MODE in the quadlet instead.
 # Secret values are referenced from podman secrets via $__file{}, never stored in the file.
 COPY grafana/custom.ini /etc/grafana/grafana.ini

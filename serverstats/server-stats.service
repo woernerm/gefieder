@@ -19,4 +19,9 @@ Wants=main-pod.service
 Type=oneshot
 # The collector derives its config and state paths from the app name.
 Environment=APP_NAME=${APP_NAME}
+# The role it connects as and the schema it writes to. Passed rather than left to the
+# collector's fallbacks, which fit only a deployment that kept the default SUPERUSER_NAME
+# and SERVER_STATS_SCHEMA: renaming either would leave every sample failing silently.
+Environment=POSTGRES_USER=${SUPERUSER_NAME}
+Environment=SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}
 ExecStart=%h/.config/${APP_NAME}/serverstats/collect.sh

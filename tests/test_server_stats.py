@@ -6,6 +6,7 @@ display is added later, so the tests assert that the data is collected, not how 
 """
 import hashlib
 import os
+import shlex
 import subprocess
 import time
 import uuid
@@ -96,20 +97,75 @@ def run_collector(**extra_env):
     """Run the host collector once, asserting it exits cleanly.
 
     POSTGRES_USER lets it authenticate as the superuser inside the container; the schema
-    name matches what the suite was told. RUNTIME_ENV=/dev/null skips the runtime.env
-    lookup so the default interval applies. HOME/PATH are passed through because the
-    collector resolves its state dir under HOME and APP_NAME and runs podman from PATH.
-    extra_env adds or overrides variables (e.g. forcing the disk-size probe on for a
-    single run).
+    name matches what the suite was told. HOME/PATH are passed because the collector
+    resolves its state dir under them and runs podman from PATH. extra_env overrides a
+    variable for one run (e.g. forcing the disk-size probe on).
+
+    Supplying the variables here means this cannot see a unit file that omits one; that is
+    what TestCollectorUnit below is for.
     """
     if not COLLECTOR:
         pytest.skip("no collector path provided (TEST_COLLECTOR unset)")
     env = {"POSTGRES_USER": SUPERUSER_NAME, "SERVER_STATS_SCHEMA": SERVER_STATS_SCHEMA,
-           "APP_NAME": APP_NAME, "RUNTIME_ENV": "/dev/null", "HOME": os.environ["HOME"],
+           "APP_NAME": APP_NAME, "HOME": os.environ["HOME"],
            "PATH": os.environ.get("PATH", "/usr/bin:/bin")}
     env.update(extra_env)
     proc = subprocess.run([COLLECTOR], env=env, capture_output=True, text=True)
     assert proc.returncode == 0, f"collector failed: {proc.stderr}\n{proc.stdout}"
+
+
+def unit_environment(unit):
+    """The environment systemd resolved for a unit, as a dict.
+
+    `systemctl show -p Environment` prints the assignments space-separated on one line,
+    quoting where needed -- exactly shlex's syntax.
+    """
+    out = subprocess.run(
+        ["systemctl", "--user", "show", "-p", "Environment", "--value", unit],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    return dict(item.split("=", 1) for item in shlex.split(out) if "=" in item)
+
+
+class TestCollectorUnit:
+    """The collector as the deployment invokes it: through its systemd unit.
+
+    The deployed superuser name comes from SUPERUSER_NAME and the schema is baked into the
+    PostgreSQL image from SERVER_STATS_SCHEMA. A unit that passes neither leaves a
+    deployment that changed either one connecting as a role that does not exist, or writing
+    to a schema never created -- silently, since a failed oneshot only reaches the journal.
+    """
+
+    def test_the_unit_shall_pass_the_configured_user_and_schema(self):
+        env = unit_environment("server-stats.service")
+        assert env.get("POSTGRES_USER") == SUPERUSER_NAME, (
+            "server-stats.service does not pass POSTGRES_USER, so the collector falls "
+            f"back to 'admin' instead of {SUPERUSER_NAME!r}"
+        )
+        assert env.get("SERVER_STATS_SCHEMA") == SERVER_STATS_SCHEMA, (
+            "server-stats.service does not pass SERVER_STATS_SCHEMA, so the collector "
+            f"falls back to 'server_stats' instead of {SERVER_STATS_SCHEMA!r}"
+        )
+
+    def test_starting_the_unit_shall_take_a_sample(self, admin_db):
+        # Through systemd rather than by calling the script: a oneshot start blocks until
+        # the run finishes and fails if it exited non-zero, covering the unit's ExecStart
+        # and its environment together.
+        with admin_db.cursor() as cur:
+            before = q(cur, f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.host_sample')[0]
+        proc = subprocess.run(
+            ["systemctl", "--user", "start", "server-stats.service"],
+            capture_output=True, text=True,
+        )
+        assert proc.returncode == 0, (
+            f"server-stats.service failed to run: {proc.stderr}\n"
+            + subprocess.run(
+                ["journalctl", "--user", "-u", "server-stats.service", "-n", "20",
+                 "--no-pager"], capture_output=True, text=True).stdout
+        )
+        with admin_db.cursor() as cur:
+            after = q(cur, f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.host_sample')[0]
+        assert after > before, "the unit ran but inserted no host sample"
 
 
 # The collector run is the slow part (it execs into the container and probes the host), so

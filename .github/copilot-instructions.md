@@ -77,9 +77,14 @@
   rotates and size-caps them. The services shall not write their own log files to a
   volume: those grew unbounded, and a file written by a non-root user inside a container
   lands on a mapped subuid the host user cannot read without `podman unshare`.
-- The persistent logs shall contain one (and only one) timestamp at the beginning of 
-  each message. journald stamps every entry it records, so a service shall not add a
-  second timestamp of its own where it can be configured not to.
+- Every log line shall begin with journald's timestamp, which it stamps on each entry it
+  records. That one is the log's timestamp.
+- No service shall be *configured* to add a second timestamp of its own. PostgreSQL's
+  `log_line_prefix` therefore carries the backend pid alone, with no time escape.
+- Some services format their own timestamp and cannot be told not to (gunicorn, nginx,
+  SQLMesh, Grafana). That is accepted, on one condition: the second stamp must not
+  contradict the first. A stamp that names no zone shall be in the host's, so those
+  containers run with `Timezone=local`.
 - Logs of apps like PostgreSQL, Grafana, crudman, sqlmesh shall be accessible by using
   journalctl on the host system by the host user. This rule does not apply to the 
   proxy's `visits.log` file. 
@@ -109,8 +114,14 @@
 ## Install Script
 - The install script shall test whether subuid and subgid mappings are available for the 
   current user before continuing with the installation.
-- The install script shall make sure that the rootless podman user always owns all files 
-  in a volume so that `podman unshare ...` is not necessary.
+- The install script shall create the data volumes up front, so their directories belong
+  to the rootless podman user from the start rather than to whoever's container writes
+  them first. The files *inside* a volume are a different matter: a service that drops to
+  a non-root user in its container (postgresql, grafana) writes them under a mapped
+  subuid, and reading those from the host needs `podman unshare`. That is accepted rather
+  than worked around — the alternatives (`UserNS=keep-id`, per-service uidmap juggling)
+  break the PostgreSQL image, which insists on running as its own user. The cheat sheet
+  and the README shall name the volumes this applies to.
 - The install script shall use separate curl commands for downloading all files related
   to a github release.
 - The install script shall create podman secrets for the crudman, grafana and django
@@ -119,13 +130,15 @@
 - The install script shall output a cheat sheet with control commands for
     - Control command for starting the system right now.
     - Control command for starting the backup procedure right now.
-    - Control command for viewing a life log the combined log of the system.
-    - Control command for viewing a life log of each software component.
+    - Control command for viewing a live log of the whole system, combining every
+      software component into one stream. One `journalctl` command is enough for both
+      the live and the persistent log: the journal is where the log lives, so there is
+      no file to `cat`, and dropping the `-f` reads the history back. Per-component
+      commands belong in the README, not in the cheat sheet, which stays short enough
+      to be useful.
     - The path of each volume (so that the user can cd into the respective directories).
     - Control command for opening the runtime.env configuration file with the host
       system's default editor (or nano if there is no default).
-    - A `journalctl` command for reading the persistent log of each software component
-      (the logs live in the journal, so there is no file to `cat`).
 - The install script shall store a helpfile in the rootless podman user's home 
   directory.
 
@@ -153,6 +166,7 @@
 - Use sentece case (e.g. "Reject empty files") for the registry names of checker and 
   converter functions of the dropzones django app in crudman. Stay with snake case for 
   the actual python function names.
+- Keep your final responses concise. Try to stay below 120 words.
 
 # Example Tenants
 - There are three example tenants "Project A", "Project B" and "Project C"

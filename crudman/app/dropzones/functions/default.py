@@ -5,13 +5,15 @@ formats to Parquet — and double as templates for custom functions: add a decor
 function to a module in this folder and rebuild the image.
 """
 
+from pathlib import Path
+
 import polars as pl
 
 from dropzones.registry import checker, converter
 
 
 @checker("Reject empty files")
-def reject_empty_files(files):
+def reject_empty_files(files: list[Path]) -> None:
     """Reject the upload if any file is empty, regardless of its format."""
     for path in files:
         if path.stat().st_size == 0:
@@ -19,14 +21,14 @@ def reject_empty_files(files):
 
 
 @converter("CSV to Parquet")
-def csv_to_parquet(files, out_dir):
+def csv_to_parquet(files: list[Path], out_dir: Path) -> None:
     """Store every uploaded CSV file as Parquet, named after the source file."""
     for path in files:
         pl.read_csv(path).write_parquet(out_dir / (path.stem + ".parquet"))
 
 
 @converter("Excel to Parquet (one file per sheet)")
-def excel_to_parquet(files, out_dir):
+def excel_to_parquet(files: list[Path], out_dir: Path) -> None:
     """Store every sheet of every uploaded Excel file as its own Parquet file,
     named after the source file and the sheet."""
     for path in files:
@@ -35,7 +37,7 @@ def excel_to_parquet(files, out_dir):
 
 
 @converter("JSON to Parquet")
-def json_to_parquet(files, out_dir):
+def json_to_parquet(files: list[Path], out_dir: Path) -> None:
     """Store every uploaded JSON file (one object or an array of objects) as
     Parquet, named after the source file."""
     for path in files:

@@ -36,22 +36,25 @@ root and work the same on Linux and on WSL.
 ## Run it locally
 
 The settings come from `buildtime.env` (image names, paths) and `runtime.env`
-(`SERVER_NAME`, `DEBUG`) in the repository root. The simplest way to bring up a working
-stack on your machine is the test runner, which builds the images, renders the quadlets
-and starts the pod. It picks the mode itself, so neither file needs editing first:
+(`SERVER_NAME`, `DEBUG`) in the repository root. Neither needs editing first.
+
+`dev.sh` brings up a stack and leaves it running. It builds the images, starts the pod,
+creates the credentials it needs and prints the addresses and the login:
 
 ```bash
-./run-tests.sh              # development mode (plain HTTP), builds and runs the suite
-./run-tests.sh production   # production mode (HTTPS with a throwaway certificate)
+./dev.sh          # build and (re)start the stack
+./dev.sh logs     # follow the combined log of all containers
+./dev.sh down     # stop and remove the pod (the volumes and secrets are kept)
 ```
 
-`run-tests.sh` tears its stack down again at the end. To keep a stack running for manual
-use, build and install it the same way a release does (see [Deploy](#deploy-it-on-a-server))
-but with locally built images. The credentials are podman secrets; create them once with
-`openssl rand -hex 32 | podman secret create <name> -` (see [Secrets](#secrets)).
+It always runs in development mode, so it serves plain HTTP and needs no certificate:
 
-- Administration panel: <http://localhost/crudman/>
-- Grafana dashboards: <http://localhost/grafana/>
+- Administration panel: <http://127.0.0.1:8080/crudman/>
+- Grafana dashboards: <http://127.0.0.1:8080/grafana/>
+
+Log in as the superuser with the password `dev.sh` prints. To run the test suite instead,
+use `./run-tests.sh`, which builds a stack of its own on isolated ports and removes it
+again when the suite finishes — see [Testing](#testing).
 
 
 ## Deploy it on a server
@@ -149,6 +152,7 @@ adjust:
 | Setting | Meaning |
 | --- | --- |
 | `APP_NAME` | the name of the project (pod name, volume prefix, cert dir) |
+| `REPO` | your repository's full URL; the release workflow bakes it into `install.sh`, which downloads from `<REPO>/releases/latest/download`. It has no default — a release cannot be built without it |
 | `REGISTRY` | the path the images are named under, e.g. `ghcr.io/your-org/gefieder` → `…/gefieder/crudman` |
 | `IMAGE_TAG` | the image tag, e.g. `latest` |
 | `SUPERUSER_NAME` | the name of the PostgreSQL, Django and Grafana superuser |
@@ -163,6 +167,7 @@ adjust:
 | `PYTHON_INDEX` | additional Python package index for the build, e.g. a company mirror (empty = PyPI) |
 | `DOCKER_IO_MIRROR`, `GHCR_IO_MIRROR` | where the build pulls its base images from; set them to a company mirror if `docker.io` and `ghcr.io` are slow to reach |
 | `TEMPDIR` | where the installer puts its scratch files (empty = `/tmp`); set it if `/tmp` is too small for the downloaded images or is cleared while the installer runs |
+| `TEMPDIR_TESTS` | the same for `run-tests.sh`, which needs far more scratch space than an installation and may have to put it on another filesystem |
 
 A second file, `runtime.env`, holds settings read when the system runs rather than when
 it is built, so changing one takes effect on the next restart without a rebuild. The
@@ -349,9 +354,10 @@ writing your own.
 | Script | What it does |
 | --- | --- |
 | `./build.sh` | build the five images with docker (REGISTRY/IMAGE_TAG from `buildtime.env`) |
-| `./install.sh` | install from a GitHub release: load the image tarballs, install the quadlets, create secrets, start the system |
+| `./dev.sh` | build and (re)start a local development stack; `down`, `logs` and `serverstats` are its subcommands |
 | `./run-tests.sh [production]` | build a throwaway stack, run the integration suite, tear it down |
-| `./dev.sh serverstats` | take one server-statistics sample against the local dev stack |
+| `./install.sh` | install from a GitHub release: load the image tarballs, install the quadlets, create secrets, start the system |
+| `./uninstall.sh` | remove a deployment again, asking first before it deletes the data volumes and the secrets |
 
 ## Everyday commands
 ```bash
@@ -368,14 +374,16 @@ podman logs -f sqlmesh                    # follow a container's live log
   tools and the tools that fill the bronze schemas connect straight to `SERVER_NAME`:
 
   ```bash
-  psql "host=SERVER_NAME port=5432 dbname=postgres user=admin"
+  psql "host=SERVER_NAME port=5432 dbname=postgres user=SUPERUSER_NAME"
   ```
 
   On the server itself you can also skip the network:
 
   ```bash
-  podman exec -it postgresql psql -U admin -d postgres
+  podman exec -it postgresql psql -U SUPERUSER_NAME -d postgres
   ```
+
+  `SUPERUSER_NAME` is `admin` unless you changed it in `buildtime.env`.
 
 ## Using custom ports
 The pod publishes ports 80 and 443 for the web services, 5432 for the database, and 2222
@@ -393,13 +401,26 @@ Everything then works on the new ports with one exception: opening the system ov
 `http://` still sends the browser to the standard HTTPS port rather than yours, because
 the proxy cannot know which port you published it on. Reach it over `https://` directly.
 
+Moving the SFTP or Arrow Flight port takes one more step. Each dropzone's admin page shows
+uploaders the address to connect to, and it builds that address from `SFTP_PORT` and
+`FLIGHT_PORT` — so set the one you changed as an `Environment=` line in `crudman.container`,
+or the page keeps advertising the old port.
+
+Change only the host side of `PublishPort`, and set the variable nowhere else. It also
+decides the port the endpoint listens on inside the pod, and the healthchecks in
+`sftp.container` and `flight.container` probe 2222 and 8815 literally — so moving the in-pod
+port leaves the service failing to start.
+
 ## Testing
 The integration test suite spins up a throwaway stack and asserts the behaviour the
 system promises: containers start and stay healthy, the apps are reachable and serve
 their static files, the schemas exist with the right per-role access, each service's log
 reaches the journal, a killed container is restarted, volume data
-survives a restart, and no secret value leaks into an image or quadlet. It tears the
-stack down again. Run it away from any production system; the secrets must already exist.
+survives a restart, and no secret value leaks into an image or quadlet. It creates any
+credentials it is missing and tears the stack down again afterwards.
+
+Run it away from any production system: it installs over the same paths a deployment uses,
+so it asks to remove an installed one first — and that takes its data volumes with it.
 
 ```bash
 ./run-tests.sh             # development profile: plain HTTP

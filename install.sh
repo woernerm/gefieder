@@ -301,11 +301,12 @@ done
 curl -fsSL "${BASE}/collect.sh" -o "${WORK}/collect.sh"
 install -m 0755 "${WORK}/collect.sh" "$APP_CONFIG_DIR/serverstats/collect.sh"
 
-# --- create the volumes up front so we own their contents -----------------------------
-# Creating the volumes here (rather than letting the first container start create them)
-# means the directories are owned by the rootless user from the start, so writing data
-# needs no `podman unshare`. The container's own user inside its namespace maps back to
-# this user.
+# --- create the volumes up front so we own their directories --------------------------
+# Creating them here (rather than letting the first container start do it) means the
+# directories belong to the rootless user. The files inside do not always: postgresql and
+# grafana write as a container user that maps to a subuid, so reading those from the host
+# needs `podman unshare`, as the cheat sheet says. Owning them too would need
+# UserNS=keep-id, which the PostgreSQL image does not survive.
 # One data volume per service that keeps state, matching the VolumeName= in the *.volume
 # quadlets. Services that only log have none: their logs go to journald.
 step "Creating data volumes"

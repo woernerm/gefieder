@@ -16,6 +16,10 @@ Notify=healthy
 # podman's SIGTERM reaches gunicorn and in-flight requests drain instead of being cut off
 # by the SIGKILL that ends a timed-out stop.
 RunInit=true
+# Run on the host's timezone rather than the image's UTC, so gunicorn's own stamp agrees
+# with journald's beside it. The sftp and flight containers run this image without the
+# setting: Django's logging emits no timestamp, so there is nothing to align.
+Timezone=local
 Environment=APP_NAME=${APP_NAME}
 # SERVER_NAME and DEBUG come from the operator's runtime.env, so changing either needs a
 # restart rather than a rebuild. The installer writes the file before the units start;

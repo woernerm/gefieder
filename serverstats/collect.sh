@@ -52,10 +52,15 @@ io_sum() {
 sql() { if [ -z "$1" ]; then printf NULL; else printf '%s' "$1"; fi; }
 
 # Run psql inside the postgresql container as the superuser against the app database.
+# Required rather than defaulted: the superuser is created under SUPERUSER_NAME, so a
+# hardcoded fallback would fit only a deployment that kept the default and would otherwise
+# connect as a role that does not exist. Every caller passes it, so a missing one is a
+# wiring mistake worth saying out loud.
+POSTGRES_USER="${POSTGRES_USER:?POSTGRES_USER must be set to the database superuser name}"
 psql_exec() {
     podman exec -i "$CONTAINER" \
         psql -v ON_ERROR_STOP=1 -qtAX \
-        --username "${POSTGRES_USER:-admin}" --dbname "${POSTGRES_DB:-postgres}" "$@"
+        --username "$POSTGRES_USER" --dbname "${POSTGRES_DB:-postgres}" "$@"
 }
 
 # --- locate the pod cgroup ------------------------------------------------------------

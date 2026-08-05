@@ -3,9 +3,11 @@
 # The proxy (80/443), the database (5432), the dropzones SFTP endpoint (2222) and the
 # dropzones Arrow Flight endpoint (8815) publish ports, and they do so here at the pod
 # level. Quadlet does not expand shell-style variables in PublishPort, so the host ports
-# are literal; to serve on different ports, edit the lines below (for SFTP also set
-# SFTP_PORT, for Arrow Flight FLIGHT_PORT, in crudman.container and the endpoint's own
-# container so the admin shows the right address).
+# are literal; to serve on different ports, change the host side below and set SFTP_PORT or
+# FLIGHT_PORT in crudman.container, which is what builds the address a dropzone's admin
+# page shows. Only there: those variables also decide the port the endpoints listen on
+# inside the pod, and their healthchecks probe 2222 and 8815 literally, so setting them on
+# sftp.container or flight.container leaves the unit failing to start.
 #
 # PostgreSQL is published so reporting tools and the engineering tools that write the
 # bronze schemas can reach it directly. Unlike the admin panel and Grafana it does not

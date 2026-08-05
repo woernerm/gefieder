@@ -28,7 +28,11 @@ echo "pg_stat_statements.track = all" >> "$PGDATA/postgresql.conf"
 # The default stderr format is kept rather than jsonlog: journald records each entry with
 # its own reception timestamp, so a multi-line statement detail no longer leaves
 # untimestamped continuation lines on disk, which was the reason jsonlog was chosen.
-echo "log_line_prefix = '%m [%p] '" >> "$PGDATA/postgresql.conf"
+#
+# The prefix carries the backend pid but no "%m": journald stamps every entry already, and
+# unlike SQLMesh's, PostgreSQL's own stamp can be configured away. It costs the server's
+# millisecond emission time; journald records reception, the same moment for this log.
+echo "log_line_prefix = '[%p] '" >> "$PGDATA/postgresql.conf"
 
 # Reload PostgreSQL configuration to apply the new settings.
 pg_ctl reload -D "$PGDATA" || true  # || true ignores error if not running yet

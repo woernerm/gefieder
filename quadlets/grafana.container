@@ -1,7 +1,7 @@
 # The Grafana dashboards, with the database pre-configured as a read-only data source.
 # The provisioning is baked into the custom image install.sh loaded from the release.
 [Unit]
-Description=Grafana dashboards
+Description=${APP_NAME} Grafana dashboards
 After=postgresql.service
 
 [Container]
