@@ -12,11 +12,10 @@
 set -e
 
 # --- where the release lives ----------------------------------------------------------
-# REPO is the full URL of the repository the release lives in; it is baked in from
-# buildtime.env when the release is built, so this installer works against an enterprise
-# GitHub instance as well as github.com. There is no default: guessing a repository would
-# silently pull someone else's release. Set REPO (and optionally TAG for a pinned
-# version) when running the installer from a checkout, e.g.
+# REPO is the full URL of the repository the release lives in, baked in from buildtime.env
+# when the release is built, so this installer works against an enterprise GitHub instance
+# as well as github.com. There is no default: guessing would silently pull someone else's
+# release. Set REPO (and optionally TAG, to pin a version) when running from a checkout, e.g.
 #   REPO=https://github.example.com/myorg/myrepo TAG=v1.2.0 ./install.sh
 REPO="${REPO}"
 if [ -z "$REPO" ]; then
@@ -41,8 +40,8 @@ QUADLET_DIR="$HOME/.config/containers/systemd"
 # The image tarballs are downloaded here before being loaded, so this needs room for the
 # whole release. TEMPDIR is baked in from buildtime.env (like REPO above) because it is
 # needed before manifest.env is downloaded into it; empty means the system default. It
-# names the *parent*: the scratch directory below is still one we created ourselves, so
-# the trap only ever deletes our own files, never the operator's directory.
+# names the *parent*: the scratch directory below is one we created, so the trap only ever
+# deletes our own files, never the operator's directory.
 TEMPDIR="${TEMPDIR}"
 if [ -n "$TEMPDIR" ]; then
   mkdir -p "$TEMPDIR" || { echo "TEMPDIR '$TEMPDIR' is not usable." >&2; exit 1; }
@@ -200,8 +199,8 @@ Let rootless podman bind ports 80 and 443 (currently reserved below ${UNPRIV_STA
   echo "  ports 80 and 443 are reserved for root on this host" >&2
 fi
 
-# 2. A port already in use by another service would make the pod fail to start with a
-#    bind error, which is worth catching before that happens.
+# 2. A port already in use by another service makes the pod fail to start with a bind
+#    error, worth catching before that happens.
 for p in $PORTS; do
   if command -v ss >/dev/null 2>&1 && ss -ltn "sport = :$p" 2>/dev/null | grep -q ":$p"; then
     echo "  port ${p} is already in use by another service; free it or edit main.pod" >&2
@@ -389,10 +388,10 @@ fi
 
 # --- enable lingering so the pod runs without an active login ------------------------
 step "Enabling the system units"
-# Without lingering, systemd stops the user manager as soon as the last session of the user
-# ends, taking the whole stack down with it at logout. Check the result rather than the exit
+# Without lingering, systemd stops the user manager as soon as the user's last session ends,
+# taking the whole stack down with it at logout. Check the result rather than the exit
 # status: where polkit denies the request without a way to prompt, loginctl still reports
-# success but the setting does not stick, and the deployment would silently die at logout.
+# success while the setting does not stick, and the deployment would die silently.
 linger_enabled() { [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)" = "yes" ]; }
 if ! linger_enabled; then
   # Unprivileged first: on most hosts polkit lets a user linger themselves, so this is all
@@ -511,9 +510,9 @@ if systemctl --user restart main-pod.service 2>/dev/null; then
   #
   # This whole check is diagnostic: it must never end the install, which is finished by
   # now and still owes the operator its cheat sheet. Under `set -e` a bare
-  # `code="$(curl ...)"` would abort the script with curl's exit status, silently, before
-  # the cheat sheet is printed -- so curl runs as an `if` condition, which `set -e`
-  # exempts, and a non-zero exit is reported instead of being fatal.
+  # `code="$(curl ...)"` would abort silently on curl's exit status, before the cheat sheet
+  # is printed -- so curl runs as an `if` condition, which `set -e` exempts, and a non-zero
+  # exit is reported instead of being fatal.
   served=true
   # Never empty in practice (runtime.env ships SERVER_NAME=localhost), but an empty value
   # would make --resolve malformed and turn the check into a false alarm.

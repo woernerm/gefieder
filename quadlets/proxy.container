@@ -11,11 +11,11 @@ ContainerName=proxy
 Pod=main.pod
 Image=${REGISTRY}/proxy:${IMAGE_TAG}
 # An init at PID 1 forwards the stop signal to the whole process tree and reaps it; see
-# crudman.container. The proxy is stopped with SIGQUIT,
-# nginx's graceful shutdown (its SIGTERM is a fast one that drops open connections): the
-# nginx image already declares it as its StopSignal and podman takes it from there, so no
-# StopSignal= is set here -- that quadlet key only exists from podman 5.2 on and an older
-# podman skips the whole unit over it, leaving the stack running without a proxy.
+# crudman.container. The proxy is stopped with SIGQUIT, nginx's graceful shutdown (its
+# SIGTERM is a fast one that drops open connections): the nginx image already declares it
+# as its StopSignal and podman takes it from there, so no StopSignal= is set here -- that
+# quadlet key only exists from podman 5.2 on and an older podman skips the whole unit over
+# it, leaving the stack running without a proxy.
 RunInit=true
 # Run on the host's timezone rather than the image's UTC. nginx stamps its error_log
 # records in a format no directive overrides, and that stamp names no zone -- on UTC it

@@ -1,14 +1,14 @@
 #!/bin/sh
 # Build and run the whole stack locally with rootless podman, in development mode.
 #
-#   ./dev.sh            rebuild changed images and (re)start the stack
+#   ./dev.sh              rebuild changed images and (re)start the stack
 #   ./dev.sh down         stop and remove the pod (volumes and secrets are kept)
+#   ./dev.sh logs         follow the combined logs of all containers
+#   ./dev.sh serverstats  take one server-statistics sample now
 #
 # Run on a stack that is already up, `./dev.sh` refreshes it: podman's layer cache rebuilds
 # only the images whose inputs changed, then the pod is torn down and recreated from the
 # current images. Nothing to stop first; an unchanged run is quick.
-#   ./dev.sh logs         follow the combined logs of all containers
-#   ./dev.sh serverstats  take one server-statistics sample now
 #
 # `./dev.sh` also starts a background loop that samples server statistics every
 # SERVER_STATS_INTERVAL seconds, standing in for the systemd timer the deployment uses so
@@ -135,12 +135,10 @@ case "${1:-up}" in
 esac
 
 # --- build the images -----------------------------------------------------------------
-# Same Dockerfiles and build settings as build.sh, but built with podman so the images
-# land directly in the local rootless store the containers run from. podman's layer cache
-# makes re-runs cheap: a service whose Dockerfile and inputs are unchanged reuses its
-# cached layers, so a plain `./dev.sh` on a running stack is a quick refresh rather than a
-# full rebuild. Build output is quiet so a cached run does not look like real work; drop
-# the redirection on a line below to see a failing build's full log.
+# Same Dockerfiles and build settings as build.sh, but built with podman so the images land
+# directly in the local rootless store the containers run from. Build output is quiet so a
+# cached run does not look like real work; a failing build is re-run below with its log
+# shown.
 echo "Building images ..."
 
 # Render the Grafana provisioning templates the grafana Dockerfile COPYs in, exactly as
@@ -267,8 +265,7 @@ podman run -d --pod "$POD" --name flight --restart always \
   --secret django_secret_key --secret crudman_password \
   "${REGISTRY}/crudman:${IMAGE_TAG}" /crudman/entrypoint.sh flight >/dev/null
 
-# --tz=local matches the quadlet's Timezone=local: SQLMesh stamps its own log records, so
-# on the image's UTC they would read hours apart from journald's stamp next to them.
+# --tz=local as for crudman above: SQLMesh stamps its own log records too.
 podman run -d --pod "$POD" --name sqlmesh --restart always --tz=local \
   -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 -e POSTGRES_DB=postgres \
   -e SQLMESH_RUN_INTERVAL=10 \
@@ -288,8 +285,8 @@ podman run -d --pod "$POD" --name grafana --restart always \
   "${REGISTRY}/grafana:${IMAGE_TAG}" >/dev/null
 
 # DEBUG=true makes the proxy entrypoint pick the plain-HTTP template, so the certs mount
-# the quadlet uses is unnecessary and omitted here. --tz=local matches the quadlet:
-# nginx's error_log stamp names no zone, so on UTC it reads hours off journald's.
+# the quadlet uses is unnecessary and omitted here. --tz=local as for crudman above:
+# nginx's error_log stamp names no zone.
 podman run -d --pod "$POD" --name proxy --restart always --tz=local \
   -e DEBUG=true \
   -e "CRUDMAN_PATH=${CRUDMAN_PATH}" \

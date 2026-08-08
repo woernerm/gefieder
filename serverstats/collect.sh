@@ -205,25 +205,22 @@ if [ -n "$cur_size" ]; then
     if [ "$cur_size" -gt "$prev_size" ]; then
         # Pull the new bytes into a host temp file, then advance the cursor only over whole
         # lines: it must land on a newline, never mid-line. The proxy may still be writing
-        # the final line, and -- the bug this guards against -- advancing the cursor to a
-        # mid-line byte would feed a partial JSON fragment on every future tick, wedging the
-        # drain permanently (the cursor never moves past a line it cannot parse). So compute
-        # the byte length of the complete-line prefix (through the last newline) and consume
-        # exactly that; any trailing partial line is left for the next tick.
+        # the final line, and -- the bug this guards against -- a cursor left on a mid-line
+        # byte would feed a partial JSON fragment on every future tick, wedging the drain
+        # permanently (it never moves past a line it cannot parse). So consume exactly the
+        # complete-line prefix, through the last newline, and leave any trailing partial
+        # line for the next tick.
         NEW_BYTES="$(mktemp)"
         podman exec "$VISIT_CONTAINER" sh -c "tail -c +$((prev_size + 1)) '$VISIT_LOG'" > "$NEW_BYTES" 2>/dev/null || true
-        # Everything is measured in bytes (LC_ALL=C) so a multibyte UTF-8 user-agent cannot
-        # skew the offset. If the data ends on a newline it is all complete lines; otherwise
-        # subtract the trailing partial line's bytes. No newline at all leaves consumed at 0.
+        # Measured in bytes (LC_ALL=C) so a multibyte UTF-8 user-agent cannot skew the offset.
         total_new="$(LC_ALL=C wc -c < "$NEW_BYTES" | tr -d ' ')"
         if [ "$(tail -c1 "$NEW_BYTES" | od -An -tx1 | tr -d ' \n')" = "0a" ]; then
             # Ends on a newline: every byte is part of a complete line.
             consumed="$total_new"
         else
-            # Ends mid-line: drop the trailing partial line. Isolate it (all bytes after the
-            # last newline) by deleting every line but the last with sed, count its bytes,
-            # and subtract. If there is no newline at all the whole thing is the partial line,
-            # so consumed is 0 and we wait for the line to finish next tick.
+            # Ends mid-line: subtract the trailing partial line, isolated with sed as
+            # everything after the last newline. With no newline at all that is the whole
+            # buffer, so consumed stays 0 and the line is picked up once it is finished.
             partial="$(sed '$!d' "$NEW_BYTES" | LC_ALL=C wc -c | tr -d ' ')"
             consumed=$(( total_new - partial ))
         fi
@@ -233,8 +230,7 @@ if [ -n "$cur_size" ]; then
             # data follows the \copy in the same stream, terminated by \.), then transform
             # them. md5() turns the raw session cookie into a stable, non-reversible hash so
             # a person is never identifiable; the dashboard uid is parsed from /d/<uid>/<slug>.
-            # A malformed line cannot abort the drain: rows are filtered to valid JSON first
-            # (pg_input_is_valid, which tests without raising), so a bad line is skipped.
+            # A malformed line cannot abort the drain -- see the JSON filter below.
             VISIT_SQL="$(mktemp)"
             {
                 printf 'CREATE TEMP TABLE _visit_raw (line text);\n'
