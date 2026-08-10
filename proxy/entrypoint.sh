@@ -35,10 +35,16 @@ reorder_fullchain() {
   # One file per certificate in the bundle, numbered in the order they appear, held in
   # the positional parameters throughout this function ("$original" is a snapshot for
   # the before/after comparison at the end).
+  #
+  # "file" is cleared at END CERTIFICATE, not merely closed: awk truncates a file when a
+  # "print >" reopens it after a close(), so leaving the name set would empty the finished
+  # certificate again on the very next line. Anything between two certificates -- the
+  # blank lines and subject=/issuer= headers that "openssl pkcs7 -print_certs" writes when
+  # a p7b is converted -- is skipped for the same reason.
   awk -v dir="$split_dir" '
     /-----BEGIN CERTIFICATE-----/ { n++; file = sprintf("%s/%04d.pem", dir, n) }
     file { print > file }
-    /-----END CERTIFICATE-----/ { close(file) }
+    /-----END CERTIFICATE-----/ { close(file); file = "" }
   ' "$certs_dir/fullchain.pem"
   set -- "$split_dir"/*.pem
   [ -e "$1" ] || set --

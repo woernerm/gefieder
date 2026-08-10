@@ -360,6 +360,53 @@ class TestCertificateWiring:
         )
 
 
+# What the probes below ask the running proxy. openssl runs inside the container itself --
+# the image ships one for the entrypoint's own use -- against nginx's loopback, so no client
+# tooling on the test host is required.
+PROBE_SUBJECT = ("echo | openssl s_client -connect 127.0.0.1:443 2>/dev/null "
+                 "| openssl x509 -noout -subject 2>/dev/null")
+PROBE_CHAIN = "echo | openssl s_client -showcerts -connect 127.0.0.1:443 2>/dev/null"
+
+
+def _serve_certs(certs, probe):
+    """Start the proxy image against `certs` and run `probe` inside it once TLS answers.
+
+    Returns (the probe's stdout stripped, or None if it never answered; the container's
+    stderr log). Polls because nginx needs a moment to bind, and a certificate the proxy
+    refuses leaves it never answering at all -- which is the None the callers assert on.
+    """
+    name = f"certorder-{uuid.uuid4().hex[:12]}"
+    subprocess.run(
+        ["podman", "run", "-d", "--rm", "--name", name, "--network", "none",
+         NO_PROXY_ENV, "-e", "DEBUG=false", "-v", f"{certs}:{CERT_MOUNT}:ro,z",
+         _proxy_image()],
+        capture_output=True, text=True, check=True,
+    )
+    try:
+        answer = None
+        for _ in range(40):
+            result = subprocess.run(
+                ["podman", "exec", name, "sh", "-c", probe],
+                capture_output=True, text=True,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                answer = result.stdout.strip()
+                break
+            time.sleep(0.25)
+        logs = subprocess.run(
+            ["podman", "logs", name], capture_output=True, text=True
+        ).stderr
+        return answer, logs
+    finally:
+        subprocess.run(["podman", "rm", "-f", "-i", name],
+                       capture_output=True, timeout=60)
+
+
+def _leaf_subject_served(certs):
+    """The subject of the certificate the proxy presents, and its log."""
+    return _serve_certs(certs, PROBE_SUBJECT)
+
+
 class TestCertificateOrder:
     """fullchain.pem loads regardless of which order it lists its certificates in.
 
@@ -411,51 +458,16 @@ class TestCertificateOrder:
             "reversed": certs_dir("reversed", [root_text, leaf_text]),
         }
 
-    def _leaf_subject_served(self, certs):
-        """Start the proxy image against `certs` and read back the certificate nginx serves.
-
-        Runs openssl inside the container itself -- the image now ships one for the
-        entrypoint's own use -- against nginx's loopback, so no client tooling on the
-        test host is required. Returns (subject or None, the container's stderr log).
-        """
-        name = f"certorder-{uuid.uuid4().hex[:12]}"
-        subprocess.run(
-            ["podman", "run", "-d", "--rm", "--name", name, "--network", "none",
-             NO_PROXY_ENV, "-e", "DEBUG=false", "-v", f"{certs}:{CERT_MOUNT}:ro,z",
-             _proxy_image()],
-            capture_output=True, text=True, check=True,
-        )
-        try:
-            subject = None
-            for _ in range(40):
-                probe = subprocess.run(
-                    ["podman", "exec", name, "sh", "-c",
-                     "echo | openssl s_client -connect 127.0.0.1:443 2>/dev/null "
-                     "| openssl x509 -noout -subject 2>/dev/null"],
-                    capture_output=True, text=True,
-                )
-                if probe.returncode == 0 and probe.stdout.strip():
-                    subject = probe.stdout.strip()
-                    break
-                time.sleep(0.25)
-            logs = subprocess.run(
-                ["podman", "logs", name], capture_output=True, text=True
-            ).stderr
-            return subject, logs
-        finally:
-            subprocess.run(["podman", "rm", "-f", "-i", name],
-                           capture_output=True, timeout=60)
-
     @pytest.mark.parametrize("order", ["correct", "reversed"])
     def test_the_leaf_shall_be_served_regardless_of_file_order(self, order, chain):
-        subject, logs = self._leaf_subject_served(chain[order])
+        subject, logs = _leaf_subject_served(chain[order])
         assert subject == "subject=CN=localhost", (
             f"nginx did not serve the leaf certificate for the {order} ordering:\n{logs}"
         )
 
     def test_reordering_shall_only_be_logged_when_the_order_was_wrong(self, chain):
-        _, correct_logs = self._leaf_subject_served(chain["correct"])
-        _, reversed_logs = self._leaf_subject_served(chain["reversed"])
+        _, correct_logs = _leaf_subject_served(chain["correct"])
+        _, reversed_logs = _leaf_subject_served(chain["reversed"])
         assert "reorder" not in correct_logs.lower(), (
             f"a correctly-ordered fullchain.pem logged a reordering message:\n{correct_logs}"
         )
@@ -466,11 +478,143 @@ class TestCertificateOrder:
     def test_the_hosts_own_file_shall_not_be_modified(self, chain):
         certs = chain["reversed"]
         before = (certs / "fullchain.pem").read_bytes()
-        self._leaf_subject_served(certs)
+        _leaf_subject_served(certs)
         after = (certs / "fullchain.pem").read_bytes()
         assert before == after, (
             "the entrypoint modified the operator's fullchain.pem; it must only ever "
             "write its reordered copy to certs-effective/"
+        )
+
+
+class TestConvertedBundles:
+    """A fullchain.pem produced by converting a bundle the CA handed out is usable.
+
+    This is how the misordered files that TestCertificateOrder covers actually arise, and
+    the conversions do not emit a bare concatenation of certificates: both
+    `openssl pkcs7 -print_certs` (from a .p7b) and `openssl pkcs12 -nokeys` (from a
+    .pfx/.p12) interleave `subject=`/`issuer=` headers, `Bag Attributes` blocks and blank
+    lines between the PEM blocks.
+
+    Those interstitial lines are what a splitter gets wrong: awk truncates a file when a
+    `print >` reopens it after close(), so a splitter that keeps writing after
+    END CERTIFICATE empties the certificate it just finished. Every certificate in the
+    bundle is then unparseable, no leaf matches the key, and the entrypoint falls back to
+    passing the file through untouched -- the reordering silently does nothing on exactly
+    the input it exists for. A bundle of plain concatenated certificates has no such lines
+    and would never show it, hence this class.
+    """
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def bundles(cls, tmp_path_factory):
+        """Root-first fullchain.pem files converted from a real .p7b and a real .p12.
+
+        A three-level hierarchy (root CA -> intermediate CA -> leaf), bundled root-first
+        because that is the ordering that makes nginx refuse to start, then converted with
+        the two commands an operator would actually run.
+        """
+        path = tmp_path_factory.mktemp("converted")
+
+        def run(*argv):
+            subprocess.run([str(a) for a in argv], capture_output=True, check=True)
+
+        root_key, root_pem = path / "root.key", path / "root.pem"
+        inter_key, inter_csr, inter_pem = (
+            path / "inter.key", path / "inter.csr", path / "inter.pem")
+        leaf_key, leaf_csr, leaf_pem = (
+            path / "leaf.key", path / "leaf.csr", path / "leaf.pem")
+
+        run("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+            "-subj", "/CN=Test Root CA", "-keyout", root_key, "-out", root_pem)
+        # The intermediate needs CA:TRUE, or openssl will not treat it as an issuer.
+        ext = path / "ca.ext"
+        ext.write_text("basicConstraints=critical,CA:TRUE\n"
+                       "keyUsage=critical,keyCertSign,cRLSign\n")
+        run("openssl", "req", "-newkey", "rsa:2048", "-nodes",
+            "-subj", "/CN=Test Intermediate CA", "-keyout", inter_key, "-out", inter_csr)
+        run("openssl", "x509", "-req", "-in", inter_csr, "-CA", root_pem,
+            "-CAkey", root_key, "-CAcreateserial", "-days", "1",
+            "-extfile", ext, "-out", inter_pem)
+        run("openssl", "req", "-newkey", "rsa:2048", "-nodes",
+            "-subj", "/CN=localhost", "-keyout", leaf_key, "-out", leaf_csr)
+        run("openssl", "x509", "-req", "-in", leaf_csr, "-CA", inter_pem,
+            "-CAkey", inter_key, "-CAcreateserial", "-days", "1", "-out", leaf_pem)
+
+        def root_first(text):
+            """Put the certificates of an annotated bundle in root-first order.
+
+            Each chunk keeps the headers that precede its own PEM block, so the result
+            still looks like what the conversion emits. Both bundles are stored this way
+            because leaf-first is the one ordering under which a splitter that loses the
+            certificates still works by accident: the entrypoint passes the file through
+            untouched, and an already-correct file needs no reordering.
+            """
+            end = "-----END CERTIFICATE-----\n"
+            chunks = [c + end for c in text.split(end) if "BEGIN CERTIFICATE" in c]
+            return "".join(reversed(chunks))
+
+        made = {}
+
+        # A .p7b converted with `openssl pkcs7 -print_certs`. crl2pkcs7 keeps the order it
+        # is given, so this one comes out root-first already.
+        p7b, p7b_pem = path / "chain.p7b", path / "p7b.pem"
+        run("openssl", "crl2pkcs7", "-nocrl", "-certfile", root_pem,
+            "-certfile", inter_pem, "-certfile", leaf_pem, "-out", p7b)
+        run("openssl", "pkcs7", "-in", p7b, "-print_certs", "-out", p7b_pem)
+        made["pkcs7"] = p7b_pem.read_text()
+
+        # A .p12/.pfx converted with `openssl pkcs12 -nokeys`, which adds Bag Attributes
+        # blocks. The export always puts the key's own certificate first, so it is flipped.
+        p12, p12_pem = path / "chain.p12", path / "p12.pem"
+        ca_chain = path / "ca_chain.pem"
+        ca_chain.write_text(inter_pem.read_text() + root_pem.read_text())
+        run("openssl", "pkcs12", "-export", "-inkey", leaf_key, "-in", leaf_pem,
+            "-certfile", ca_chain, "-passout", "pass:", "-out", p12)
+        run("openssl", "pkcs12", "-in", p12, "-nokeys", "-passin", "pass:", "-out", p12_pem)
+        made["pkcs12"] = root_first(p12_pem.read_text())
+
+        result = {}
+        for name, text in made.items():
+            d = path / name
+            d.mkdir()
+            (d / "fullchain.pem").write_text(text)
+            (d / "privkey.pem").write_text(leaf_key.read_text())
+            result[name] = d
+        return result
+
+    @pytest.mark.parametrize("fmt", ["pkcs7", "pkcs12"])
+    def test_the_converted_bundle_shall_carry_annotations_between_certificates(
+        self, fmt, bundles
+    ):
+        # Guards the fixture itself: were a future openssl to emit a bare concatenation,
+        # the two checks below would still pass while testing nothing of the kind.
+        text = (bundles[fmt] / "fullchain.pem").read_text()
+        body = text.split("-----END CERTIFICATE-----", 1)[1]
+        between = body.split("-----BEGIN CERTIFICATE-----", 1)[0]
+        assert between.strip() or "\n\n" in body, (
+            f"the {fmt} bundle holds nothing between its certificates, so it cannot show "
+            "the splitter mishandling those lines"
+        )
+
+    @pytest.mark.parametrize("fmt", ["pkcs7", "pkcs12"])
+    def test_the_leaf_shall_be_served_from_a_converted_bundle(self, fmt, bundles):
+        subject, logs = _leaf_subject_served(bundles[fmt])
+        assert subject == "subject=CN=localhost", (
+            f"the proxy did not serve the leaf from a {fmt}-converted bundle. A splitter "
+            f"that loses the certificates leaves the file passed through unreordered, so "
+            f"nginx never starts:\n{logs}"
+        )
+
+    @pytest.mark.parametrize("fmt", ["pkcs7", "pkcs12"])
+    def test_the_whole_chain_shall_be_served_from_a_converted_bundle(self, fmt, bundles):
+        # Every certificate has to survive the split, not just the leaf: a chain that lost
+        # its intermediate still starts nginx, and only clients that lack the intermediate
+        # fail -- exactly the breakage that is hardest to notice from the server.
+        chain, logs = _serve_certs(bundles[fmt], PROBE_CHAIN)
+        assert chain is not None, f"the proxy served no chain at all:\n{logs}"
+        assert chain.count("BEGIN CERTIFICATE") == 3, (
+            f"the {fmt}-converted bundle held 3 certificates but the proxy served "
+            f"{chain.count('BEGIN CERTIFICATE')}; the splitter dropped or corrupted one"
         )
 
 
