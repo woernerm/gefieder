@@ -53,12 +53,20 @@ jobs:
           echo "TAG=${PREFIX}.$(( ${LAST:-0} + 1 ))" >> "$GITHUB_ENV"
 
       # Load the build-time settings so the build args and the rendered quadlets use the
-      # same values. Only KEY=value lines go into $GITHUB_ENV; comments and blank lines in
-      # buildtime.env would otherwise be rejected as invalid env entries. envsubst
-      # (gettext) renders the quadlet templates below.
+      # same values. buildtime.env is sourced rather than grepped straight into
+      # $GITHUB_ENV: CERTIFICATE_PATH references ${APP_NAME} in shell syntax, and only a
+      # shell resolves that against the APP_NAME set earlier in the same file. Only the
+      # KEY=value names are then forwarded, each with its resolved value; comments and
+      # blank lines never reach $GITHUB_ENV. envsubst (gettext) renders the quadlet
+      # templates below.
       - name: Load buildtime.env
         run: |
-          grep -E '^[A-Z_][A-Z0-9_]*=' buildtime.env >> "$GITHUB_ENV"
+          set -a
+          source buildtime.env
+          set +a
+          for var in $(grep -oE '^[A-Z_][A-Z0-9_]*=' buildtime.env | cut -d= -f1); do
+            echo "${var}=${!var}" >> "$GITHUB_ENV"
+          done
           sudo apt-get update && sudo apt-get install -y gettext-base
 
       # The same script used for local builds, so CI and a developer build identically.
