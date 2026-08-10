@@ -3,6 +3,17 @@
 ARG DOCKER_IO_MIRROR=docker.io
 FROM ${DOCKER_IO_MIRROR}/library/nginx:alpine
 
+# Company proxy for the package install below, passed as --build-arg by CI so the build
+# works from behind a corporate proxy. apk reads it from the environment on its own.
+ARG http_proxy
+ARG https_proxy
+ARG no_proxy
+
+# The nginx image ships no openssl binary. The entrypoint needs one to put the operator's
+# fullchain.pem into the order nginx requires (leaf certificate first) regardless of how
+# it was assembled, e.g. from a converted p7b file that lists the root CA first.
+RUN apk add --no-cache openssl
+
 # Bake the proxy configuration (the two templates and the entrypoint) into the image so
 # the server needs no checkout to run it. The certificate is the only piece that stays
 # host-local: it is a per-host secret and is bind-mounted at /etc/nginx/proxy/certs.

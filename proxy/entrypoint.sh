@@ -18,6 +18,84 @@ mkdir -p "$LOG_DIR"
 export CRUDMAN_PATH="${CRUDMAN_PATH:-crudman}"
 export GRAFANA_PATH="${GRAFANA_PATH:-grafana}"
 
+# nginx takes the first certificate in fullchain.pem as the server certificate and checks
+# it against privkey.pem; the rest it forwards to clients as the trust chain. A file
+# assembled by hand -- e.g. converted from a p7b a CA handed out, which some tools emit
+# root-first -- may not have the leaf in that position, and nginx then refuses to start
+# with "key values mismatch" rather than a message naming the file. This puts the leaf
+# first regardless of the order the operator's file has them in, so that order stops
+# mattering. It writes the result to certs-effective/ instead of editing the operator's
+# file, which CERTIFICATE_PATH bind-mounts read-only anyway (see https.conf.template).
+reorder_fullchain() {
+  certs_dir=/etc/nginx/proxy/certs
+  out_dir=/etc/nginx/proxy/certs-effective
+  mkdir -p "$out_dir"
+  split_dir="$(mktemp -d)"
+
+  # One file per certificate in the bundle, numbered in the order they appear, held in
+  # the positional parameters throughout this function ("$original" is a snapshot for
+  # the before/after comparison at the end).
+  awk -v dir="$split_dir" '
+    /-----BEGIN CERTIFICATE-----/ { n++; file = sprintf("%s/%04d.pem", dir, n) }
+    file { print > file }
+    /-----END CERTIFICATE-----/ { close(file) }
+  ' "$certs_dir/fullchain.pem"
+  set -- "$split_dir"/*.pem
+  [ -e "$1" ] || set --
+  original="$*"
+
+  # The certificate whose public key matches the private key is the leaf, wherever it
+  # sits in the file: nginx pairs privkey.pem against the certificate in front, not
+  # against any particular position.
+  key_pubkey="$(openssl pkey -in "$certs_dir/privkey.pem" -pubout 2>/dev/null | openssl dgst -sha256)"
+  leaf=""
+  for f in "$@"; do
+    if [ -z "$leaf" ] && [ "$(openssl x509 -in "$f" -noout -pubkey 2>/dev/null | openssl dgst -sha256)" = "$key_pubkey" ]; then
+      leaf="$f"
+    fi
+  done
+  if [ -z "$leaf" ]; then
+    # Either the bundle held no certificate, or none of them match the key: leave the
+    # order as found and let nginx report the problem itself, exactly as it did before
+    # this function existed.
+    [ -z "$original" ] && echo "TLS certificate: fullchain.pem contains no certificate" >&2
+    cp "$certs_dir/fullchain.pem" "$out_dir/fullchain.pem"
+    rm -rf "$split_dir"
+    return
+  fi
+
+  # Walk from the leaf up the chain, each next certificate being the one whose subject
+  # is the current one's issuer, until a self-signed root is reached or the issuer is
+  # not among the remaining certificates. This orders the chain correctly no matter how
+  # the operator's file had it, including a shuffled set of intermediates. Anything left
+  # over (unrelated or duplicate certificates) is appended unchanged at the end.
+  ordered="$leaf"
+  set -- $(printf '%s\n' "$@" | grep -vxF "$leaf")
+  current="$leaf"
+  while [ "$#" -gt 0 ]; do
+    issuer="$(openssl x509 -in "$current" -noout -issuer)"
+    [ "$issuer" = "$(openssl x509 -in "$current" -noout -subject)" ] && break
+    next=""
+    for f in "$@"; do
+      if [ -z "$next" ] && [ "$(openssl x509 -in "$f" -noout -subject)" = "$issuer" ]; then
+        next="$f"
+      fi
+    done
+    [ -z "$next" ] && break
+    ordered="$ordered $next"
+    set -- $(printf '%s\n' "$@" | grep -vxF "$next")
+    current="$next"
+  done
+  [ "$#" -gt 0 ] && ordered="$ordered $*"
+
+  cat $ordered > "$out_dir/fullchain.pem"
+  if [ "$ordered" != "$original" ]; then
+    echo "TLS certificate: fullchain.pem was not in leaf-first order; reordered it" >&2
+    echo "  for nginx (the file on disk was left untouched)." >&2
+  fi
+  rm -rf "$split_dir"
+}
+
 # Select the proxy configuration: plain HTTP for development (DEBUG=true), HTTPS with
 # an HTTP-to-HTTPS redirect for production. The certificate files are bind-mounted from
 # CERTIFICATE_PATH on the host, see the README.
@@ -45,6 +123,7 @@ else
       exit 1
     fi
   done
+  reorder_fullchain
 fi
 
 # Render the chosen template, substituting only our own variables so that nginx's

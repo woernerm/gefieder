@@ -75,7 +75,12 @@ server {
     # in the README -- would send the browser to a port where nothing listens.
     absolute_redirect off;
 
-    ssl_certificate /etc/nginx/proxy/certs/fullchain.pem;
+    # fullchain.pem is read from certs-effective, not from the host-mounted certs/
+    # directory: the entrypoint writes a copy there with the leaf certificate first,
+    # which nginx requires and the operator's file is not guaranteed to have. See
+    # reorder_fullchain() in entrypoint.sh. The key is never reordered, so it is read
+    # from the mount directly.
+    ssl_certificate /etc/nginx/proxy/certs-effective/fullchain.pem;
     ssl_certificate_key /etc/nginx/proxy/certs/privkey.pem;
 
     # Security headers for all responses (including errors, hence "always"). HSTS tells

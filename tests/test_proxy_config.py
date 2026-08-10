@@ -17,6 +17,7 @@ is down: production serves HTTPS and nothing generates a certificate for the ope
 a missing one has to be reported by the proxy itself rather than left in the log.
 """
 import subprocess
+import time
 import uuid
 
 import pytest
@@ -133,18 +134,35 @@ def _run_proxy(script, debug, fixtures):
     output both.
 
     The stub config and the certificate are written on the host and bind-mounted, rather
-    than heredoc'd into the shell script: the nginx image ships no openssl, and keeping
-    the generated files out of the script keeps the quoting to one level.
+    than heredoc'd into the shell script, to keep the generated files out of the script
+    and the quoting to one level.
+
+    Production's ssl_certificate is read from certs-effective/, which only the
+    entrypoint's reorder_fullchain() populates (see entrypoint.sh) -- so this pulls that
+    one function out of the real script and calls it here too, the same way the
+    certificate-order checks in TestCertificateOrder exercise it via the entrypoint
+    directly. Without this, every production-mode config here would fail to load with
+    "no such file", regardless of what is under test.
     """
     template = "http" if debug == "true" else "https"
-    setup = "; ".join([
+    setup_steps = [
         "set -e",
         "mkdir -p /var/log/app /etc/nginx/conf.d",
         "cp /fixtures/upstreams.conf /etc/nginx/conf.d/upstreams.conf",
         f"export CRUDMAN_PATH={CRUDMAN_PATH} GRAFANA_PATH={GRAFANA_PATH} DEBUG={debug}",
+    ]
+    if debug != "true":
+        setup_steps += [
+            "sed -n '/^reorder_fullchain() {/,/^}/p' /etc/nginx/proxy/entrypoint.sh"
+            " > /tmp/reorder_fullchain.sh",
+            ". /tmp/reorder_fullchain.sh",
+            "reorder_fullchain",
+        ]
+    setup_steps.append(
         "envsubst '${CRUDMAN_PATH} ${GRAFANA_PATH}'"
-        f" < /etc/nginx/proxy/{template}.conf.template > /etc/nginx/conf.d/default.conf",
-    ])
+        f" < /etc/nginx/proxy/{template}.conf.template > /etc/nginx/conf.d/default.conf"
+    )
+    setup = "; ".join(setup_steps)
     return subprocess.run(
         ["podman", "run", "--rm", NO_PROXY_ENV,
          "-v", f"{fixtures}:/fixtures:ro,z",
@@ -339,6 +357,120 @@ class TestCertificateWiring:
         assert hint == mounts[CERT_MOUNT]["Source"], (
             "CERTIFICATE_HINT names a different directory than the one mounted; the "
             "refusal message would send the operator to the wrong place."
+        )
+
+
+class TestCertificateOrder:
+    """fullchain.pem loads regardless of which order it lists its certificates in.
+
+    nginx pairs privkey.pem with whichever certificate comes first in fullchain.pem and
+    aborts at startup ("key values mismatch") if that is not the leaf. A file converted
+    from a p7b a CA handed out can list the root CA first, which an operator would have
+    no reason to expect nginx to care about. The entrypoint reorders the chain itself
+    (see reorder_fullchain() in entrypoint.sh); these checks build a leaf certificate
+    signed by a throwaway root CA in both orders and confirm both start nginx and serve
+    the leaf, that only the misordered file is reported, and that the operator's own
+    file on the host is never touched.
+    """
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def chain(cls, tmp_path_factory):
+        """A leaf certificate signed by a throwaway root CA, laid out in both orders."""
+        path = tmp_path_factory.mktemp("cert_order")
+        root_key, root_pem = path / "root.key", path / "root.pem"
+        leaf_key, leaf_csr, leaf_pem = path / "leaf.key", path / "leaf.csr", path / "leaf.pem"
+        subprocess.run(
+            ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+             "-subj", "/CN=Test Root CA", "-keyout", str(root_key), "-out", str(root_pem)],
+            capture_output=True, check=True,
+        )
+        subprocess.run(
+            ["openssl", "req", "-newkey", "rsa:2048", "-nodes",
+             "-subj", "/CN=localhost", "-keyout", str(leaf_key), "-out", str(leaf_csr)],
+            capture_output=True, check=True,
+        )
+        subprocess.run(
+            ["openssl", "x509", "-req", "-in", str(leaf_csr), "-CA", str(root_pem),
+             "-CAkey", str(root_key), "-CAcreateserial", "-days", "1", "-out", str(leaf_pem)],
+            capture_output=True, check=True,
+        )
+        leaf_text, root_text = leaf_pem.read_text(), root_pem.read_text()
+
+        def certs_dir(name, order):
+            d = path / name
+            d.mkdir()
+            (d / "fullchain.pem").write_text("".join(order))
+            (d / "privkey.pem").write_text(leaf_key.read_text())
+            return d
+
+        # "correct" is what nginx wants unaided; "reversed" is what a root-first p7b
+        # conversion produces, and the case the reordering exists to fix.
+        return {
+            "correct": certs_dir("correct", [leaf_text, root_text]),
+            "reversed": certs_dir("reversed", [root_text, leaf_text]),
+        }
+
+    def _leaf_subject_served(self, certs):
+        """Start the proxy image against `certs` and read back the certificate nginx serves.
+
+        Runs openssl inside the container itself -- the image now ships one for the
+        entrypoint's own use -- against nginx's loopback, so no client tooling on the
+        test host is required. Returns (subject or None, the container's stderr log).
+        """
+        name = f"certorder-{uuid.uuid4().hex[:12]}"
+        subprocess.run(
+            ["podman", "run", "-d", "--rm", "--name", name, "--network", "none",
+             NO_PROXY_ENV, "-e", "DEBUG=false", "-v", f"{certs}:{CERT_MOUNT}:ro,z",
+             _proxy_image()],
+            capture_output=True, text=True, check=True,
+        )
+        try:
+            subject = None
+            for _ in range(40):
+                probe = subprocess.run(
+                    ["podman", "exec", name, "sh", "-c",
+                     "echo | openssl s_client -connect 127.0.0.1:443 2>/dev/null "
+                     "| openssl x509 -noout -subject 2>/dev/null"],
+                    capture_output=True, text=True,
+                )
+                if probe.returncode == 0 and probe.stdout.strip():
+                    subject = probe.stdout.strip()
+                    break
+                time.sleep(0.25)
+            logs = subprocess.run(
+                ["podman", "logs", name], capture_output=True, text=True
+            ).stderr
+            return subject, logs
+        finally:
+            subprocess.run(["podman", "rm", "-f", "-i", name],
+                           capture_output=True, timeout=60)
+
+    @pytest.mark.parametrize("order", ["correct", "reversed"])
+    def test_the_leaf_shall_be_served_regardless_of_file_order(self, order, chain):
+        subject, logs = self._leaf_subject_served(chain[order])
+        assert subject == "subject=CN=localhost", (
+            f"nginx did not serve the leaf certificate for the {order} ordering:\n{logs}"
+        )
+
+    def test_reordering_shall_only_be_logged_when_the_order_was_wrong(self, chain):
+        _, correct_logs = self._leaf_subject_served(chain["correct"])
+        _, reversed_logs = self._leaf_subject_served(chain["reversed"])
+        assert "reorder" not in correct_logs.lower(), (
+            f"a correctly-ordered fullchain.pem logged a reordering message:\n{correct_logs}"
+        )
+        assert "reorder" in reversed_logs.lower(), (
+            f"a root-first fullchain.pem was not reported as reordered:\n{reversed_logs}"
+        )
+
+    def test_the_hosts_own_file_shall_not_be_modified(self, chain):
+        certs = chain["reversed"]
+        before = (certs / "fullchain.pem").read_bytes()
+        self._leaf_subject_served(certs)
+        after = (certs / "fullchain.pem").read_bytes()
+        assert before == after, (
+            "the entrypoint modified the operator's fullchain.pem; it must only ever "
+            "write its reordered copy to certs-effective/"
         )
 
 
