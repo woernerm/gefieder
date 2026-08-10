@@ -120,11 +120,13 @@ PG_PORT=15432
 SFTP_PORT=12222
 FLIGHT_PORT=18815
 
-# The production profile writes its throwaway certificate into the directory the proxy
-# quadlet mounts, before any container exists to resolve the path. CERTIFICATE_PATH is
-# written for systemd, so "%h" is spelled as $HOME here; a path the default does not use
-# would need its own translation, which is fine for a test script but is the reason the
-# installer never does this.
+# Test runs use their own certificate directory rather than the configured CERTIFICATE_PATH:
+# that value may be tailored to the target server's PKI (e.g. /etc/pki/gefieder) and neither
+# exist nor be writable by whoever runs the suite on a dev machine. Overriding it here decouples
+# the suite from it entirely; the envsubst rendering below picks up this value too, so the
+# quadlet mounts exactly the directory created here. Written for systemd, so "%h" is spelled
+# as $HOME below to resolve it host-side, before any container exists to do so itself.
+CERTIFICATE_PATH="%h/.config/${APP_NAME}-test/certs"
 CERT_DIR="$(printf '%s' "${CERTIFICATE_PATH}" | sed "s|^%h|${HOME}|")"
 mkdir -p "$CERT_DIR"
 
@@ -296,7 +298,7 @@ cleanup() {
   # pause between the test result and the prompt returning.
   echo "Tearing down the test stack ..."
   remove_deployment
-  rm -f "$CERT_DIR/fullchain.pem" "$CERT_DIR/privkey.pem"
+  rm -rf "$CERT_DIR"
   # The unit tests' mounted password file, in case they failed before removing it.
   # Unset until they run, so guard against rm -rf on an empty path.
   if [ -n "$UNIT_SECRET_DIR" ]; then rm -rf "$UNIT_SECRET_DIR"; fi
