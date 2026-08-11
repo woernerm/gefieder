@@ -73,7 +73,12 @@ class TestSecretsNotInQuadlets:
         for name, value in _leakable(SECRET_VALUES).items():
             assert value not in blob, f"{name} value is present in a rendered quadlet"
 
-    @pytest.mark.parametrize("name", list(SECRET_VALUES) + ["django_secret_key"])
+    # oidc_client_secret carries no value worth scanning for -- the installer fills it with
+    # a placeholder until an operator sets the real one -- but it must exist all the same,
+    # because the containers referencing it will not start otherwise.
+    @pytest.mark.parametrize(
+        "name", list(SECRET_VALUES) + ["django_secret_key", "oidc_client_secret"]
+    )
     def test_secrets_shall_exist_as_podman_secrets(self, name):
         # The credentials are managed as podman secrets, not inline config.
         names = podman("secret", "ls", "--format", "{{.Name}}").split()

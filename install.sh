@@ -352,6 +352,12 @@ create_secret crudman_password  "$(openssl rand -hex 32)"
 create_secret sqlmesh_password  "$(openssl rand -hex 32)"
 create_secret grafana_password  "$(openssl rand -hex 32)"
 
+# The one credential this script cannot produce: the identity provider issues it, and at
+# first install there usually is no provider yet. Created anyway, because a quadlet whose
+# Secret= names a missing secret refuses to start the container; the operator replaces the
+# placeholder with the cheat sheet command. A marker rather than "", which podman rejects.
+create_secret oidc_client_secret "unconfigured"
+
 if ! podman secret exists superuser_password 2>/dev/null; then
   if ! SU_PW="$(read_superuser_password)"; then
     echo "The superuser password was not created because it could not be read." >&2
@@ -601,9 +607,14 @@ Volume paths (cd into them to inspect data):
 The postgresql and grafana volumes are written by a user inside the container, so
 reading their contents from the host needs: podman unshare ls <path>
 
-Edit the runtime configuration (SERVER_NAME, DEBUG). The services read it when they
-start, so restart them to pick a change up:
+Edit the runtime configuration (SERVER_NAME, DEBUG, single sign-on). The services read it
+when they start, so restart them to pick a change up:
   ${EDITOR_CMD} \$HOME/.config/${APP_NAME}/runtime.env
+  systemctl --user restart main-pod.service
+
+Set the single sign-on client secret (the identity provider issues it). Repeat this when
+it expires -- an expired secret fails every sign-in at once:
+  printf '%s' '<secret>' | podman secret create --replace oidc_client_secret -
   systemctl --user restart main-pod.service
 
 Uninstall the system (asks before deleting the data volumes and secrets):

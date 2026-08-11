@@ -184,6 +184,9 @@ create_secret django_secret_key "$(openssl rand -hex 32)"
 create_secret crudman_password  "$(openssl rand -hex 32)"
 create_secret sqlmesh_password  "$(openssl rand -hex 32)"
 create_secret grafana_password  "$(openssl rand -hex 32)"
+# A placeholder for single sign-on, which a development system leaves off. It still has to
+# exist: the crudman and grafana quadlets name it in a Secret=.
+create_secret oidc_client_secret "unconfigured"
 
 # The superuser login is a fixed, well-known value (SUPERUSER_DEFAULT_PASSWORD from
 # buildtime.env) so the stack comes up unattended and the printed credentials are always

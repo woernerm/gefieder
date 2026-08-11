@@ -40,9 +40,16 @@ Volume=uploads_data.volume:/var/lib/app/uploads:z
 Secret=django_secret_key
 Secret=crudman_password
 Secret=superuser_password
+# A placeholder while OIDC_ENABLED is false, but must exist: podman will not start a
+# container whose Secret= is missing.
+Secret=oidc_client_secret
+# Any answer below 500 counts as healthy, and redirects are not followed. The panel's own
+# pages redirect when nobody is signed in -- to the login form, or with single sign-on on
+# to the identity provider -- and a probe that followed that would be testing the provider
+# rather than this container, and would fail the whole service when it is unreachable.
 # Single-quoted -c argument: quadlet mangles the closing quote of a double-quoted
 # HealthCmd, so the inner strings use "..." and the whole argument is single-quoted.
-HealthCmd=python -c 'import os,urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/"+os.environ["CRUDMAN_PATH"]+"/").read()'
+HealthCmd=python -c 'import http.client,os; c=http.client.HTTPConnection("127.0.0.1",8000,timeout=5); c.request("GET","/"+os.environ["CRUDMAN_PATH"]+"/"); raise SystemExit(0 if c.getresponse().status<500 else 1)'
 HealthInterval=10s
 HealthTimeout=5s
 HealthRetries=10
@@ -52,7 +59,7 @@ HealthRetries=10
 # and then up to a full interval before the first look. Polling once a second reports the
 # panel ready as soon as it answers; podman switches to the regular interval above after the
 # first success, leaving the steady-state load unchanged.
-HealthStartupCmd=python -c 'import os,urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/"+os.environ["CRUDMAN_PATH"]+"/").read()'
+HealthStartupCmd=python -c 'import http.client,os; c=http.client.HTTPConnection("127.0.0.1",8000,timeout=5); c.request("GET","/"+os.environ["CRUDMAN_PATH"]+"/"); raise SystemExit(0 if c.getresponse().status<500 else 1)'
 HealthStartupInterval=1s
 HealthStartupTimeout=5s
 

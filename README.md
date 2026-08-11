@@ -178,6 +178,11 @@ on a reinstall, so your edits survive an upgrade.
 | --- | --- |
 | `SERVER_NAME` | the full public host name, e.g. `abc123.mycompany.com` or `mysite.com`; a local development system uses `localhost` |
 | `DEBUG` | development vs. production mode (see below) |
+| `OIDC_ENABLED` | whether people sign in with their company account (see [Single sign-on](#single-sign-on)); `false` by default |
+| `OIDC_ISSUER` | the address of your identity provider |
+| `OIDC_AUTH_URL`, `OIDC_TOKEN_URL`, `OIDC_USERINFO_URL` | the three addresses Grafana needs spelled out; your provider lists them |
+| `OIDC_LOGOUT_URL` | where signing out sends people, so their session at the provider ends too |
+| `OIDC_CLIENT_ID` | the application ID your provider issued |
 
 On a company network, give the server its full name in `SERVER_NAME`, domain included —
 `abc123.mycompany.com` rather than just `abc123`. A bare machine name usually does not work
@@ -204,8 +209,15 @@ paths and settings to anyone who triggers an error. Changing it needs no rebuild
 ## Secrets
 All passwords and keys are podman secrets, so they never appear in the quadlets or the
 images. The installer creates the machine secrets automatically (and prompts once for the
-superuser password). A secret cannot be overwritten; to replace one, `podman secret rm
-<name>` it and create it again.
+superuser password). To replace one, create it again with `--replace`:
+
+```bash
+printf '%s' '<new value>' | podman secret create --replace <name> -
+systemctl --user restart main-pod.service
+```
+
+The services read their secrets when they start, so the restart is what makes a new value
+take effect.
 
 | Secret | Used for |
 | --- | --- |
@@ -214,6 +226,67 @@ superuser password). A secret cannot be overwritten; to replace one, `podman sec
 | `crudman_password` | the `crudman` database user the Django app connects with |
 | `sqlmesh_password` | the `sqlmesh` database user the analytics engine connects with |
 | `grafana_password` | the read-only `grafana` database user for the Grafana data source |
+| `oidc_client_secret` | the single sign-on client secret, if you use it (see below) |
+
+## Single sign-on
+People can sign in with their company account instead of a separate password here. Once it
+is on, opening the admin panel or Grafana sends them to your identity provider and straight
+back — someone who is already signed in elsewhere never sees a login page at all. It works
+with Entra ID, Keycloak, Authentik, Okta and Google, and is off until you configure it.
+
+Their access is decided by three roles, which you assign to people at the provider:
+
+| Role | In Grafana | In the admin panel |
+| --- | --- | --- |
+| `Viewer` | may look at dashboards | may look at the data |
+| `Editor` | may build dashboards | may add and change data |
+| `Admin` | full access | full access |
+
+Someone who signs in successfully but holds none of the three is refused rather than let in
+with a default role.
+
+**Set it up at your provider.** Register one application for the whole system and give it
+these two sign-in redirect addresses (with your own host name, and your own paths if you
+changed `CRUDMAN_PATH` or `GRAFANA_PATH`):
+
+```
+https://SERVER_NAME/crudman/accounts/oidc/sso/login/callback/
+https://SERVER_NAME/grafana/login/generic_oauth
+```
+
+Then define `Viewer`, `Editor` and `Admin` as the application's roles, assign your people to
+them, and create a client secret. In Entra ID these are "app roles" — use those rather than
+security groups, which arrive as unreadable identifiers.
+
+**Set it up here.** Fill in the `OIDC_*` settings in `runtime.env`, store the client secret,
+and restart:
+
+```bash
+printf '%s' '<the client secret>' | podman secret create --replace oidc_client_secret -
+systemctl --user restart main-pod.service
+```
+
+**Signing out.** Fill in `OIDC_LOGOUT_URL` along with the rest. Signing out of either
+service then ends the session at your provider as well, and people land on its page. Leave
+it empty and signing out appears to do nothing: only the local session ends, the provider
+still has one, and the next page view quietly signs the person straight back in.
+
+**Give individuals more than their role.** The role is a starting point, not the whole
+story. Anything you grant someone by hand — extra groups in the admin panel, permission on
+a particular Grafana folder — stays with them. Signing in only ever updates their role, so
+your additions are not overwritten.
+
+**If you get locked out.** Both applications keep their own login for the admin account, in
+case the provider is unreachable or misconfigured:
+
+```
+https://SERVER_NAME/crudman/login/?local
+https://SERVER_NAME/grafana/login?disableAutoLogin
+```
+
+Client secrets expire — Entra ID allows two years at most. When one does, every sign-in
+fails at once, so note the date somewhere and replace the secret with the command above
+before it arrives.
 
 ## Certificates
 In production mode the proxy needs a TLS certificate for `SERVER_NAME`. It is the only
@@ -400,6 +473,16 @@ systemctl --user restart main-pod.service
 Everything then works on the new ports with one exception: opening the system over plain
 `http://` still sends the browser to the standard HTTPS port rather than yours, because
 the proxy cannot know which port you published it on. Reach it over `https://` directly.
+
+If you use single sign-on, also tell Grafana the address it is reached at, by adding this
+line to `~/.config/containers/systemd/grafana.container` and restarting. Grafana builds the
+sign-in return address from it, and left alone it would leave your port out and send people
+somewhere that does not answer. The admin panel takes the port from the browser and needs
+nothing:
+
+```
+Environment=GF_SERVER_ROOT_URL=https://SERVER_NAME:8443/grafana/
+```
 
 Moving the SFTP or Arrow Flight port takes one more step. Each dropzone's admin page shows
 uploaders the address to connect to, and it builds that address from `SFTP_PORT` and

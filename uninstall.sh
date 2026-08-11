@@ -92,7 +92,7 @@ IMAGES="$(sed -n 's/^Image=//p' "$QUADLET_DIR"/*.container 2>/dev/null | sort -u
 # through the whole removal with nothing to remove, and checking only APP_NAME would miss
 # a deployment whose config directory is already gone.
 LEFTOVERS=""
-for s in django_secret_key crudman_password sqlmesh_password grafana_password superuser_password; do
+for s in django_secret_key crudman_password sqlmesh_password grafana_password superuser_password oidc_client_secret; do
   podman secret exists "$s" 2>/dev/null && LEFTOVERS="found"
 done
 for vol in $VOLUMES; do
@@ -181,7 +181,7 @@ fi
 # Only the secrets install.sh creates are offered; other secrets on the machine are not
 # this deployment's business. Keeping them lets a reinstall skip the password prompt.
 step "Secrets"
-SECRETS="django_secret_key crudman_password sqlmesh_password grafana_password superuser_password"
+SECRETS="django_secret_key crudman_password sqlmesh_password grafana_password superuser_password oidc_client_secret"
 FOUND=""
 for s in $SECRETS; do
   podman secret exists "$s" 2>/dev/null && FOUND="$FOUND $s"

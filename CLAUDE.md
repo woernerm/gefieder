@@ -139,6 +139,9 @@
     - The path of each volume (so that the user can cd into the respective directories).
     - Control command for opening the runtime.env configuration file with the host
       system's default editor (or nano if there is no default).
+    - Control command for setting the single sign-on client secret. It belongs here rather
+      than in the README because the identity provider expires it, so the command is needed
+      again long after the installation.
 - The install script shall store a helpfile in the rootless podman user's home 
   directory.
 

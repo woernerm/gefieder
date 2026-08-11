@@ -82,6 +82,12 @@ COLLECTOR = os.environ.get("TEST_COLLECTOR", "")
 CRUDMAN_LOGIN = f"/{CRUDMAN_PATH}/login/"
 GRAFANA_LOGIN = f"/{GRAFANA_PATH}/login"
 
+# The stand-in identity provider run-tests.sh starts inside the pod, and the configuration
+# directory holding the runtime.env the services read their settings from.
+OIDC_ISSUER = os.environ.get("TEST_OIDC_ISSUER", "")
+OIDC_CLIENT_ID = os.environ.get("TEST_OIDC_CLIENT_ID", "")
+APP_CONFIG_DIR = os.environ.get("TEST_APP_CONFIG_DIR", "")
+
 # The names of the containers that make up the stack.
 CONTAINERS = ["postgresql", "crudman", "sftp", "flight", "sqlmesh", "grafana",
               "proxy"]

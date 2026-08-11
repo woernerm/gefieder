@@ -92,6 +92,9 @@ INSTALLED_APPS = [
     'example.apps.ExampleConfig',
     'tenants.apps.TenantsConfig',
     'dropzones.apps.DropzonesConfig',
+    # Always installed, even with single sign-on off, so its migration keeps the three
+    # role groups present and assignable by hand.
+    'sso.apps.SsoConfig',
 ]
 
 MIDDLEWARE = [
@@ -231,6 +234,91 @@ def _site_url(request):
         return "/"
     except Resolver404:
         return None
+
+
+# Single sign-on
+# https://docs.allauth.org/en/latest/socialaccount/providers/openid_connect.html
+
+# All read from the operator's runtime.env. Off by default: the local login is what a
+# fresh installation has.
+OIDC_ENABLED = os.environ.get("OIDC_ENABLED", "false").strip().lower() == "true"
+OIDC_ISSUER = os.environ.get("OIDC_ISSUER", "").strip()
+OIDC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID", "").strip()
+
+# Where signing out sends the browser afterwards, so the provider's own session ends too.
+# Empty means it keeps that session, and the next page view signs the person back in.
+OIDC_LOGOUT_URL = os.environ.get("OIDC_LOGOUT_URL", "").strip()
+
+# What allauth calls the provider. Not a setting: runtime.env values cannot contain spaces,
+# and with the redirect below there is no page left that shows this to anyone.
+OIDC_PROVIDER_NAME = "Single sign-on"
+
+# Names the provider in URLs, so it appears in the redirect URI registered with the
+# provider. A constant rather than a setting: changing it would invalidate that
+# registration, and nothing is gained by letting it vary.
+OIDC_PROVIDER_ID = "sso"
+
+# The provider's client secret, mounted by the quadlet. The placeholder the installer
+# creates is inert while OIDC_ENABLED is false.
+OIDC_CLIENT_SECRET_FILE = Path("/run/secrets/oidc_client_secret")
+
+OIDC_CLIENT_SECRET = (
+    OIDC_CLIENT_SECRET_FILE.read_text().strip()
+    if OIDC_CLIENT_SECRET_FILE.exists()
+    else ""
+)
+
+if OIDC_ENABLED:
+    INSTALLED_APPS += [
+        'allauth',
+        'allauth.account',
+        'allauth.socialaccount',
+        'allauth.socialaccount.providers.openid_connect',
+    ]
+    MIDDLEWARE += ['allauth.account.middleware.AccountMiddleware']
+
+    # ModelBackend stays first and enabled: it is how the local superuser gets in when the
+    # provider is unreachable or misconfigured.
+    AUTHENTICATION_BACKENDS = [
+        'django.contrib.auth.backends.ModelBackend',
+        'allauth.account.auth_backends.AuthenticationBackend',
+    ]
+
+    # A list of issuers rather than a single one, so a second identity provider is an entry
+    # here rather than another dependency.
+    SOCIALACCOUNT_PROVIDERS = {
+        "openid_connect": {
+            "APPS": [
+                {
+                    "provider_id": OIDC_PROVIDER_ID,
+                    "name": OIDC_PROVIDER_NAME,
+                    "client_id": OIDC_CLIENT_ID,
+                    "secret": OIDC_CLIENT_SECRET,
+                    "settings": {"server_url": OIDC_ISSUER},
+                },
+            ],
+        },
+    }
+
+    # Where a sign-in that named no destination of its own ends up. allauth would send it
+    # to /accounts/profile/, which this project does not serve.
+    LOGIN_REDIRECT_URL = f'/{CRUDMAN_PATH}/'
+
+    # Roles are applied on every login, in the adapter.
+    SOCIALACCOUNT_ADAPTER = 'sso.adapters.SSOAccountAdapter'
+
+    # Follow the provider on a GET instead of showing allauth's "continue" page, which
+    # would defeat the point of sending people straight through.
+    SOCIALACCOUNT_LOGIN_ON_GET = True
+
+    # The provider vouches for the address; asking the user to confirm it by mail would be
+    # a second identity check on top of the one that just succeeded.
+    SOCIALACCOUNT_EMAIL_VERIFICATION = 'none'
+    SOCIALACCOUNT_EMAIL_REQUIRED = False
+
+    # Nothing here calls the provider's API on the user's behalf, so the tokens are of no
+    # use after login and are not worth storing.
+    SOCIALACCOUNT_STORE_TOKENS = False
 
 
 UNFOLD = {

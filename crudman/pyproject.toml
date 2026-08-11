@@ -6,6 +6,10 @@ requires-python = ">=3.13"
 dependencies = [
     "asyncssh",
     "Django",
+    # The OpenID Connect client for single sign-on. The socialaccount extra carries the
+    # generic openid_connect provider, which takes a list of issuers, so a second identity
+    # provider is configuration rather than another dependency.
+    "django-allauth[socialaccount]",
     "django-unfold",
     "fastexcel",
     "gunicorn",

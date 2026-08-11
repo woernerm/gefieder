@@ -107,6 +107,9 @@ create_secret django_secret_key "$(openssl rand -hex 32)"
 create_secret crudman_password  "$(openssl rand -hex 32)"
 create_secret sqlmesh_password  "$(openssl rand -hex 32)"
 create_secret grafana_password  "$(openssl rand -hex 32)"
+# Single sign-on is off in the suite, but the placeholder still has to exist: the crudman
+# and grafana quadlets name it in a Secret=, and podman will not start them without it.
+create_secret oidc_client_secret "unconfigured"
 # The superuser gets the well-known build-time default rather than a random value, so the
 # tests run unattended without a prompt (install.sh asks for it interactively).
 create_secret superuser_password "$SUPERUSER_DEFAULT_PASSWORD"
@@ -119,6 +122,16 @@ HTTPS_PORT=18443
 PG_PORT=15432
 SFTP_PORT=12222
 FLIGHT_PORT=18815
+
+# The stand-in identity provider the single sign-on tests authenticate against. It runs in
+# the pod, so the services reach it on localhost, and the pod publishes the same port
+# number it listens on -- the issuer it advertises is built from the address it was asked
+# on, and a sign-in only validates if the browser and the services see one identical URL.
+# 127.0.0.1 rather than localhost for the same reason, and because the server crashes on
+# the IPv6 address localhost resolves to first.
+OIDC_PORT=18099
+OIDC_ISSUER="http://127.0.0.1:${OIDC_PORT}/default"
+OIDC_CLIENT_ID="gefieder-test"
 
 # Test runs use their own certificate directory rather than the configured CERTIFICATE_PATH:
 # that value may be tailored to the target server's PKI (e.g. /etc/pki/gefieder) and neither
@@ -263,10 +276,18 @@ PublishPort=${HTTPS_PORT}:443
 PublishPort=${PG_PORT}:5432
 PublishPort=${SFTP_PORT}:2222
 PublishPort=${FLIGHT_PORT}:8815
+PublishPort=${OIDC_PORT}:${OIDC_PORT}
 
 [Install]
 WantedBy=default.target
 EOF
+
+# Grafana builds its own absolute URLs from root_url rather than from the request, so on a
+# port other than the standard one it has to be told -- exactly the step the README asks a
+# custom-port installation to take. Without it the single sign-on callback it hands the
+# identity provider would drop the port and lead nowhere.
+sed -i "s|^Environment=GF_SERVER_ROOT_URL=.*|Environment=GF_SERVER_ROOT_URL=${SCHEME}://localhost:${APP_PORT}/${GRAFANA_PATH}/|" \
+  "$QUADLET_DIR/grafana.container"
 
 # Holds the password file the crudman unit tests mount; created just before they run,
 # declared here so the cleanup trap below can always refer to it.
@@ -286,10 +307,20 @@ install -m 0755 serverstats/collect.sh "$APP_CONFIG_DIR/serverstats/collect.sh"
 # profile's values rather than copying the repository defaults, which would put the
 # production profile back into DEBUG mode. Everything else is copied over unchanged; the
 # "|| true" keeps a repository file without those keys from aborting the run under set -e.
+# The single sign-on settings point at the stand-in provider started below, but arrive
+# switched off: that is the state every installation runs in, and the state the rest of the
+# suite asserts. The sign-in tests turn OIDC_ENABLED on themselves and put it back after.
 {
   echo "SERVER_NAME=${SERVER_NAME}"
   echo "DEBUG=${DEBUG}"
-  grep -v -e '^SERVER_NAME=' -e '^DEBUG=' runtime.env || true
+  echo "OIDC_ENABLED=false"
+  echo "OIDC_ISSUER=${OIDC_ISSUER}"
+  echo "OIDC_AUTH_URL=${OIDC_ISSUER}/authorize"
+  echo "OIDC_TOKEN_URL=${OIDC_ISSUER}/token"
+  echo "OIDC_USERINFO_URL=${OIDC_ISSUER}/userinfo"
+  echo "OIDC_LOGOUT_URL=${OIDC_ISSUER}/endsession"
+  echo "OIDC_CLIENT_ID=${OIDC_CLIENT_ID}"
+  grep -v -e '^SERVER_NAME=' -e '^DEBUG=' -e '^OIDC_' runtime.env || true
 } > "$APP_CONFIG_DIR/runtime.env"
 
 cleanup() {
@@ -321,9 +352,63 @@ for u in $UNITS; do
   printf 'healthy (%ss)\n' "$(( $(date +%s) - stack_start ))"
 done
 
+# --- the stand-in identity provider ---------------------------------------------------
+# A throwaway OpenID Connect server, so a sign-in can be tested end to end without a real
+# directory. It joins the pod rather than getting a network of its own, which is what puts
+# it on the same localhost the services already use; removing the pod takes it with it.
+#
+# interactiveLogin false is what makes it usable from a test: the authorization endpoint
+# answers with the redirect straight away instead of presenting a login form to fill in.
+# The claims below are what the services then map -- "roles" is the claim an Entra ID app
+# role arrives in, and Editor is the middle of the three so that both a granted permission
+# and a withheld one can be asserted.
+#
+# The mapping is keyed on grant_type because it is matched against the request for the
+# token, not the one for the code: a parameter that only appears on the authorization
+# request (scope, say) never matches, and the claims are then silently left out.
+printf '  %-12s ' "identity"
+podman run -d --pod "$APP_NAME" --name mock-oidc \
+  -e SERVER_PORT="$OIDC_PORT" \
+  -e JSON_CONFIG="$(cat <<EOF
+{
+  "interactiveLogin": false,
+  "tokenCallbacks": [{
+    "issuerId": "default",
+    "tokenExpiry": 3600,
+    "requestMappings": [{
+      "requestParam": "grant_type",
+      "match": "authorization_code",
+      "claims": {
+        "sub": "kim",
+        "preferred_username": "kim",
+        "email": "kim@example.com",
+        "name": "Kim Tester",
+        "roles": ["Editor"]
+      }
+    }]
+  }]
+}
+EOF
+)" ghcr.io/navikt/mock-oauth2-server:2.1.10 >/dev/null
+# Wait for it to answer its own discovery document before any test relies on it.
+oidc_ready=""
+oidc_deadline=$(( $(date +%s) + 60 ))
+while [ "$(date +%s)" -lt "$oidc_deadline" ]; do
+  if curl -fsS --max-time 5 "${OIDC_ISSUER}/.well-known/openid-configuration" >/dev/null 2>&1; then
+    oidc_ready="yes"
+    break
+  fi
+  sleep 1
+done
+[ -n "$oidc_ready" ] || { echo "the stand-in identity provider did not come up" >&2; exit 1; }
+printf 'ready (%ss)\n' "$(( $(date +%s) - stack_start ))"
+
 export TEST_PROFILE="$PROFILE"
 export TEST_BASE_URL="$SCHEME://localhost:$APP_PORT"
 export TEST_HTTP_BASE_URL="http://localhost:$HTTP_PORT"
+export TEST_OIDC_ISSUER="$OIDC_ISSUER"
+export TEST_OIDC_CLIENT_ID="$OIDC_CLIENT_ID"
+export TEST_APP_CONFIG_DIR="$APP_CONFIG_DIR"
 export TEST_PG_PORT="$PG_PORT"
 export TEST_SFTP_PORT="$SFTP_PORT"
 export TEST_FLIGHT_PORT="$FLIGHT_PORT"
@@ -357,14 +442,29 @@ podman secret inspect --showsecret -f '{{.SecretData}}' superuser_password \
 # storage resolves every asset through the manifest the entrypoint builds at startup —
 # a fresh container has none. UPLOADS_DIR/SFTP_DIR point into the container's own
 # filesystem, which dies with it, so no test writes anywhere persistent.
-podman run --rm --network host \
-  -v "$UNIT_SECRET_DIR/crudman_password:/run/secrets/crudman_password:ro,Z" \
-  -e POSTGRES_HOST=localhost -e POSTGRES_PORT="$PG_PORT" \
-  -e POSTGRES_USER="$SUPERUSER_NAME" -e POSTGRES_DB=postgres \
-  -e UPLOADS_DIR=/tmp/uploads -e SFTP_DIR=/tmp/sftp \
-  --entrypoint sh "${REGISTRY}/crudman:${IMAGE_TAG}" -c \
-  'uv run --project /crudman python manage.py collectstatic --noinput >/dev/null \
-   && uv run --project /crudman python manage.py test --noinput'
+unit_tests() {  # extra podman arguments, e.g. the single sign-on settings
+  podman run --rm --network host \
+    -v "$UNIT_SECRET_DIR/crudman_password:/run/secrets/crudman_password:ro,Z" \
+    -e POSTGRES_HOST=localhost -e POSTGRES_PORT="$PG_PORT" \
+    -e POSTGRES_USER="$SUPERUSER_NAME" -e POSTGRES_DB=postgres \
+    -e UPLOADS_DIR=/tmp/uploads -e SFTP_DIR=/tmp/sftp \
+    "$@" \
+    --entrypoint sh "${REGISTRY}/crudman:${IMAGE_TAG}" -c \
+    'uv run --project /crudman python manage.py collectstatic --noinput >/dev/null \
+     && uv run --project /crudman python manage.py test --noinput'
+}
+
+unit_tests
+
+# Again with single sign-on configured. Switching it on changes which apps are installed
+# and which URLs exist, so the settings module takes a different path through itself and
+# needs covering as its own configuration -- and the adapter that maps a provider's roles
+# cannot even be imported without it, so its tests skip themselves in the run above.
+echo "Running the crudman unit tests with single sign-on configured ..."
+unit_tests \
+  -e OIDC_ENABLED=true \
+  -e OIDC_ISSUER="$OIDC_ISSUER" \
+  -e OIDC_CLIENT_ID="$OIDC_CLIENT_ID"
 rm -rf "$UNIT_SECRET_DIR"
 
 # Run the suite. uv provides the test dependencies from tests/pyproject.toml.
