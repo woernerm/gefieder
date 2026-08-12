@@ -17,3 +17,12 @@ COPY grafana/.provisioning/ /etc/grafana/provisioning/
 # this file, so it is GF_LOG_MODE in the quadlet instead.
 # Secret values are referenced from podman secrets via $__file{}, never stored in the file.
 COPY grafana/custom.ini /etc/grafana/grafana.ini
+
+# The base path Grafana is served under, as a default the quadlet overrides with the
+# build-time GRAFANA_PATH. The entrypoint builds the public address out of it.
+ENV GRAFANA_PATH=grafana
+
+# The entrypoint settles that address and hands over to the image's own /run.sh. It is
+# committed executable, so a plain COPY (no BuildKit --chmod) keeps it.
+COPY grafana/entrypoint.sh /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]

@@ -284,9 +284,9 @@ EOF
 
 # Grafana builds its own absolute URLs from root_url rather than from the request, so on a
 # port other than the standard one it has to be told -- exactly the step the README asks a
-# custom-port installation to take. Without it the single sign-on callback it hands the
-# identity provider would drop the port and lead nowhere.
-sed -i "s|^Environment=GF_SERVER_ROOT_URL=.*|Environment=GF_SERVER_ROOT_URL=${SCHEME}://localhost:${APP_PORT}/${GRAFANA_PATH}/|" \
+# custom-port installation to take, down to the added line. The entrypoint settles the rest
+# of the address itself, but no container can see the port it is published on.
+sed -i "/^Environment=GF_SERVER_SERVE_FROM_SUB_PATH=/i Environment=GF_SERVER_ROOT_URL=${SCHEME}://localhost:${APP_PORT}/${GRAFANA_PATH}/" \
   "$QUADLET_DIR/grafana.container"
 
 # Holds the password file the crudman unit tests mount; created just before they run,

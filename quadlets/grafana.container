@@ -17,9 +17,10 @@ EnvironmentFile=%h/.config/${APP_NAME}/runtime.env
 Environment=GF_SECURITY_ADMIN_USER=${SUPERUSER_NAME}
 Environment=GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/superuser_password
 # Serve Grafana from the /GRAFANA_PATH subpath behind the proxy so its internal links
-# and assets resolve correctly. This stays here rather than in custom.ini because it
-# depends on the build-time GRAFANA_PATH variable.
-Environment=GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/${GRAFANA_PATH}/
+# and assets resolve correctly. The path stays here rather than in custom.ini because it
+# depends on the build-time GRAFANA_PATH variable; the entrypoint builds the public address
+# (GF_SERVER_ROOT_URL) from it, SERVER_NAME and DEBUG.
+Environment=GRAFANA_PATH=${GRAFANA_PATH}
 Environment=GF_SERVER_SERVE_FROM_SUB_PATH=true
 # Log to the container's stdout only, so journald captures the stream like every other
 # service; it rotates and size-caps the log, and a file on the volume did not. This stays

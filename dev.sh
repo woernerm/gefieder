@@ -276,11 +276,13 @@ podman run -d --pod "$POD" --name sqlmesh --restart always --tz=local \
   --secret sqlmesh_password \
   "${REGISTRY}/sqlmesh:${IMAGE_TAG}" >/dev/null
 
+# The public address is spelled out rather than derived by the entrypoint, because no
+# container can see the port it is published on. Same line the README gives custom ports.
 podman run -d --pod "$POD" --name grafana --restart always \
   -e "APP_NAME=${APP_NAME}" \
   -e "GF_SECURITY_ADMIN_USER=${SUPERUSER_NAME}" \
   -e GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/superuser_password \
-  -e "GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/${GRAFANA_PATH}/" \
+  -e "GF_SERVER_ROOT_URL=http://${HOST_ADDR}:${HTTP_PORT}/${GRAFANA_PATH}/" \
   -e GF_SERVER_SERVE_FROM_SUB_PATH=true \
   -e GF_LOG_MODE=console \
   -v grafana_data:/var/lib/grafana \

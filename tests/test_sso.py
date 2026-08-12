@@ -15,13 +15,14 @@ be tried by hand.
 import os
 import subprocess
 import time
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
 
 from conftest import (
     APP_CONFIG_DIR, BASE_URL, CRUDMAN_LOGIN, CRUDMAN_PATH, GRAFANA_PATH, OIDC_ISSUER,
-    RESTART_TIMEOUT, VERIFY_TLS, podman,
+    RESTART_TIMEOUT, VERIFY_TLS, inspect_container, podman,
 )
 
 # The host name the stack was started with, which Grafana has to be told about: its own
@@ -88,6 +89,25 @@ def _set_single_sign_on(enabled):
     raise AssertionError("the services did not come back after the restart")
 
 
+def _derived_root_url(**env):
+    """The public address the grafana image's entrypoint settles on for this environment.
+
+    Runs the real entrypoint in a throwaway container with only its last line -- the
+    handover to Grafana's own /run.sh -- replaced by a print, the way test_proxy_config.py
+    runs pieces of the proxy entrypoint. Reading the address off a started Grafana instead
+    would cost a server startup per case and assert nothing more.
+    """
+    info = inspect_container("grafana")
+    if info is None:
+        pytest.skip("grafana container does not exist")
+    argv = ["podman", "run", "--rm", "--network", "none"]
+    for name, value in env.items():
+        argv += ["-e", f"{name}={value}"]
+    argv += ["--entrypoint", "sh", info["ImageName"], "-c",
+             "sed 's|^exec /run.sh.*|printenv GF_SERVER_ROOT_URL|' /entrypoint.sh | sh"]
+    return subprocess.run(argv, capture_output=True, text=True, timeout=120).stdout.strip()
+
+
 @pytest.fixture(scope="module")
 def single_sign_on():
     """Switch single sign-on on for the tests that need it, and off again afterwards.
@@ -138,6 +158,40 @@ class TestGrafanaConfiguration:
 
     def test_grafana_shall_receive_the_issuer(self):
         assert podman("exec", "grafana", "printenv", "OIDC_ISSUER").strip() == OIDC_ISSUER
+
+
+class TestCallbackAddress:
+    """The address Grafana asks the provider to send the visitor back to.
+
+    Grafana builds it from root_url rather than from the request, and root_url's own
+    %(protocol)s is the protocol Grafana serves inside the pod -- http, because the proxy
+    terminates TLS. Left at that, a production installation asks for an http callback its
+    provider never registered, and refuses the sign-in.
+    """
+
+    def test_production_shall_use_https(self):
+        derived = _derived_root_url(DEBUG="false", SERVER_NAME="reports.example.com",
+                                    GRAFANA_PATH=GRAFANA_PATH)
+
+        assert derived == f"https://reports.example.com/{GRAFANA_PATH}/"
+
+    def test_development_shall_use_http(self):
+        # The one case where the proxy serves plain HTTP, so the callback has to name it.
+        derived = _derived_root_url(DEBUG="true", SERVER_NAME="localhost",
+                                    GRAFANA_PATH=GRAFANA_PATH)
+
+        assert derived == f"http://localhost/{GRAFANA_PATH}/"
+
+    def test_an_address_set_by_hand_shall_win(self):
+        # The line the README asks a custom-port installation to add, and the one this test
+        # stack runs with, since it publishes ports of its own.
+        explicit = f"https://reports.example.com:8443/{GRAFANA_PATH}/"
+
+        derived = _derived_root_url(DEBUG="false", SERVER_NAME="reports.example.com",
+                                    GRAFANA_PATH=GRAFANA_PATH,
+                                    GF_SERVER_ROOT_URL=explicit)
+
+        assert derived == explicit
 
 
 class TestSwitchedOff:
@@ -236,6 +290,18 @@ class TestSigningIn:
 
         assert who.status_code == 200
         assert who.json()["login"] == SSO_USER
+
+    def test_grafana_shall_ask_to_be_called_back_where_the_browser_is(self, single_sign_on):
+        # A provider accepts only the callback registered for the client, which the README
+        # gives as the address Grafana is reached at -- so this one has to match it in
+        # scheme, host and port alike.
+        with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS, trust_env=False,
+                          follow_redirects=False, timeout=10) as client:
+            resp = client.get(f"/{GRAFANA_PATH}/login/generic_oauth")
+
+        assert resp.status_code == 302
+        query = parse_qs(urlparse(resp.headers["location"]).query)
+        assert query["redirect_uri"] == [f"{BASE_URL}/{GRAFANA_PATH}/login/generic_oauth"]
 
     def test_grafana_shall_map_the_claim_to_its_own_role(self, single_sign_on, browser):
         # The mapping expression in custom.ini turning the provider's role name into one of
