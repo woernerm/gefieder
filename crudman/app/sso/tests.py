@@ -1,9 +1,11 @@
 from unittest import skipUnless
 
 from django.conf import settings
+from django.contrib import admin
+from django.contrib.auth import authenticate
 from django.contrib.auth.models import Group, Permission, User
 from django.core.exceptions import PermissionDenied
-from django.test import TestCase, override_settings
+from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
 from .roles import (
@@ -397,6 +399,121 @@ class LogoutTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertNotIn("_auth_user_id", self.client.session)
+
+
+class AdminMenuTests(TestCase):
+    """The sidebar, which says the same thing whichever way people sign in."""
+
+    def setUp(self):
+        request = RequestFactory().get(reverse("admin:index"))
+        request.user = User.objects.create_superuser("root")
+
+        # What the sidebar is built from, seen by a superuser, so nothing is missing merely
+        # for want of a permission.
+        self.sections = {
+            app["name"]: [model["name"] for model in app["models"]]
+            for app in admin.site.get_app_list(request)
+        }
+
+    def test_one_heading_covers_signing_in(self):
+        self.assertIn("Access", self.sections)
+
+        # Django's own name for the section, and the two allauth arrives with. With single
+        # sign-on on, all three stood in the menu at once, saying much the same thing.
+        for heading in ("Authentication and Authorization", "Accounts", "Social Accounts"):
+            self.assertNotIn(heading, self.sections)
+
+    def test_the_heading_holds_users_and_groups_only(self):
+        self.assertEqual(self.sections["Access"], ["Groups", "Users"])
+
+
+@skipUnless(settings.OIDC_ENABLED, "allauth is only installed when single sign-on is on")
+class AllauthAdminPageTests(TestCase):
+    """The pages allauth registers, none of which earns a place in this system's menu."""
+
+    def test_they_are_unregistered_rather_than_hidden(self):
+        from allauth.account.models import EmailAddress
+        from allauth.socialaccount.models import SocialAccount, SocialApp, SocialToken
+
+        # Dropping them from the sidebar alone would not do: a page that stays registered
+        # stays reachable by typing its address, and the social application one would then
+        # offer to configure a provider that is really configured in settings.py.
+        for model in (EmailAddress, SocialApp, SocialToken, SocialAccount):
+            self.assertFalse(admin.site.is_registered(model), model.__name__)
+
+
+@skipUnless(settings.OIDC_ENABLED, "the inline's model ships with allauth")
+class SingleSignOnInlineTests(TestCase):
+    """The provider's account, kept as part of the user instead of as a menu entry."""
+
+    def setUp(self):
+        from allauth.socialaccount.models import SocialAccount
+
+        self.user = User.objects.create_user("kim")
+        SocialAccount.objects.create(
+            user=self.user,
+            provider=settings.OIDC_PROVIDER_ID,
+            uid="kim@example.com",
+            extra_data={"id_token": {"roles": ["Editor"]}},
+        )
+        self.client.force_login(User.objects.create_superuser("root"))
+        self.page = self.client.get(
+            reverse("admin:auth_user_change", args=[self.user.pk])
+        )
+
+    def test_the_claims_are_shown_on_the_user(self):
+        # The question this page is here to answer: the provider calls someone an editor
+        # and the system does not, so show the roles exactly as they arrived.
+        self.assertContains(self.page, "kim@example.com")
+        self.assertContains(self.page, "Editor")
+
+    def test_nothing_of_it_can_be_edited(self):
+        # Read-only fields render as text, so a form input for one would mean the
+        # provider's data had become editable here -- and rewritten on its next login.
+        self.assertNotContains(self.page, "socialaccount_set-0-uid")
+
+    def test_no_account_can_be_added_by_hand(self):
+        from .admin import SingleSignOnInline
+
+        inline = SingleSignOnInline(User, admin.site)
+
+        self.assertFalse(inline.has_add_permission(self.page.wsgi_request, self.user))
+
+
+class LocalUserCreationTests(TestCase):
+    """Making a user by hand: the whole story with single sign-on off, and how the local
+    superuser goes on existing when it is on."""
+
+    def setUp(self):
+        self.client.force_login(User.objects.create_superuser("root"))
+
+    def test_the_add_page_asks_for_a_password(self):
+        response = self.client.get(reverse("admin:auth_user_add"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="password1"')
+
+    def test_the_add_page_says_nothing_about_the_provider(self):
+        # Someone created here has signed in nowhere yet, so the box would be empty -- and
+        # the page would refuse to save the new user without its formset coming back.
+        response = self.client.get(reverse("admin:auth_user_add"))
+
+        self.assertNotContains(response, "socialaccount_set-TOTAL_FORMS")
+
+    def test_a_user_created_here_can_sign_in(self):
+        response = self.client.post(
+            reverse("admin:auth_user_add"),
+            {
+                "username": "kim",
+                "password1": "hunter2hunter2",
+                "password2": "hunter2hunter2",
+            },
+        )
+
+        # The add page redirects to the new user's own page; a 200 would be the form
+        # coming back with errors.
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNotNone(authenticate(username="kim", password="hunter2hunter2"))
 
     @override_settings(OIDC_ENABLED=True, OIDC_LOGOUT_URL=PROVIDER_LOGOUT)
     def test_a_link_cannot_sign_someone_out(self):

@@ -1,5 +1,22 @@
 from django.apps import AppConfig
+from django.contrib.auth.apps import AuthConfig
 from django.db.models.signals import post_migrate
+
+
+class AccessConfig(AuthConfig):
+    """django.contrib.auth under a heading that says what the section is for.
+
+    Django calls it "Authentication and Authorization", which with single sign-on on sat
+    beside two allauth headings meaning much the same thing. One heading, and a short one:
+    it must not read like the "Users" link below it, the same reason the tenants app is
+    labelled "System".
+
+    Lives in this app because this app is the rest of the same story -- the role groups
+    that decide what a signed-in person may do. Only the display name changes; the app
+    label stays "auth", so every permission and admin URL is untouched.
+    """
+
+    verbose_name = 'Access'
 
 
 class SsoConfig(AppConfig):

@@ -83,12 +83,16 @@ INSTALLED_APPS = [
     "unfold.contrib.location_field",  # optional, if django-location-field package is used
     "unfold.contrib.constance",  # optional, if django-constance package is used
     'django.contrib.admin',
-    'django.contrib.auth',
+    # django.contrib.auth itself, under a heading of its own; see sso/apps.py.
+    'sso.apps.AccessConfig',
     'django.contrib.postgres',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    # An empty app as "manage.py startapp" leaves it, and the place to start when this
+    # template grows a data model of its own. Delete it if you would rather begin from
+    # nothing; nothing else refers to it.
     'example.apps.ExampleConfig',
     'tenants.apps.TenantsConfig',
     'dropzones.apps.DropzonesConfig',

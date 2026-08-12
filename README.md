@@ -243,7 +243,9 @@ Their access is decided by three roles, which you assign to people at the provid
 | `Admin` | full access | full access |
 
 Someone who signs in successfully but holds none of the three is refused rather than let in
-with a default role.
+with a default role. What the provider actually said about a person is shown on their entry
+under **Access → Users** in the admin panel, which is the place to look when their role and
+what they can do disagree.
 
 **Set it up at your provider.** Register one application for the whole system and give it
 these two sign-in redirect addresses (with your own host name, and your own paths if you
