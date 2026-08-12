@@ -131,10 +131,10 @@ FLIGHT_PORT=18815
 # the IPv6 address localhost resolves to first.
 OIDC_PORT=18099
 OIDC_ISSUER="http://127.0.0.1:${OIDC_PORT}/default"
-OIDC_CLIENT_ID="gefieder-test"
+OIDC_CLIENT_ID="${APP_NAME}-test"
 
 # Test runs use their own certificate directory rather than the configured CERTIFICATE_PATH:
-# that value may be tailored to the target server's PKI (e.g. /etc/pki/gefieder) and neither
+# that value may be tailored to the target server's PKI (e.g. /etc/pki/${APP_NAME}) and neither
 # exist nor be writable by whoever runs the suite on a dev machine. Overriding it here decouples
 # the suite from it entirely; the envsubst rendering below picks up this value too, so the
 # quadlet mounts exactly the directory created here. Written for systemd, so "%h" is spelled

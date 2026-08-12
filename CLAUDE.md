@@ -1,4 +1,4 @@
-# Instructions for Gefieder
+# Instructions for this repository
 
 # General
 - You are running in a Ubuntu WSL. Podman 5.x is installed and configured to run 
@@ -8,7 +8,7 @@
   run the tests. Do not skip that step if you changed code (apart from comments only).
 
 ## Purpose
-- The repository is named "Gefieder".
+- The repository is named after the APP_NAME setting in `buildtime.env`.
 - The repository is a template for data analytics systems. The included software 
   services are already configured and properly wired together. It automatically updates
   and restarts itself after power loss or failure.
@@ -71,7 +71,7 @@
 - All build artifacts, the quadlet files, as well as the install script shall be 
   uploaded as github release.
 - The system shall be installable from a github release using a curl command similar to 
-  this: `curl -fsSL https://github.com/your-org/gefieder/releases/latest/install.sh | bash`
+  this: `curl -fsSL https://github.com/your-org/your-repo/releases/latest/install.sh | bash`
 - The services shall log to stdout/stderr only. Podman forwards the stream to journald,
   which persists the logs across restarts, container replacements and crashes, and
   rotates and size-caps them. The services shall not write their own log files to a
@@ -162,8 +162,8 @@
   practices.
 - In `Readme.md`, keep a concise, natural human-like style with only user-level 
   explainations. Don't fall into technical verbosity.
-- The `Readme.md` should be focused on the perspective of someone using the Gefieder
-  system as a productive system, not as someone developing Gefieder itself.
+- The `Readme.md` should be focused on the perspective of someone using this system
+  as a productive system, not as someone developing it.
 - Use the type annotations that are considered best practice for the python version used 
   in the respective docker containers.
 - Use sentece case (e.g. "Reject empty files") for the registry names of checker and 
