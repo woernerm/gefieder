@@ -135,7 +135,7 @@ is `main.pod`, so the systemd unit is `main-pod.service`) of seven containers:
   third role), published on port 8815
 - `sqlmesh` — the SQLMesh analytics engine, running models on their cron schedules
 - `grafana` — the Grafana dashboards, with the database pre-configured as a read-only
-  data source
+  data source and the extra panel types from `GRAFANA_PLUGINS` ready to use
 - `proxy` — an nginx reverse proxy that serves the admin panel and Grafana under
   `SERVER_NAME` and publishes the pod's ports 80/443
 
@@ -163,6 +163,7 @@ adjust:
 | `SERVER_STATS_SCHEMA` | the schema that holds the server-usage and query statistics (see [Server statistics](#server-statistics)) |
 | `SERVER_STATS_INTERVAL` | how often, in seconds, the server statistics are sampled (default 60) |
 | `DUCKDB_EXTENSIONS` | the DuckDB extensions baked into the database image, comma-separated; they are downloaded at build time, so the server needs no internet access to use them |
+| `GRAFANA_PLUGINS` | the extra panel types baked into the Grafana image, comma-separated plugin ids; downloaded at build time as well, so the dashboards can use them offline |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | company proxy for image builds (empty = direct) |
 | `PYTHON_INDEX` | additional Python package index for the build, e.g. a company mirror (empty = PyPI) |
 | `DOCKER_IO_MIRROR`, `GHCR_IO_MIRROR` | where the build pulls its base images from; set them to a company mirror if `docker.io` and `ghcr.io` are slow to reach |
@@ -677,9 +678,10 @@ The software it builds on keeps its own license. Two cases to be aware of:
   a network service, you have to make your modified source available to its users.
   Shipping the stock image as-is is fine; just don't patch Grafana and keep the changes
   private. This says nothing about the rest of the project, which stays Apache-2.0.
-- **The DuckDB extensions** listed in `DUCKDB_EXTENSIONS` (`buildtime.env`) are just
-  examples, taken from the community repo and baked into the image at build time.
-  Licenses and quality vary, so trim the list to what you actually use before going to
+- **The DuckDB extensions** listed in `DUCKDB_EXTENSIONS` and the **Grafana panel
+  plugins** listed in `GRAFANA_PLUGINS` (both in `buildtime.env`) are just examples,
+  taken from their community repositories and baked into the images at build time.
+  Licenses and quality vary, so trim both lists to what you actually use before going to
   production.
 
 Everything else — the base images (PostgreSQL/pgduckdb, nginx, Python) and the Python

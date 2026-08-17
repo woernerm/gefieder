@@ -164,6 +164,7 @@ for svc in postgresql crudman sqlmesh proxy grafana; do
     --build-arg "GHCR_IO_MIRROR=${GHCR_IO_MIRROR}" \
     --build-arg "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}" \
     --build-arg "DUCKDB_EXTENSIONS=${DUCKDB_EXTENSIONS}" \
+    --build-arg "GRAFANA_PLUGINS=${GRAFANA_PLUGINS}" \
     -t "${REGISTRY}/${svc}:${IMAGE_TAG}" -f "${svc}/Dockerfile" .
 done
 
