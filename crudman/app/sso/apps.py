@@ -25,9 +25,21 @@ class SsoConfig(AppConfig):
     verbose_name = 'Single sign-on'
 
     def ready(self):
+        from django.conf import settings
+
         from .roles import create_role_groups
 
         # post_migrate fires once per installed app, so the receiver is bound to this one
         # to run the work a single time. This app is listed last, after the apps whose
         # permissions the groups hand out, so by then those permissions exist.
         post_migrate.connect(create_role_groups, sender=self)
+
+        # The picture is read after the login rather than during it, which is what the
+        # signal buys: by the time it fires the session is the one the person will keep,
+        # and a session Django rotated or emptied on the way in cannot swallow the URL.
+        if settings.OIDC_ENABLED:
+            from allauth.account.signals import user_logged_in
+
+            from .avatars import remember_picture
+
+            user_logged_in.connect(remember_picture)

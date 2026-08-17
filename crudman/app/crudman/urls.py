@@ -37,6 +37,10 @@ urlpatterns = [
     path(f"{CRUDMAN_PATH}/login/", sso_views.login, name="login"),
     # Likewise the logout address, so signing out also ends the session at the provider.
     path(f"{CRUDMAN_PATH}/logout/", sso_views.logout, name="logout"),
+    # Where a profile picture that only the provider's API would hand over is served from
+    # afterwards. Before the admin's catch-all like the two above; registered whether or
+    # not single sign-on is on, because a session without a picture simply has none.
+    path(f"{CRUDMAN_PATH}/avatar/", sso_views.avatar, name="avatar"),
 ]
 
 # allauth's own views, including the callback the provider redirects back to. Under

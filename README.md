@@ -183,6 +183,7 @@ on a reinstall, so your edits survive an upgrade.
 | `OIDC_AUTH_URL`, `OIDC_TOKEN_URL`, `OIDC_USERINFO_URL` | the three addresses Grafana needs spelled out; your provider lists them |
 | `OIDC_LOGOUT_URL` | where signing out sends people, so their session at the provider ends too |
 | `OIDC_CLIENT_ID` | the application ID your provider issued |
+| `OIDC_SCOPES` | optional; leave it empty and what to ask your provider for is worked out from `OIDC_ISSUER` |
 
 On a company network, give the server its full name in `SERVER_NAME`, domain included —
 `abc123.mycompany.com` rather than just `abc123`. A bare machine name usually does not work
@@ -272,6 +273,27 @@ systemctl --user restart main-pod.service
 service then ends the session at your provider as well, and people land on its page. Leave
 it empty and signing out appears to do nothing: only the local session ends, the provider
 still has one, and the next page view quietly signs the person straight back in.
+
+**Profile pictures.** If your provider publishes one, people see their own photo beside
+their name in the admin panel instead of the first letter of it. For most providers there
+is nothing to set up: the address of the photo arrives with the rest of someone's details
+and their browser fetches it.
+
+Entra ID keeps photos behind Microsoft Graph, which will not hand one to a browser. The
+admin panel therefore collects the photo itself while signing someone in, and holds it
+only for as long as they stay signed in — sign out and it is gone. That needs one
+permission more than signing in alone, `User.Read`, which the admin panel recognises Entra
+ID and asks for by itself. It is one Entra ID grants applications by default, so there is
+usually nothing to approve.
+
+If your tenant does not allow it, signing in fails with a consent error rather than merely
+losing the picture. Asking for nothing beyond the essentials puts it back:
+
+```
+OIDC_SCOPES=openid profile email
+```
+
+A provider that publishes no photo simply leaves people with their initial, as before.
 
 **Give individuals more than their role.** The role is a starting point, not the whole
 story. Anything you grant someone by hand — extra groups in the admin panel, permission on

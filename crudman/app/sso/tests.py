@@ -1,5 +1,8 @@
+from base64 import b64decode, b64encode
 from unittest import skipUnless
+from unittest.mock import MagicMock, patch
 
+import requests
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth import authenticate
@@ -7,7 +10,19 @@ from django.contrib.auth.models import Group, Permission, User
 from django.core.exceptions import PermissionDenied
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
+from django.utils.functional import SimpleLazyObject
 
+from .avatars import (
+    MAX_PICTURE_BYTES,
+    SESSION_KEY,
+    SESSION_PICTURE_KEY,
+    api_host,
+    claimed_picture,
+    fetched_picture,
+    loadable_picture,
+    middleware,
+    remember_picture,
+)
 from .roles import (
     GROUP_ACTIONS,
     apply_roles,
@@ -15,6 +30,7 @@ from .roles import (
     create_role_groups,
     highest_role,
 )
+from .scopes import scopes_for
 
 
 class RoleGroupTests(TestCase):
@@ -211,10 +227,14 @@ class FakeSocialLogin:
     end by the integration suite, against a real OpenID Connect server.
     """
 
-    def __init__(self, user, claims, is_existing=True):
+    def __init__(self, user, claims, is_existing=True, token=None):
         self.user = user
         self.is_existing = is_existing
         self.account = type("FakeAccount", (), {"extra_data": {"id_token": claims}})()
+        # The access token allauth holds during a login and, here, never stores. Absent
+        # unless a test is about the one thing that uses it: the profile picture a
+        # provider will hand to this server but not to the browser.
+        self.token = type("FakeToken", (), {"token": token})() if token else None
 
 
 @skipUnless(settings.OIDC_ENABLED, "allauth is only installed when single sign-on is on")
@@ -523,3 +543,452 @@ class LocalUserCreationTests(TestCase):
 
         self.assertEqual(response.status_code, 405)
         self.assertIn("_auth_user_id", self.client.session)
+
+
+# A picture a browser can fetch, as a standards-abiding provider publishes it, and the one
+# Entra ID publishes instead: an address inside Microsoft Graph that answers only to a
+# request carrying a bearer token.
+PICTURE = "https://provider.example/photos/kim.jpg"
+GRAPH_PICTURE = "https://graph.microsoft.com/v1.0/me/photo/$value"
+
+
+PHOTO = b"the bytes of a photograph"
+
+
+def fake_answer(status=200, content_type="image/jpeg", body=PHOTO):
+    """Stand in for what requests.get returns, context manager and all."""
+    answer = MagicMock()
+    answer.ok = status < 400
+    answer.headers = {"content-type": content_type}
+    answer.raw.read.return_value = body
+    answer.__enter__.return_value = answer
+    return answer
+
+
+class ClaimedPictureTests(TestCase):
+    """Finding the picture in what the provider returned."""
+
+    def test_the_picture_is_read_from_userinfo(self):
+        data = {"userinfo": {"picture": PICTURE}, "id_token": {"sub": "kim"}}
+
+        self.assertEqual(claimed_picture(data), PICTURE)
+
+    def test_userinfo_wins_over_the_id_token(self):
+        # The opposite of the roles, and for the same reason: each is taken from where its
+        # provider actually puts it.
+        data = {
+            "userinfo": {"picture": PICTURE},
+            "id_token": {"picture": "https://provider.example/photos/stale.jpg"},
+        }
+
+        self.assertEqual(claimed_picture(data), PICTURE)
+
+    def test_the_id_token_is_used_when_userinfo_has_none(self):
+        data = {"userinfo": {"sub": "kim"}, "id_token": {"picture": PICTURE}}
+
+        self.assertEqual(claimed_picture(data), PICTURE)
+
+    def test_a_flat_payload_is_understood(self):
+        self.assertEqual(claimed_picture({"picture": PICTURE}), PICTURE)
+
+    def test_nothing_is_found_when_the_claim_is_absent(self):
+        # Most providers publish no picture at all, which is not an error: the initial of
+        # the name is what the sidebar has always shown.
+        self.assertIsNone(claimed_picture({"userinfo": {"sub": "kim"}}))
+        self.assertIsNone(claimed_picture(None))
+
+
+class LoadablePictureTests(TestCase):
+    """Whether the link the provider sent is one that can be displayed."""
+
+    def test_an_image_is_kept(self):
+        with patch("sso.avatars.requests.get", return_value=fake_answer()) as get:
+            self.assertEqual(loadable_picture(PICTURE), PICTURE)
+
+        # Streamed, because the answer's headers settle it and the picture behind them can
+        # be megabytes that nothing here will ever look at.
+        self.assertTrue(get.call_args.kwargs["stream"])
+
+    def test_a_link_that_needs_a_token_is_dropped(self):
+        # What Entra ID sends. Keeping it would put an address in the stylesheet that the
+        # browser is refused, leaving an empty circle where the initial used to be.
+        answer = fake_answer(status=401, content_type="application/json")
+
+        with patch("sso.avatars.requests.get", return_value=answer):
+            self.assertIsNone(loadable_picture(GRAPH_PICTURE))
+
+    def test_something_that_is_not_an_image_is_dropped(self):
+        # A sign-in page, say, which is how some providers answer a request they will not
+        # serve -- with 200 and a page rather than an error.
+        answer = fake_answer(content_type="text/html; charset=utf-8")
+
+        with patch("sso.avatars.requests.get", return_value=answer):
+            self.assertIsNone(loadable_picture(PICTURE))
+
+    def test_an_unreachable_host_costs_the_picture_and_nothing_else(self):
+        # The login has already succeeded by this point, so a picture host that is down,
+        # slow or unresolvable must not turn a completed sign-in into an error page.
+        with patch("sso.avatars.requests.get", side_effect=requests.RequestException):
+            self.assertIsNone(loadable_picture(PICTURE))
+
+    def test_no_picture_asks_nobody(self):
+        with patch("sso.avatars.requests.get") as get:
+            self.assertIsNone(loadable_picture(None))
+
+        get.assert_not_called()
+
+
+class FetchedPictureTests(TestCase):
+    """Downloading the picture that the browser is not allowed to have."""
+
+    def test_the_picture_is_downloaded_with_the_token(self):
+        with patch("sso.avatars.requests.get", return_value=fake_answer()) as get:
+            picture = fetched_picture(GRAPH_PICTURE, "token-123", "graph.microsoft.com")
+
+        self.assertEqual(b64decode(picture["data"]), PHOTO)
+        self.assertEqual(picture["content_type"], "image/jpeg")
+        self.assertEqual(
+            get.call_args.kwargs["headers"], {"Authorization": "Bearer token-123"}
+        )
+
+    def test_the_token_is_sent_nowhere_but_the_provider(self):
+        # The host comes out of a claim. A tampered or mistaken one must not be able to
+        # turn a login into an access token handed to a stranger.
+        with patch("sso.avatars.requests.get") as get:
+            picture = fetched_picture(
+                "https://elsewhere.example/kim.jpg", "token-123", "graph.microsoft.com"
+            )
+
+        self.assertIsNone(picture)
+        get.assert_not_called()
+
+    def test_nothing_is_asked_when_the_provider_named_no_api(self):
+        with patch("sso.avatars.requests.get") as get:
+            picture = fetched_picture(GRAPH_PICTURE, "token-123", None)
+
+        self.assertIsNone(picture)
+        get.assert_not_called()
+
+    def test_a_picture_too_large_to_carry_is_dropped(self):
+        # It would ride in the session row, which Django reads back on every request.
+        answer = fake_answer(body=b"x" * (MAX_PICTURE_BYTES + 1))
+
+        with patch("sso.avatars.requests.get", return_value=answer):
+            self.assertIsNone(
+                fetched_picture(GRAPH_PICTURE, "token-123", "graph.microsoft.com")
+            )
+
+    def test_a_refusal_is_dropped(self):
+        # A token without the permission the provider wants for photographs, which is a
+        # matter of the operator's registration and not something to fail a login over.
+        answer = fake_answer(status=403, content_type="application/json")
+
+        with patch("sso.avatars.requests.get", return_value=answer):
+            self.assertIsNone(
+                fetched_picture(GRAPH_PICTURE, "token-123", "graph.microsoft.com")
+            )
+
+    def test_an_unreachable_api_is_dropped(self):
+        with patch("sso.avatars.requests.get", side_effect=requests.RequestException):
+            self.assertIsNone(
+                fetched_picture(GRAPH_PICTURE, "token-123", "graph.microsoft.com")
+            )
+
+
+class ApiHostTests(TestCase):
+    """The one host a token may be sent to, read from the provider's own document."""
+
+    def test_the_userinfo_host_is_where_the_token_may_go(self):
+        # Where allauth has just sent this very token for the claims themselves, so the
+        # picture costs no new trust.
+        login = MagicMock()
+        adapter = login.account.get_provider.return_value.get_oauth2_adapter.return_value
+        adapter.openid_config = {
+            "userinfo_endpoint": "https://graph.microsoft.com/oidc/userinfo"
+        }
+
+        self.assertEqual(api_host(None, login), "graph.microsoft.com")
+
+    def test_a_provider_that_cannot_be_asked_names_no_host(self):
+        # Discovery is a network call like any other, and failing it costs the picture.
+        login = MagicMock()
+        login.account.get_provider.side_effect = requests.RequestException
+
+        self.assertIsNone(api_host(None, login))
+
+
+class RememberPictureTests(TestCase):
+    """What a login leaves behind for the pages that follow it."""
+
+    def setUp(self):
+        self.request = RequestFactory().get("/")
+        self.request.session = {}
+
+    def test_the_picture_is_stored_on_the_session(self):
+        login = FakeSocialLogin(User(username="kim"), {"picture": PICTURE})
+
+        with patch("sso.avatars.requests.get", return_value=fake_answer()):
+            remember_picture(self.request, sociallogin=login)
+
+        self.assertEqual(self.request.session[SESSION_KEY], PICTURE)
+
+    def test_a_login_without_a_provider_clears_it(self):
+        self.request.session[SESSION_KEY] = PICTURE
+
+        remember_picture(self.request)
+
+        # Signing in as somebody else must not leave their predecessor's face in the
+        # corner of the page.
+        self.assertIsNone(self.request.session[SESSION_KEY])
+
+    def test_a_picture_the_browser_may_have_is_left_to_it(self):
+        # The common case, and the cheap one: the address goes to the browser and this
+        # server never carries the image at all.
+        login = FakeSocialLogin(User(username="kim"), {"picture": PICTURE}, token="tok")
+
+        with patch("sso.avatars.requests.get", return_value=fake_answer()) as get:
+            remember_picture(self.request, sociallogin=login)
+
+        self.assertEqual(self.request.session[SESSION_KEY], PICTURE)
+        self.assertIsNone(self.request.session[SESSION_PICTURE_KEY])
+        # Only the probe. Nothing was downloaded, and no token was sent anywhere.
+        self.assertEqual(get.call_count, 1)
+        self.assertNotIn("headers", get.call_args.kwargs)
+
+    def test_a_picture_only_the_provider_will_hand_over_is_downloaded(self):
+        # Entra ID's shape: the browser is refused, so the login fetches the photograph
+        # with the token it has just been given and the sidebar points back at this system.
+        login = FakeSocialLogin(
+            User(username="kim"), {"picture": GRAPH_PICTURE}, token="token-123"
+        )
+        refused = fake_answer(status=401, content_type="application/json")
+
+        with (
+            patch("sso.avatars.api_host", return_value="graph.microsoft.com"),
+            patch("sso.avatars.requests.get", side_effect=[refused, fake_answer()]),
+        ):
+            remember_picture(self.request, sociallogin=login)
+
+        self.assertEqual(self.request.session[SESSION_KEY], reverse("avatar"))
+        self.assertEqual(
+            b64decode(self.request.session[SESSION_PICTURE_KEY]["data"]), PHOTO
+        )
+
+    def test_a_picture_that_cannot_be_had_at_all_leaves_the_initial(self):
+        login = FakeSocialLogin(
+            User(username="kim"), {"picture": GRAPH_PICTURE}, token="token-123"
+        )
+        refused = fake_answer(status=401, content_type="application/json")
+
+        with (
+            patch("sso.avatars.api_host", return_value="graph.microsoft.com"),
+            patch("sso.avatars.requests.get", return_value=refused),
+        ):
+            remember_picture(self.request, sociallogin=login)
+
+        self.assertIsNone(self.request.session[SESSION_KEY])
+        self.assertIsNone(self.request.session[SESSION_PICTURE_KEY])
+
+    def test_nothing_is_downloaded_without_a_token(self):
+        # A login that never carried one -- there is nothing to ask the provider with.
+        login = FakeSocialLogin(User(username="kim"), {"picture": GRAPH_PICTURE})
+        refused = fake_answer(status=401, content_type="application/json")
+
+        with (
+            patch("sso.avatars.api_host") as host,
+            patch("sso.avatars.requests.get", return_value=refused),
+        ):
+            remember_picture(self.request, sociallogin=login)
+
+        self.assertIsNone(self.request.session[SESSION_KEY])
+        host.assert_not_called()
+
+
+class ScopeChoiceTests(TestCase):
+    """Working out what to ask a provider for, so that nobody has to fill it in."""
+
+    def test_a_provider_is_asked_for_the_standard_scopes(self):
+        self.assertEqual(
+            scopes_for("https://keycloak.example/realms/company"),
+            ["openid", "profile", "email"],
+        )
+
+    def test_entra_is_also_asked_for_what_its_pictures_need(self):
+        # Not discoverable: Entra ID's own document lists only the OpenID Connect scopes,
+        # and User.Read is a Microsoft Graph permission that never appears in it.
+        self.assertEqual(
+            scopes_for("https://login.microsoftonline.com/a-tenant-id/v2.0"),
+            ["openid", "profile", "email", "User.Read"],
+        )
+
+    def test_the_sovereign_clouds_count_as_entra_too(self):
+        for issuer in (
+            "https://login.microsoftonline.us/tenant/v2.0",
+            "https://login.partner.microsoftonline.cn/tenant/v2.0",
+        ):
+            self.assertIn("User.Read", scopes_for(issuer), issuer)
+
+    def test_a_lookalike_domain_is_not_entra(self):
+        # Matching on the letters at the end alone would take "notmicrosoftonline.com" for
+        # Microsoft, and ask a stranger's provider for a permission it has never heard of.
+        self.assertEqual(
+            scopes_for("https://login.notmicrosoftonline.com/tenant/v2.0"),
+            ["openid", "profile", "email"],
+        )
+
+    def test_an_operator_can_overrule_the_choice(self):
+        # The way back for a tenant that will not grant the extra permission, whose
+        # sign-in then fails outright rather than merely losing the picture.
+        self.assertEqual(
+            scopes_for(
+                "https://login.microsoftonline.com/a-tenant-id/v2.0",
+                "openid profile email",
+            ),
+            ["openid", "profile", "email"],
+        )
+
+    def test_an_unconfigured_issuer_asks_for_the_standard_scopes(self):
+        # What every installation with single sign-on switched off carries.
+        self.assertEqual(scopes_for(""), ["openid", "profile", "email"])
+
+
+@skipUnless(settings.OIDC_ENABLED, "the provider is only configured when it is on")
+class ScopeTests(TestCase):
+    """What the sign-in asks the provider for.
+
+    A setting because of the picture: Entra ID hands that over only to a token holding
+    "User.Read", while a provider that has never heard of the scope refuses the request
+    outright. What matters here is that allauth reads the setting at all -- put under the
+    wrong key it would be ignored in silence, and the operator would be left adding a
+    scope that never reached the provider.
+    """
+
+    def provider(self):
+        from allauth.socialaccount.adapter import get_adapter
+
+        request = RequestFactory().get("/")
+        return get_adapter().get_provider(request, provider=settings.OIDC_PROVIDER_ID)
+
+    def test_the_standard_scopes_are_asked_for_by_default(self):
+        self.assertEqual(self.provider().get_scope(), ["openid", "profile", "email"])
+
+    def test_a_configured_scope_reaches_the_provider(self):
+        app = settings.SOCIALACCOUNT_PROVIDERS["openid_connect"]["APPS"][0]
+        extra = dict(app, settings=dict(app["settings"], scope=["openid", "User.Read"]))
+        providers = {"openid_connect": {"APPS": [extra]}}
+
+        with override_settings(SOCIALACCOUNT_PROVIDERS=providers):
+            self.assertEqual(self.provider().get_scope(), ["openid", "User.Read"])
+
+
+class AvatarViewTests(TestCase):
+    """Serving a downloaded picture back to the browser that will draw it."""
+
+    def store(self):
+        session = self.client.session
+        session[SESSION_PICTURE_KEY] = {
+            "content_type": "image/jpeg",
+            "data": b64encode(PHOTO).decode(),
+        }
+        session.save()
+
+    def test_the_picture_is_served(self):
+        self.store()
+
+        response = self.client.get(reverse("avatar"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, PHOTO)
+        self.assertEqual(response["Content-Type"], "image/jpeg")
+
+    def test_it_is_kept_by_the_browser_and_by_no_one_else(self):
+        # One person's face must not sit in a shared cache waiting to be served to the
+        # next, and the browser should not ask again on every page view.
+        self.store()
+
+        response = self.client.get(reverse("avatar"))
+
+        self.assertIn("private", response["Cache-Control"])
+        self.assertIn("max-age", response["Cache-Control"])
+
+    def test_a_session_without_one_has_none_to_give(self):
+        self.assertEqual(self.client.get(reverse("avatar")).status_code, 404)
+
+
+@skipUnless(settings.OIDC_ENABLED, "the signal is allauth's, and is connected with it")
+class LoginSignalTests(TestCase):
+    """The wiring, which is the half that cannot fail loudly.
+
+    remember_picture works when called; what is worth proving is that a login calls it.
+    The signal is sent exactly as allauth sends it, so the arguments it arrives with are
+    part of what is under test.
+    """
+
+    def test_a_provider_login_stores_the_picture(self):
+        from allauth.account.signals import user_logged_in
+
+        request = RequestFactory().get("/")
+        request.session = {}
+        login = FakeSocialLogin(User(username="kim"), {"picture": PICTURE})
+
+        with patch("sso.avatars.requests.get", return_value=fake_answer()):
+            user_logged_in.send(
+                sender=User,
+                request=request,
+                response=None,
+                user=login.user,
+                sociallogin=login,
+            )
+
+        self.assertEqual(request.session[SESSION_KEY], PICTURE)
+
+
+class AvatarMiddlewareTests(TestCase):
+    """Putting the picture where Unfold reads it."""
+
+    def test_the_picture_is_put_on_the_user(self):
+        request = RequestFactory().get("/")
+        request.session = {SESSION_KEY: PICTURE}
+        request.user = User(username="kim")
+
+        middleware(lambda _: None)(request)
+
+        self.assertEqual(request.user.avatar_url, PICTURE)
+
+    def test_a_session_without_one_leaves_the_user_alone(self):
+        # Assigning to request.user resolves the lazy object Django leaves there, which is
+        # a query for the user -- on every request, and most of them render no sidebar.
+        loaded = []
+
+        def load_user():
+            loaded.append(1)
+            return User(username="kim")
+
+        request = RequestFactory().get("/")
+        request.session = {}
+        request.user = SimpleLazyObject(load_user)
+
+        middleware(lambda _: None)(request)
+
+        self.assertEqual(loaded, [])
+
+
+@skipUnless(settings.OIDC_ENABLED, "the middleware is installed with single sign-on")
+class AvatarInTheSidebarTests(TestCase):
+    """What all of it is for: Unfold showing the picture where the initial was."""
+
+    def setUp(self):
+        self.client.force_login(User.objects.create_superuser("kim"))
+
+    def test_the_picture_is_shown(self):
+        session = self.client.session
+        session[SESSION_KEY] = PICTURE
+        session.save()
+
+        self.assertContains(self.client.get(reverse("admin:index")), PICTURE)
+
+    def test_a_session_without_one_shows_the_initial(self):
+        # Unfold's own fallback, which is the whole of the feature for a provider that
+        # publishes no picture -- and must stay reachable rather than being replaced by a
+        # blank circle.
+        self.assertNotContains(self.client.get(reverse("admin:index")), "background-image")

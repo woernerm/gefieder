@@ -4,8 +4,11 @@ from urllib.parse import urlencode
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth import logout as end_session
+from django.http import Http404, HttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse
+
+from .avatars import PICTURE_MAX_AGE, stored_picture
 
 # Adding this to the login URL reaches the local form while single sign-on is on. It is the
 # way back in for the superuser when the provider is unreachable or misconfigured, so it is
@@ -54,3 +57,26 @@ def logout(request):
 
     end_session(request)
     return redirect(settings.OIDC_LOGOUT_URL)
+
+
+def avatar(request):
+    """Serve the profile picture the login downloaded, out of the session holding it.
+
+    Only for providers whose picture a browser cannot fetch for itself; see sso/avatars.py.
+    Nothing here is anyone else's to see: the answer is built from the requester's own
+    session, so a session without a picture in it has none to give, whoever asks.
+
+    Cached privately for the same reason the picture is served from an address at all
+    rather than written into every page: the browser should ask for it once, not on every
+    page view, and no shared cache should keep one person's face for the next.
+    """
+    picture = stored_picture(request.session)
+    if not picture:
+        raise Http404("this session carries no profile picture")
+
+    data, content_type = picture
+    return HttpResponse(
+        data,
+        content_type=content_type,
+        headers={"Cache-Control": f"private, max-age={PICTURE_MAX_AGE}"},
+    )

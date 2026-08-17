@@ -16,6 +16,8 @@ from pathlib import Path
 
 from django.urls import Resolver404, resolve
 
+from sso.scopes import scopes_for
+
 APP_NAME = os.environ.get("APP_NAME", "app").capitalize()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -264,6 +266,11 @@ OIDC_PROVIDER_ID = "sso"
 
 # The provider's client secret, mounted by the quadlet. The placeholder the installer
 # creates is inert while OIDC_ENABLED is false.
+# What to ask the provider for, worked out from the issuer rather than configured; see
+# sso/scopes.py for why it cannot simply be discovered. OIDC_SCOPES overrules it, and is
+# empty in every installation that has no reason to.
+OIDC_SCOPES = scopes_for(OIDC_ISSUER, os.environ.get("OIDC_SCOPES", ""))
+
 OIDC_CLIENT_SECRET_FILE = Path("/run/secrets/oidc_client_secret")
 
 OIDC_CLIENT_SECRET = (
@@ -279,7 +286,12 @@ if OIDC_ENABLED:
         'allauth.socialaccount',
         'allauth.socialaccount.providers.openid_connect',
     ]
-    MIDDLEWARE += ['allauth.account.middleware.AccountMiddleware']
+    MIDDLEWARE += [
+        'allauth.account.middleware.AccountMiddleware',
+        # After the authentication middleware, whose user object it decorates with the
+        # profile picture the provider published.
+        'sso.avatars.middleware',
+    ]
 
     # ModelBackend stays first and enabled: it is how the local superuser gets in when the
     # provider is unreachable or misconfigured.
@@ -298,7 +310,7 @@ if OIDC_ENABLED:
                     "name": OIDC_PROVIDER_NAME,
                     "client_id": OIDC_CLIENT_ID,
                     "secret": OIDC_CLIENT_SECRET,
-                    "settings": {"server_url": OIDC_ISSUER},
+                    "settings": {"server_url": OIDC_ISSUER, "scope": OIDC_SCOPES},
                 },
             ],
         },
