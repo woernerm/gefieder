@@ -20,8 +20,8 @@ set -e
 # reading hours apart from it.
 SQLMESH_LOG_ARGS="--log-to-stdout --log-file-dir /tmp/sqlmesh-logs"
 
-# Expose the database password from the mounted secret to the env_var() templating
-# in config.yaml.
+# Expose the database password from the mounted secret for the connection check below.
+# config.py reads the secret file itself, so this is only for the psycopg2 call.
 SQLMESH_PASSWORD="$(cat /run/secrets/sqlmesh_password)"
 export SQLMESH_PASSWORD
 

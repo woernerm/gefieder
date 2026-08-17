@@ -31,12 +31,13 @@ COPY sqlmesh/pyproject.toml /sqlmesh/pyproject.toml
 # Install the project dependencies defined in pyproject.toml.
 RUN UV_EXTRA_INDEX_URL=${PYTHON_INDEX} uv sync --project /sqlmesh --no-dev
 
-# Copy the SQLMesh project into the image. A developer who ran sqlmesh from the host has
-# a sqlmesh/logs/ directory of stale log files; it is gitignored, but a local build would
-# still copy it in, so it is removed again here rather than shipped in the image. In the
-# container the engine logs to stdout and writes its files under /tmp (see entrypoint.sh).
+# Copy the SQLMesh project into the image. In the container the engine logs to stdout and
+# writes its files under /tmp (see entrypoint.sh), and the password comes from the mounted
+# podman secret, so a developer's sqlmesh/logs/ and sqlmesh/.env have no business here.
+# The .dockerignore keeps them out of the build context; the removal below is a second
+# line of defence for the password, which must never reach a distributed image.
 COPY sqlmesh/ /sqlmesh/app/
-RUN rm -rf /sqlmesh/app/logs
+RUN rm -rf /sqlmesh/app/logs /sqlmesh/app/.env
 
 # Copy the startup script that applies the plan and runs the scheduling loop. It is
 # committed executable, so a plain COPY (no BuildKit --chmod) preserves the mode.

@@ -447,6 +447,139 @@ becomes its own file. The check and convert functions are plain Python functions
 `crudman/app/dropzones/functions/`; the shipped ones double as the pattern for
 writing your own.
 
+## Writing analytics models
+This walks you through changing a model and getting it into production. It follows the
+example tenants that ship with the system, so you can do every step on a fresh
+installation before writing anything of your own.
+
+The models live in `sqlmesh/`, and they are ordinary files in your repository: bronze
+models per tenant under `models/bronze/`, the per-tenant transforms and the harmonized
+`silver.issues` under `models/silver/`, and the precomputed metrics under `models/gold/`.
+The example data comes from the CSVs in `seeds/`, so the pipeline runs without any
+external tooling.
+
+### 1. Set up your machine
+You work on your own machine and connect to the server's database over the network. Get
+the password — it is the `sqlmesh_password` secret, so on the server run:
+
+```bash
+podman secret inspect --showsecret sqlmesh_password
+```
+
+Then, in your checkout:
+
+```bash
+uv sync --project sqlmesh                     # creates sqlmesh/.venv
+echo "SQLMESH_PASSWORD=<the secret>" > sqlmesh/.env
+```
+
+`sqlmesh/.env` is gitignored and never reaches an image; exporting `SQLMESH_PASSWORD`
+works just as well. Nothing else needs configuring: `sqlmesh/config.py` notices where it
+is running and connects to the database next to it in the container, or to `SERVER_NAME`
+from `runtime.env` on port 5432 from your machine.
+
+For the editor, install the **SQLMesh** extension, then run *Python: Select Interpreter*
+from the command palette and pick `sqlmesh/.venv/bin/python` — the extension needs an
+interpreter that has SQLMesh installed. Its `sqlmesh` output channel tells you which one
+it found. After changing the config, run *SQLMesh: Restart Servers*. You then get column
+completion, lineage and errors as you type; the commands below stay the same either way.
+
+### 2. Change a model
+Open `sqlmesh/models/gold/issue_metrics.sql` and add a column to the query — say
+`AVG(effort) AS average_effort`. Models are plain SQL wrapped in a `MODEL (...)` block
+that names the model and says how it is materialized: `VIEW` for the thin harmonizing
+layer, `FULL` for the gold tables dashboards read, `SEED` for the example CSVs.
+
+### 3. Plan it into your own environment
+A *plan* compares your files against a target environment and shows what would change
+before anything happens:
+
+```bash
+cd sqlmesh
+uv run sqlmesh plan
+```
+
+It classifies each change. Adding a column is **non-breaking**, so only that model is
+rebuilt; something that changes existing rows, like a new `WHERE` clause, is **breaking**
+and everything downstream is rebuilt too. You confirm, and it runs.
+
+Notice you did not name an environment. A bare `plan` targets `dev` on your machine, and
+`prod` in the container — so the easiest command to type is also the safe one, and
+touching production takes deliberately typing `sqlmesh plan prod`.
+
+### 4. Environments
+An environment is a set of views, not a copy of the data. Your `dev` environment appears
+as `gold__dev.issue_metrics` alongside the real `gold.issue_metrics`, and only the models
+you actually changed get built; everything else points straight at the production tables.
+That makes an environment cheap to create and impossible to confuse with production. Use
+one per piece of work if you like — `uv run sqlmesh plan feature_x`. Unused development
+environments are cleaned up after a week, so nothing accumulates.
+
+Query yours from Grafana or `psql` exactly like the real thing:
+
+```sql
+SELECT * FROM gold__dev.issue_metrics;
+```
+
+### 5. Test it
+Unit tests check a model's logic against rows you write by hand, without touching the
+database — they run on an in-memory engine. Put them in `sqlmesh/tests/` as YAML:
+
+```yaml
+# sqlmesh/tests/test_issue_metrics.yaml
+test_issue_metrics_counts_by_state:
+  model: gold.issue_metrics
+  inputs:
+    silver.issues:
+      rows:
+        - {tenant_id: project_a, state: open, effort: 3}
+        - {tenant_id: project_a, state: closed, effort: 5}
+  outputs:
+    query:
+      rows:
+        - {tenant_id: project_a, total_issues: 2, open_issues: 1, closed_issues: 1, total_effort: 8}
+```
+
+```bash
+uv run sqlmesh test
+```
+
+Tests also run on their own every time you make a plan, so a broken model cannot reach
+an environment unnoticed.
+
+### 6. Audit it
+Where tests check the logic, *audits* check the data each time a model runs. Built-in
+ones cover the usual cases and go straight into the model:
+
+```sql
+MODEL (
+  name gold.issue_metrics,
+  audits (not_null(columns := (tenant_id)))
+);
+```
+
+For anything else, write a query that selects the rows that should not exist. Gefieder
+ships one: `sqlmesh/audits/assert_known_tenant.sql` returns any row missing `tenant_id`
+or `issue_id`, and every per-tenant staging model references it, so a transform that
+forgets the canonical key columns fails the plan instead of quietly polluting
+`silver.issues`. Audits block by default — the run stops rather than passing bad data on.
+
+### 7. Ship it
+Commit your models. The server rebuilds its image from the repository, and the engine
+applies whatever it finds to `prod` when it starts, so committing is what makes a change
+permanent. Running `uv run sqlmesh plan prod` yourself applies it to production right
+away, which is useful when you cannot wait for a deployment — but if you skip the commit,
+the next deployment puts the old version back.
+
+### A note on state
+SQLMesh keeps its own record of every model version, what has been built and which
+version each environment points at. In Gefieder that lives in the `sqlmesh` schema of the
+same PostgreSQL database, which is why your machine and the server agree about
+environments at all, and why the ordinary backup of `postgresql_data` already covers it.
+Two consequences worth knowing: dashboards have no business reading that schema (Grafana
+is denied it), and dropping it loses the history that lets SQLMesh rebuild only what
+changed — the data survives, but the next plan wants to rebuild everything.
+
 ## Scripts
 | Script | What it does |
 | --- | --- |

@@ -1,0 +1,17 @@
+# Files that exist only on a developer's machine and must never enter an image build.
+# The build context is the repository root, so this one file covers every service.
+# Podman reads it as well, so ./dev.sh and ./run-tests.sh honour it too.
+
+# Virtual environments. The development workflow in the README creates sqlmesh/.venv, which
+# is several hundred megabytes; each image builds its own environment with uv and would
+# otherwise carry a copy of the host's around as well.
+**/.venv
+
+# The database password SQLMesh uses when it runs from a developer's machine, and the log
+# files and caches such a run leaves behind. See .gitignore.
+sqlmesh/.env
+sqlmesh/logs
+sqlmesh/.cache
+
+# Bytecode from running the models or the Django app on the host.
+**/__pycache__
