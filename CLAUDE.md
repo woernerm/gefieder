@@ -212,4 +212,13 @@
       dropzone, the file path, the upload timestamp and the validity period. 
     - Files shall be stored using django FileField. The file path shall be stored in the 
       database. The file itself shall be stored in a volume.
-      
+
+# Documentation
+- When considering questions about sqlmesh, refer to the current documentation 
+  (including subpages):
+    - https://sqlmesh.readthedocs.io/en/stable/quick_start/
+    - https://sqlmesh.readthedocs.io/en/stable/guides/projects/
+    - https://sqlmesh.readthedocs.io/en/stable/concepts/overview/
+    - https://sqlmesh.readthedocs.io/en/stable/examples/overview/
+    - https://sqlmesh.readthedocs.io/en/stable/integrations/overview/
+    - https://sqlmesh.readthedocs.io/en/stable/faq/faq/
