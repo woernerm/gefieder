@@ -9,7 +9,10 @@ venv/
 ENV/
 env/
 .python-version
-.claude/
+
+# Claude Code: the shared project settings and skills are committed,
+# the per-machine overrides are not.
+.claude/settings.local.json
 
 # Testing and tooling
 .pytest_cache/

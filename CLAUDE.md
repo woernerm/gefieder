@@ -1,224 +1,77 @@
 # Instructions for this repository
 
-# General
-- You are running in a Ubuntu WSL. Podman 5.x is installed and configured to run 
-  rootless.
-- When executing you final tests, you can always use run-tests.sh to run the integration 
-  tests. It will start a local podman registry, build the images, start the services and 
-  run the tests. Do not skip that step if you changed code (apart from comments only).
+- Purpose: Whitelabel template for multi-tenant data analytics systems (user configures 
+  `APP_NAME` in `buildtime.env`). It solves the wireing, configuration and 
+  initialization of its components. It does not provide data models or metrics apart 
+  from examples (since it is a template).
+- Target audience: Organizations with multiple projects using an inhomogenius landscape 
+  of tools (issue trackers, version control systems, ERP systems, other bespoke apps), 
+  workflows and processes. Expected volume: 20 - 500 GB of low quality data. Mostly 
+  historic meta data (e.g. workflow state, categories, tags, effort and cost estimates, 
+  risk levels, etc.) with modification timestamps. Small amount of IOT data. Faced 
+  with high reporting requirements about the development of safety critical and highly 
+  legislated products.
 
-## Purpose
-- The repository is named after the APP_NAME setting in `buildtime.env`.
-- The repository is a template for data analytics systems. The included software 
-  services are already configured and properly wired together. It automatically updates
-  and restarts itself after power loss or failure.
-- It is well suited for organizations which might have multiple projects with 
-  different data sources (issue trackers, version control systems, ERP systems, other 
-  bespoke applications) as well as different workflows or processes. 
-- It is applicable across a range of industries that have a strong focus on reporting.
-- Reporting is typically done to provide evidence of quality, improve efficiency or 
-  satisfy reporting requirements of third parties.
+- Deployment: Rootless podman (>5.0) quadlets to Ubuntu or Red Hat. Single install cmd:
+  `curl -fsSL https://github.com/your-org/your-repo/releases/latest/install.sh | bash`
+- Components: PostgreSQL, Django admin, SQLMesh, Grafana, nginx proxy, dropzone SFTP and
+  Arrow Flight endpoints.
+- Reachable from outside: Grafana and Django admin through the nginx proxy (80/443);
+  PostgreSQL (5432), SFTP (2222) and Flight (8815) publish their own port.
 
-## Technical context
-- The application is a multi-tenant data analytics application. A tenant can refer to a 
-  real person or a project that shall be kept separate from other projects. 
-- The application is deployed as podman quadlets to a linux server.
-- It supports at least Ubuntu and Red Hat. 
-- There is a django service `crudman` for administration and data entry (CRUD).
-- There is a PostgreSQL service for storing the analytics and django application data.
-- There is a SQLMesh analytics engine for running queries and generating reports.
-- There is a Grafana instance for visualizing the data and reports. 
-- There is a proxy service that terminates TLS and routes requests to the services.
-- All services are running in the same network and can communicate with each other.
-- All services have their own data volumes for persistence.
-- All services have their own directory in the repository.
 
-### Database
-- Engineering data is acquired by external tools that write directly to the database. 
-- The database uses multiple schemas in a medallion architecture (bronze, silver, gold).
-- The bronze schema contains raw data. There can be multiple bronze schemas, one for 
-  each tenant/project, because the raw data can be in vastly different formats and 
-  models.
-- The silver schema contains data in a standardized model. 
-- The gold schema contains materialized tables with precomputed metrics and statistics
-  derived from standardized model data in the silver schema.  
-- Extensions shall be downloaded during image build so that no internet connection is 
-  required for downloading PostgreSQL extensions on the target machine.
+## Where things are
 
-### Administration Panel
-- `crudman` mainly uses Django's "free" admin feature, styled with the Unfold package.
-- Prefer Django's public and documented API instead of private methods and undocumented
-  workarounds. Likewise, only override functions that the Django team intended to be
-  overridden by the user.
-- It is used to add contextual/organizational data to the database, such as knowledge of 
-  teams, projects, users, metadata or institutional knowledge that has not been 
-  documented otherwise and may vary from project to project. If this data was adequately 
-  documented, it would be extracted by another tool and stored in the database.
-- Data is added by filling out custom forms or by importing it from files.
-- It is exposed to non-admin users as well, so data entry can be shared rather than 
-  relying solely on admin users.
+- `crudman/` — Django admin (Unfold); apps in `app/`: tenants, dropzones, sso, example.
+- `sqlmesh/` — SQLMesh project: `config.py`, `models/{bronze,silver,gold}`.
+- `postgresql/` — pgduckdb image; `initdb/gf_000N_*.{sh,sql}` for initialization.
+- `grafana/` — `custom.ini`: configuration, `provisioning/`: default dashboards, 
+  `render.sh`: replace template placeholders at build time.
+- `proxy/` — nginx; `http.conf.template` and `https.conf.template`.
+- `serverstats/` — `collect.sh` plus a systemd service and timer. Runs on target machine
+  to collect server statistics, used to determine the right VM size in the cloud.
+- `quadlets/` — every unit, centrally: `main.pod`, `*.container`, `*_data.volume`.
+- `tests/` — the pytest integration suite; `run-tests.sh` starts a throwaway stack for it.
+- `*/requirements.md` — what a component must do and why: `quadlets/`,
+  `crudman/app/dropzones/`, `crudman/app/tenants/`.
+- `build.sh` builds release images; `install.sh` and `uninstall.sh` run on target
+  machine. Both distributed as assets of the GitHub Release.
 
-### Analytics
-- Users of the application can write queries using SQLMesh that are executed according 
-  to a schedule.
+# Medallion architecture
+- Bronze: Raw source data, one schema per tenant. Best for urgent metric requests and
+  tool-centric metrics (like error checking of source data).
+- Silver: Standardized model. Independence of tools and projects. Best for 
+  knowledge-domain focused metrics (e.g. project & resource planning, forecasting, agile 
+  methods, management).
+- Gold: Materialized metrics derived from silver. Best for long-term metrics that are 
+  used across projects. Quick load times. Easy to embed in external HTML documentation.
 
-# Deployment
-- The system shall be deployed using podman quadlets. 
-- Each software component shall have a `quadlets/` directory with the corresponding 
-  quadlet files.
-- The system shall run with rootless podman.
-- The README.md file shall include installation instructions.
-- All build artifacts, the quadlet files, as well as the install script shall be 
-  uploaded as github release.
-- The system shall be installable from a github release using a curl command similar to 
-  this: `curl -fsSL https://github.com/your-org/your-repo/releases/latest/install.sh | bash`
-- The services shall log to stdout/stderr only. Podman forwards the stream to journald,
-  which persists the logs across restarts, container replacements and crashes, and
-  rotates and size-caps them. The services shall not write their own log files to a
-  volume: those grew unbounded, and a file written by a non-root user inside a container
-  lands on a mapped subuid the host user cannot read without `podman unshare`.
-- Every log line shall begin with journald's timestamp, which it stamps on each entry it
-  records. That one is the log's timestamp.
-- No service shall be *configured* to add a second timestamp of its own. PostgreSQL's
-  `log_line_prefix` therefore carries the backend pid alone, with no time escape.
-- Some services format their own timestamp and cannot be told not to (gunicorn, nginx,
-  SQLMesh, Grafana). That is accepted, on one condition: the second stamp must not
-  contradict the first. A stamp that names no zone shall be in the host's, so those
-  containers run with `Timezone=local`.
-- Logs of apps like PostgreSQL, Grafana, crudman, sqlmesh shall be accessible by using
-  journalctl on the host system by the host user. This rule does not apply to the 
-  proxy's `visits.log` file. 
+## Checking your work
 
-## Configuration
-- There shall be a `buildtime.env` configuration file for all variables that need to be
-  known before the images are build.
-- There shall be a `runtime.env` configuration file for all variables that need to be 
-  known before the images are run. These shall be made available as environment 
-  variables in the images requiring them (not every variable in every image).
-- The `buildtime.env` configuration file shall have entries for company proxy settings.
-- There shall be a setting for extra index URL (for uv or pip). If not empty, uv/pip
-  shall use the provided index url (e.g. --extra-index-url if pip is used).
+- `./dev.sh up | down | logs | serverstats` runs a local stack. Does not read quadlets.
+- `./run-tests.sh [dev|production] [pytest args]` builds images, starts a throwaway
+  stack, runs crudman unit tests and integration suite. **Run it before calling a
+  code change done**, comment-only changes excepted. Dev: Debug on, served via http. 
+  Production: Debug off, served via https.
 
-## Build
-- Each service directory shall have a Dockerfile; 
-- The github workflow shall use docker to build the images. 
-- The github workflow shall read the proxy settings from the .env file and provide
-  then as command line arguments to the docker build command. This is intended to
-  allow the installation of packages from public repositories like pypi or dockerhub
-  even when building from behind a company proxy.
-- The github release shall consist of separate files: One file for each quadlet file.
-  One file for each docker image. 
-- The build script shall use full commit hashs for actions.
-- The build script shall be triggered by a commit to the main branch.
+## Conventions
 
-## Install Script
-- The install script shall test whether subuid and subgid mappings are available for the 
-  current user before continuing with the installation.
-- The install script shall create the data volumes up front, so their directories belong
-  to the rootless podman user from the start rather than to whoever's container writes
-  them first. The files *inside* a volume are a different matter: a service that drops to
-  a non-root user in its container (postgresql, grafana) writes them under a mapped
-  subuid, and reading those from the host needs `podman unshare`. That is accepted rather
-  than worked around — the alternatives (`UserNS=keep-id`, per-service uidmap juggling)
-  break the PostgreSQL image, which insists on running as its own user. The cheat sheet
-  and the README shall name the volumes this applies to.
-- The install script shall use separate curl commands for downloading all files related
-  to a github release.
-- The install script shall create podman secrets for the crudman, grafana and django
-  users as well as the django_secret_key based on `openssl rand -hex 32`. It shall omit 
-  the creation of secrets for human users like the superuser. 
-- The install script shall output a cheat sheet with control commands for
-    - Control command for starting the system right now.
-    - Control command for starting the backup procedure right now.
-    - Control command for viewing a live log of the whole system, combining every
-      software component into one stream. One `journalctl` command is enough for both
-      the live and the persistent log: the journal is where the log lives, so there is
-      no file to `cat`, and dropping the `-f` reads the history back. Per-component
-      commands belong in the README, not in the cheat sheet, which stays short enough
-      to be useful.
-    - The path of each volume (so that the user can cd into the respective directories).
-    - Control command for opening the runtime.env configuration file with the host
-      system's default editor (or nano if there is no default).
-    - Control command for setting the single sign-on client secret. It belongs here rather
-      than in the README because the identity provider expires it, so the command is needed
-      again long after the installation.
-- The install script shall store a helpfile in the rootless podman user's home 
-  directory.
-
-# Testing & Debugging
-- The integration tests are run using run-tests.sh.
-- A local development system can be started using dev.sh.  
-
-# Style
-- Follow podman/container deployment best practices.
-- Keep changes minimal compared to the current version.
-- Keep the code beautiful and simple. Do not add unnecessary complexity. 
-- Python packages are only installed using uv.
-- Always explain briefly the main changes you have done and why they were necessary.
-- Simplifying or making the code more concise means removing code, not removing 
-  comments, newlines or whitespace.
-- Comments first and foremost explain why something is done.
-- Filenames and folder structure should look clean and professional, following best 
-  practices.
-- In `Readme.md`, keep a concise, natural human-like style with only user-level 
-  explainations. Don't fall into technical verbosity.
-- The `Readme.md` should be focused on the perspective of someone using this system
-  as a productive system, not as someone developing it.
-- Use the type annotations that are considered best practice for the python version used 
-  in the respective docker containers.
-- Use sentece case (e.g. "Reject empty files") for the registry names of checker and 
-  converter functions of the dropzones django app in crudman. Stay with snake case for 
-  the actual python function names.
-- Keep your final responses concise. Try to stay below 120 words.
-
-# Example Tenants
-- There are three example tenants "Project A", "Project B" and "Project C"
-- "Project A" and "Project B" use sql transformations while "Project C" uses Python,
-  specifically Polars.
-- The example tenants are always created when the system first starts.
-- Having two example tenants should nicely illustrate to the user where to place files 
-  for real tenants.
-- The example tenants are intended to be deleted by the user when developing for
-  production.
-- There is some example seed data for both example tenants.
-
-# Data Sources
-- The system is designed to be used with multiple data sources.
-- The system shall support file uploads using the web browser or sftp.
-    - Files are not random uploads. Each file has a specific purpose and is expected to 
-      be in a specific format (e.g. Excel columns have been discussed with the 
-      prducing user and agreed upon). Therefore, each kind of files has its own 
-      dropzone (i.e. folder, API endpoint, sftp directory) and its own processing 
-      script. The name of the files on disk does not matter. It can be named 
-      after the uploaded files with a timestamp or (maybe partial) uuid or both.
-    - An upload may consist of multiple files.
-    - The user shall use crudman to define dropzones. A dropzone uniquely identifies
-      the source's purpose, the file format (e.g. Excel, CSV, Parquet) and the method
-      of upload (e.g. Post to API endpoint, sftp directory, browser file upload, 
-      variable values via a GET-Request, Arrow Flight).
-    - Crudman shall have a model for a dropzone. It contains at least its name, 
-      description, file format, file path, upload method, processing function to be 
-      used and authentication details (e.g. sftp username and password, API token, 
-      etc.).
-    - The web browser file upload shall be implemented as a drag-and-drop area 
-      (dropzone) in the crudman interface. It shall be possible to upload multiple files 
-      at once.
-    - Each drop zone shall have its own URL (e.g. API entpoint, browser upload URL, 
-      sftp address) to connect to.
-    - If the method of upload allows, the user shall be able to select a validity period
-      for the file upload. It determines the start and end dates, the content of the 
-      file where valid for a project. 
-    - There shall be a model for a file upload. It has at least the foreign key to the 
-      dropzone, the file path, the upload timestamp and the validity period. 
-    - Files shall be stored using django FileField. The file path shall be stored in the 
-      database. The file itself shall be stored in a volume.
-
-# Documentation
-- When considering questions about sqlmesh, refer to the current documentation 
-  (including subpages):
-    - https://sqlmesh.readthedocs.io/en/stable/quick_start/
-    - https://sqlmesh.readthedocs.io/en/stable/guides/projects/
-    - https://sqlmesh.readthedocs.io/en/stable/concepts/overview/
-    - https://sqlmesh.readthedocs.io/en/stable/examples/overview/
-    - https://sqlmesh.readthedocs.io/en/stable/integrations/overview/
-    - https://sqlmesh.readthedocs.io/en/stable/faq/faq/
+- Install Python packages with uv, never pip.
+- Prefer `str | None` and builtin generics, not `typing.Optional` or `typing.List`. 
+- Comments explain *why* only, never *what*. If the logic is hard to understand, it may
+  explain *how*. 
+- Simpler code means removing code, not comments or blank lines.
+- Keep changes minimal against the current version, and explain briefly what changed and
+  why it was necessary.
+- Services log to stdout/stderr only and add no timestamp of their own — journald stamps
+  every line. Avoid writing log files to a volume. Only SQLMesh stamps its own lines, as
+  its format is hardcoded; its container runs `Timezone=local` so both stamps agree.
+- `buildtime.env`: Neither stored in images nor target machine (APP_NAME, proxy, mirrors, 
+  extensions).
+- `runtime.env`: Storage and final edits on target machine (SERVER_NAME,
+  DEBUG, OIDC_*) 
+- Credentials are podman secrets, never files in a volume.
+- README.md addresses someone *running* the system, not developing it: concise, 
+  novice user level. No technical details.
+- Push to origin/main triggers `.github/workflows/publish.yml` (builds images & creates 
+  GitHub release).

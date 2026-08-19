@@ -586,7 +586,7 @@ changed — the data survives, but the next plan wants to rebuild everything.
 | --- | --- |
 | `./build.sh` | build the five images with docker (REGISTRY/IMAGE_TAG from `buildtime.env`) |
 | `./dev.sh` | build and (re)start a local development stack; `down`, `logs` and `serverstats` are its subcommands |
-| `./run-tests.sh [production]` | build a throwaway stack, run the integration suite, tear it down |
+| `./run-tests.sh [dev\|production] [pytest args]` | build a throwaway stack, run the integration suite, tear it down; extra arguments go to pytest |
 | `./install.sh` | install from a GitHub release: load the image tarballs, install the quadlets, create secrets, start the system |
 | `./uninstall.sh` | remove a deployment again, asking first before it deletes the data volumes and the secrets |
 
@@ -666,6 +666,7 @@ so it asks to remove an installed one first — and that takes its data volumes 
 ```bash
 ./run-tests.sh             # development profile: plain HTTP
 ./run-tests.sh production  # production profile: HTTPS with a self-signed certificate
+./run-tests.sh dev -k logs # only the integration tests whose name matches
 ```
 
 ## Licensing

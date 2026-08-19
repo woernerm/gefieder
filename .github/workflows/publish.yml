@@ -74,8 +74,8 @@ jobs:
       - name: Build the images
         run: ./build.sh
 
-      # Stage every release asset in dist/: one tarball per image (CLAUDE.md's "one file
-      # per docker image"), one file per quadlet, the rendered manifest the installer
+      # Stage every release asset in dist/: one tarball per image (quadlets/requirements.md's
+      # "one file per docker image"), one file per quadlet, the rendered manifest the installer
       # sources, and the installer itself.
       - name: Stage the release assets
         run: |

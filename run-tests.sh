@@ -6,9 +6,16 @@
 #
 #   ./run-tests.sh             test the dev profile (DEBUG=true, plain HTTP)
 #   ./run-tests.sh production  test the production profile (DEBUG=false, HTTPS)
+#   ./run-tests.sh dev -k logs run only the matching integration tests
 set -e
 
-PROFILE="${1:-dev}"
+# The profile is the optional first argument; everything after it is handed to pytest, so
+# one failing test can be re-run without waiting for the whole suite. The image build is
+# cached, so a repeat run costs the stack start and the selected tests.
+PROFILE=dev
+case "${1:-}" in
+  dev|production) PROFILE="$1"; shift ;;
+esac
 REPO="$(cd "$(dirname "$0")" && pwd)"
 cd "$REPO"
 
@@ -470,4 +477,4 @@ rm -rf "$UNIT_SECRET_DIR"
 
 # Run the suite. uv provides the test dependencies from tests/pyproject.toml.
 echo "Running the integration test suite ..."
-uv run --project tests pytest tests/ -v
+uv run --project tests pytest tests/ -v "$@"

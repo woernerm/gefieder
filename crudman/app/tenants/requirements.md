@@ -3,7 +3,7 @@
 The "Tenants" django app manages tenants in the PostgreSQL database. While it has
 a Tenant model, the instances shown in the admin interface are fake. They don't refer
 to rows in table but are obtained by extracting the information from the tenant schemas
-in the database (see `Claude.md` for details on the tenant model and the medaillon 
+in the database (see `CLAUDE.md` for details on the tenant model and the medallion 
 architecture). Creating a tenant also means calling the respective PostgreSQL function
 instead of actually saving a row in the database representing the tenant.
 

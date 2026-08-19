@@ -1,7 +1,7 @@
 # Requirements for the "dropzones" django app.
 
-The "dropzones" app offers convenient ways for users and external tools to upload
-source data files. Massive historical data is still written directly to the database;
+The "dropzones" app offers convenient ways for non-technical users and external tools to 
+upload data. Massive historical data is still written directly to the database;
 dropzones are the entry point for everything else: hand-maintained mappings, exports
 from other systems, files agreed upon with their producers.
 

@@ -1,4 +1,4 @@
-"""Resilience behaviours CLAUDE.md describes: the system restarts itself after a failure,
+"""Resilience behaviours docs/decisions.md describes: the system restarts itself after a failure,
 and data in the named volumes survives a container restart.
 
 These tests stop/kill containers, so they run after the read-only startup/http/db tests
