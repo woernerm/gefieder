@@ -12,7 +12,9 @@
 # SQLMesh refuses to start if a config.yaml sits next to this file: it loads at most one
 # config per directory. Do not reintroduce one.
 
+import getpass
 import os
+import re
 from pathlib import Path
 
 from dotenv import dotenv_values
@@ -39,6 +41,8 @@ if IN_CONTAINER:
     port = int(os.environ.get("POSTGRES_PORT", "5432"))
     database = os.environ.get("POSTGRES_DB", "postgres")
     password = SECRET_PATH.read_text().strip()
+    # The deployed engine owns production, so it keeps the shared service role.
+    user = "sqlmesh"
 else:
     # On a developer's machine the database is reached over the network, on the port the
     # pod publishes. SERVER_NAME is the address the system is reached under, so it is
@@ -49,14 +53,27 @@ else:
     port = 5432
     database = "postgres"
     # SQLMesh loads sqlmesh/.env into the environment before importing this file, so this
-    # picks up either an exported variable or the gitignored file. The password is a
-    # podman secret and deliberately lives in neither of the committed env files.
+    # picks up either an exported variable or the gitignored file.
     password = os.environ.get("SQLMESH_PASSWORD")
     if not password:
         raise ValueError(
             "SQLMESH_PASSWORD is not set. Export it or write it to sqlmesh/.env. "
-            "Read it on the server with: podman secret inspect --showsecret sqlmesh_password"
+            "It is the password of your own database account, issued once when an "
+            "administrator provisioned it in crudman under Database access."
         )
+
+    # Developers connect as themselves, not as the deployed engine. The shared sqlmesh
+    # secret therefore never leaves the server: it belongs to the container and to CI,
+    # which is what makes a query on this database traceable to a person and a departure
+    # a matter of disabling one role.
+    #
+    # The role name is derived exactly as crudman derives it when provisioning (see
+    # dbusers.utils.role_name_for), so nothing has to be looked up or configured. Someone
+    # whose local account is named differently from their login here overrides it with
+    # SQLMESH_USER.
+    user = os.environ.get("SQLMESH_USER") or (
+        "gf_u_" + re.sub(r"[^a-z0-9]+", "_", getpass.getuser().strip().lower()).strip("_")
+    )[:50]
 
 config = Config(
     gateways={
@@ -65,7 +82,7 @@ config = Config(
                 host=host,
                 port=port,
                 database=database,
-                user="sqlmesh",
+                user=user,
                 password=password,
             )
         )

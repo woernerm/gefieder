@@ -28,3 +28,16 @@ reads. Container runs `sqlmesh plan --auto-apply --no-prompts` at startup, then
 Project A, B and C are examples created at first start (`postgresql/initdb/gf_0006`), 
 meant to be deleted for production. Layer details: `models/bronze/README.md`,
 `models/silver/README.md`. For SQLMesh itself use the `sqlmesh-docs` skill.
+
+## Developing models with your own account
+
+Developers connect as themselves, not as the deployed engine: the shared `sqlmesh_password`
+secret belongs to the container and to CI. An administrator provisions a personal database
+account in crudman (Database access → select the user → "Create database account"), which
+issues a password once. Put it in `sqlmesh/.env` as `SQLMESH_PASSWORD`; `config.py` derives
+the role name from your local username, or takes `SQLMESH_USER` if it differs.
+
+A bare `sqlmesh plan` targets a `dev` environment, so the easiest command is the safe one.
+`sqlmesh plan prod` is *not* blocked — PostgreSQL cannot separate promoting from planning,
+since both write the same schemas (see `crudman/app/dbusers/requirements.md`). Production is
+normally deployed from CI on merge to main; running it by hand is a deliberate exception.

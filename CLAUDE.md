@@ -22,7 +22,8 @@
 
 ## Where things are
 
-- `crudman/` — Django admin (Unfold); apps in `app/`: tenants, dropzones, sso, example.
+- `crudman/` — Django admin (Unfold); apps in `app/`: tenants, dropzones, sso, dbusers,
+  example.
 - `sqlmesh/` — SQLMesh project: `config.py`, `models/{bronze,silver,gold}`.
 - `postgresql/` — pgduckdb image; `initdb/gf_000N_*.{sh,sql}` for initialization.
 - `grafana/` — `custom.ini`: configuration, `provisioning/`: default dashboards, 
@@ -33,7 +34,7 @@
 - `quadlets/` — every unit, centrally: `main.pod`, `*.container`, `*_data.volume`.
 - `tests/` — the pytest integration suite; `run-tests.sh` starts a throwaway stack for it.
 - `*/requirements.md` — what a component must do and why: `quadlets/`,
-  `crudman/app/dropzones/`, `crudman/app/tenants/`.
+  `crudman/app/dropzones/`, `crudman/app/tenants/`, `crudman/app/dbusers/`.
 - `build.sh` builds release images; `install.sh` and `uninstall.sh` run on target
   machine. Both distributed as assets of the GitHub Release.
 
@@ -75,3 +76,4 @@
   novice user level. No technical details.
 - Push to origin/main triggers `.github/workflows/publish.yml` (builds images & creates 
   GitHub release).
+- Make your responses 300 words or less.

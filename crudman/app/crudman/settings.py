@@ -98,6 +98,8 @@ INSTALLED_APPS = [
     'example.apps.ExampleConfig',
     'tenants.apps.TenantsConfig',
     'dropzones.apps.DropzonesConfig',
+    # After sso, whose role groups decide the database rank a person is provisioned with.
+    'dbusers.apps.DbUsersConfig',
     # Always installed, even with single sign-on off, so its migration keeps the three
     # role groups present and assignable by hand.
     'sso.apps.SsoConfig',

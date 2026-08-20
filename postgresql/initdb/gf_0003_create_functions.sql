@@ -358,3 +358,252 @@ BEGIN
         temp_file_limit;
 END;
 $$;
+
+--------------------------------------------------------------------
+-- The roles the user-provisioning functions below must never touch.
+--
+-- The service roles are the ones the deployment itself authenticates as, from podman
+-- secrets: disabling, clearing or dropping one takes a component down. Their names are
+-- valid identifiers like any other, so nothing but this check stops a caller passing one.
+--
+-- Derived rather than listed, because the superuser's name is configurable (SUPERUSER_NAME
+-- in buildtime.env, "admin" by default) -- a hardcoded 'postgres' would protect a role
+-- that does not exist here and leave the real superuser exposed. The three application
+-- roles come from gf_0004 and are recognised by owning the database's schemas; the
+-- superuser is whoever holds rolsuper.
+CREATE OR REPLACE FUNCTION is_protected_role(role_name text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = pg_catalog
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM pg_roles
+        WHERE rolname = role_name
+          AND (rolsuper OR rolname IN ('crudman', 'sqlmesh', 'grafana'))
+    );
+$$;
+
+
+-- Per-administrator database users.
+--
+-- An administrator who develops SQLMesh models or runs ad-hoc SQL gets a login role of
+-- their own instead of sharing the sqlmesh secret. crudman creates it when the person is
+-- provisioned in the admin (see crudman/app/dbusers/), which is why these functions are
+-- SECURITY DEFINER: CREATE ROLE needs CREATEROLE, which the unprivileged crudman role
+-- does not have and should not be given -- the same reasoning as create_tenant above.
+--
+-- The rank is not a privilege on the role itself but membership of one of the gf_* group
+-- roles from gf_0008, so what a rank means is written down in one place.
+--------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION create_db_user(
+    user_name text,
+    user_password text,
+    -- One of the group roles in gf_0008. Passed rather than derived so the mapping from
+    -- a single sign-on rank to a database rank stays in crudman, where the rank is known.
+    group_role text
+)
+RETURNS void
+LANGUAGE plpgsql
+-- search_path pinned to pg_catalog so a caller cannot shadow what this definer-owned
+-- function resolves; every identifier is interpolated with format()'s %I/%L.
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+BEGIN
+    IF user_name IS NULL OR user_name = '' THEN
+        RAISE EXCEPTION 'user_name cannot be empty';
+    END IF;
+
+    IF length(user_name) > 50 THEN
+        RAISE EXCEPTION 'user_name exceeds maximum length of 50 characters';
+    END IF;
+
+    IF user_name !~ '^[a-zA-Z0-9_]+$' THEN
+        RAISE EXCEPTION 'user_name can only contain letters, numbers, and underscores';
+    END IF;
+
+    IF user_name ~ '^[0-9]' THEN
+        RAISE EXCEPTION 'user_name cannot start with a number';
+    END IF;
+
+    -- Only the three group roles are assignable. Without this check the function would be
+    -- a way for crudman to grant itself membership of any role in the cluster, superusers
+    -- included, which is exactly what SECURITY DEFINER makes dangerous.
+    IF group_role NOT IN ('gf_viewer', 'gf_editor', 'gf_admin') THEN
+        RAISE EXCEPTION 'group_role must be one of gf_viewer, gf_editor, gf_admin';
+    END IF;
+
+    -- A password is optional: with an external identity provider the role authenticates
+    -- against it and carries no password of its own. Only its absence is expressed here,
+    -- so switching authentication method later does not change this function.
+    IF user_password IS NOT NULL AND length(user_password) < 12 THEN
+        RAISE EXCEPTION 'user_password must be at least 12 characters long';
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = user_name) THEN
+        IF user_password IS NULL THEN
+            EXECUTE format('CREATE ROLE %I LOGIN', user_name);
+        ELSE
+            EXECUTE format(
+                'CREATE ROLE %I LOGIN PASSWORD %L', user_name, user_password
+            );
+        END IF;
+    ELSE
+        -- Re-provisioning an existing person resets the password and re-enables login,
+        -- which is how a locked-out account (see delete_db_user) is brought back.
+        IF user_password IS NULL THEN
+            EXECUTE format('ALTER ROLE %I LOGIN', user_name);
+        ELSE
+            EXECUTE format(
+                'ALTER ROLE %I LOGIN PASSWORD %L', user_name, user_password
+            );
+        END IF;
+    END IF;
+
+    -- Exactly one rank at a time: the old membership is dropped before the new one is
+    -- granted, so a demotion actually removes rights instead of adding a second rank.
+    EXECUTE format('REVOKE gf_viewer FROM %I', user_name);
+    EXECUTE format('REVOKE gf_editor FROM %I', user_name);
+    EXECUTE format('REVOKE gf_admin FROM %I', user_name);
+    EXECUTE format('GRANT %I TO %I', group_role, user_name);
+
+    -- What this person creates while developing must stay usable by the deployed engine,
+    -- which runs as sqlmesh and cannot otherwise touch a table another role owns.
+    EXECUTE format(
+        'ALTER DEFAULT PRIVILEGES FOR ROLE %I GRANT ALL ON TABLES TO sqlmesh', user_name
+    );
+    EXECUTE format(
+        'ALTER DEFAULT PRIVILEGES FOR ROLE %I GRANT ALL ON SEQUENCES TO sqlmesh', user_name
+    );
+
+    RAISE NOTICE 'Database user % provisioned as %', user_name, group_role;
+END;
+$$;
+
+
+-- Take away a person's database access without destroying what they made.
+--
+-- NOLOGIN rather than DROP ROLE on purpose: dropping fails while the role still owns
+-- objects, and forcing it through (DROP OWNED BY) would delete models and tables that
+-- are still wanted, along with the record of who made them. Someone who has left keeps
+-- their name on their objects; they simply cannot connect any more.
+--
+-- public is on the search_path of this and the two functions below only so they can
+-- resolve is_protected_role, which lives there; the same reason create_tenant carries it.
+-- Nothing else they reference is unqualified, and CREATE on public is not granted to the
+-- provisioned roles, so this does not reopen the shadowing the pinned path prevents.
+CREATE OR REPLACE FUNCTION delete_db_user(user_name text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+BEGIN
+    IF user_name IS NULL OR user_name = '' THEN
+        RAISE EXCEPTION 'user_name cannot be empty';
+    END IF;
+
+    IF user_name !~ '^[a-zA-Z0-9_]+$' THEN
+        RAISE EXCEPTION 'user_name can only contain letters, numbers, and underscores';
+    END IF;
+
+    -- Guard against this function being used to lock out the service roles.
+    IF is_protected_role(user_name) THEN
+        RAISE EXCEPTION 'refusing to modify the service role %', user_name;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = user_name) THEN
+        EXECUTE format('ALTER ROLE %I NOLOGIN', user_name);
+        EXECUTE format('REVOKE gf_viewer FROM %I', user_name);
+        EXECUTE format('REVOKE gf_editor FROM %I', user_name);
+        EXECUTE format('REVOKE gf_admin FROM %I', user_name);
+        RAISE NOTICE 'Database user % disabled', user_name;
+    END IF;
+END;
+$$;
+
+
+-- Clear a person's database password, leaving the role and its rank intact.
+--
+-- How a forgotten or possibly leaked password is handled: crudman puts the account back
+-- into the "awaiting credential" state and a fresh password is issued on the person's next
+-- sign-in. Clearing it here rather than at that sign-in means a credential that may have
+-- leaked stops working immediately.
+--
+-- With scram-sha-256 a role holding no password cannot authenticate, so LOGIN may stay:
+-- the account is unusable until the new password is set, without losing the flag that
+-- distinguishes it from one disabled by delete_db_user.
+CREATE OR REPLACE FUNCTION clear_db_user_password(user_name text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+BEGIN
+    IF user_name IS NULL OR user_name = '' THEN
+        RAISE EXCEPTION 'user_name cannot be empty';
+    END IF;
+
+    IF user_name !~ '^[a-zA-Z0-9_]+$' THEN
+        RAISE EXCEPTION 'user_name can only contain letters, numbers, and underscores';
+    END IF;
+
+    -- The service roles authenticate from podman secrets; clearing one would take the
+    -- deployment down, so they are refused here as they are in delete_db_user.
+    IF is_protected_role(user_name) THEN
+        RAISE EXCEPTION 'refusing to modify the service role %', user_name;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = user_name) THEN
+        EXECUTE format('ALTER ROLE %I PASSWORD NULL', user_name);
+        RAISE NOTICE 'Password cleared for database user %', user_name;
+    END IF;
+END;
+$$;
+
+
+-- Remove a person's database role entirely.
+--
+-- The counterpart to delete_db_user, which only locks the account: this one is for an
+-- account created by mistake, or a departure where the person left nothing behind worth
+-- keeping. It is the destructive option and is offered separately for that reason -- the
+-- default when someone leaves is to disable, so their models and tables keep an owner and
+-- the audit trail survives.
+--
+-- DROP ROLE is refused while anything still depends on the role, so its grants and owned
+-- objects are cleared first, exactly as delete_tenant does. That means this DOES destroy
+-- tables the person owned: the caller is expected to have decided that already.
+CREATE OR REPLACE FUNCTION drop_db_user(user_name text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+BEGIN
+    IF user_name IS NULL OR user_name = '' THEN
+        RAISE EXCEPTION 'user_name cannot be empty';
+    END IF;
+
+    IF user_name !~ '^[a-zA-Z0-9_]+$' THEN
+        RAISE EXCEPTION 'user_name can only contain letters, numbers, and underscores';
+    END IF;
+
+    IF is_protected_role(user_name) THEN
+        RAISE EXCEPTION 'refusing to drop the service role %', user_name;
+    END IF;
+
+    -- Refuse anything that is not a provisioned personal account. Without this the
+    -- function would drop a tenant role -- and its bronze schema with it -- for a caller
+    -- who passed the wrong name.
+    IF user_name !~ '^gf_u_' THEN
+        RAISE EXCEPTION 'refusing to drop %, which is not a provisioned user role', user_name;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = user_name) THEN
+        EXECUTE format('DROP OWNED BY %I CASCADE', user_name);
+        EXECUTE format('DROP ROLE %I', user_name);
+        RAISE NOTICE 'Database user % dropped', user_name;
+    END IF;
+END;
+$$;
