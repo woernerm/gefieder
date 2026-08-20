@@ -49,6 +49,8 @@
 
 ## Checking your work
 
+- The `wiring-map` skill lists which other files a change has to touch. Consult it before
+  adding or renaming an env var, container, volume, secret, port or database user.
 - `./dev.sh up | down | logs | serverstats` runs a local stack. Does not read quadlets.
 - `./run-tests.sh [dev|production] [pytest args]` builds images, starts a throwaway
   stack, runs crudman unit tests and integration suite. **Run it before calling a
