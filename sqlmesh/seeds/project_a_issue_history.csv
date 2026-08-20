@@ -1,0 +1,11 @@
+issue_key,changed_at,status,story_points,component_key
+PA-1,2026-06-10,To Do,5,C-NAV
+PA-1,2026-06-14,In Progress,5,C-NAV
+PA-1,2026-06-18,In Progress,8,C-PWR
+PA-1,2026-06-22,Done,8,C-PWR
+PA-2,2026-06-11,To Do,3,
+PA-2,2026-06-15,Done,3,
+PA-3,2026-06-13,To Do,2,C-CAB
+PA-4,2026-06-10,To Do,1,C-NAV
+PA-4,2026-06-12,Done,1,C-NAV
+PA-4,2026-06-14,To Do,1,C-NAV

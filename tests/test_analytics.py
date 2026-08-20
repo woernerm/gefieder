@@ -11,7 +11,13 @@ The point of interest is project_c: its bronze layer is a polars Python model
 use, so a failure there (a missing polars dependency in the image, a broken transform, the
 tenant left out of the silver union) would show up here as project_c missing from gold,
 while project_a/project_b still pass.
+
+The second point of interest is silver.issue_risk_history, project_a's temporally joined
+history (sqlmesh/macros/temporal_join.py). Its assertions run against PostgreSQL, which is
+the half the SQLMesh unit tests cannot cover: those run on DuckDB, so LATERAL lookups and
+window functions that PostgreSQL rejects would pass there and fail here.
 """
+import subprocess
 import time
 
 import pytest
@@ -22,27 +28,34 @@ EXAMPLE_TENANTS = {"project_a", "project_b", "project_c"}
 
 @pytest.fixture(scope="module", autouse=True)
 def wait_for_backfill(grafana_db):
-    """Block until the first SQLMesh plan has backfilled gold.
+    """Block until the first SQLMesh plan has backfilled the tables asserted below.
 
     The session-wide wait_for_stack only waits for the sqlmesh *state* schema, which is
     created at the start of the first plan -- before bronze/silver/gold are backfilled. The
-    analytics assertions below read the finished gold table, so wait specifically for it to
-    appear and fill, rather than racing a slow first plan.
+    analytics assertions below read finished tables, so wait specifically for them to appear
+    and fill, rather than racing a slow first plan. Both are waited for: they are unrelated
+    branches of the DAG, so either can finish first.
     """
+    tables = ("gold.issue_metrics", "silver.issue_risk_history")
     deadline = time.time() + 180
     while True:
         try:
             with grafana_db.cursor() as cur:
-                cur.execute("SELECT to_regclass('gold.issue_metrics')")
-                exists = cur.fetchone()[0] is not None
-                if exists:
-                    cur.execute("SELECT count(*) FROM gold.issue_metrics")
-                    if cur.fetchone()[0] > 0:
-                        return
+                filled = 0
+                for table in tables:
+                    cur.execute("SELECT to_regclass(%s)", (table,))
+                    if cur.fetchone()[0] is None:
+                        break
+                    cur.execute(f"SELECT count(*) FROM {table}")
+                    if cur.fetchone()[0] == 0:
+                        break
+                    filled += 1
+                if filled == len(tables):
+                    return
         except Exception:
             pass
         if time.time() > deadline:
-            pytest.fail("SQLMesh did not backfill gold.issue_metrics in time")
+            pytest.fail(f"SQLMesh did not backfill {', '.join(tables)} in time")
         time.sleep(2)
 
 
@@ -91,3 +104,50 @@ class TestAnalyticsPipeline:
         assert row == (5, 3, 2, 37), (
             "project_c metrics do not match the seed decoded by the polars transform"
         )
+
+    def test_issue_risk_history_is_a_history_of_changes(self, grafana_db):
+        # The @temporal_join example: project_a's issue history joined with the history of
+        # the component each issue belongs to (sqlmesh/models/silver/project_a). It is the
+        # one model here whose output is not a row per input row, so it is asserted whole,
+        # against the seeds. Two component changes are deliberately absent -- C-PWR on the
+        # 12th, while PA-1 is still on C-NAV, and C-PWR again on the 20th, which
+        # reclassified it to what it already was -- while PA-4's reopening on the 14th, a
+        # row identical to its own first row but for the timestamp, is deliberately there.
+        with grafana_db.cursor() as cur:
+            cur.execute(
+                """
+                SELECT issue_id, valid_from, state, effort, component_id, safety_class, owner
+                FROM silver.issue_risk_history
+                WHERE tenant_id = 'project_a'
+                ORDER BY issue_id, valid_from
+                """
+            )
+            rows = [(i, str(v), *rest) for i, v, *rest in cur.fetchall()]
+
+        assert rows == [
+            ("PA-1", "2026-06-10", "todo", 5, "C-NAV", "B", "Navigation"),
+            ("PA-1", "2026-06-14", "in_progress", 5, "C-NAV", "B", "Navigation"),
+            ("PA-1", "2026-06-16", "in_progress", 5, "C-NAV", "C", "Navigation"),
+            ("PA-1", "2026-06-18", "in_progress", 8, "C-PWR", "D", "Power"),
+            ("PA-1", "2026-06-22", "closed", 8, "C-PWR", "D", "Power"),
+            ("PA-2", "2026-06-11", "todo", 3, None, None, None),
+            ("PA-2", "2026-06-15", "closed", 3, None, None, None),
+            ("PA-3", "2026-06-13", "todo", 2, "C-CAB", None, None),
+            ("PA-3", "2026-06-17", "todo", 2, "C-CAB", "A", "Cabin"),
+            ("PA-4", "2026-06-10", "todo", 1, "C-NAV", "B", "Navigation"),
+            ("PA-4", "2026-06-12", "closed", 1, "C-NAV", "B", "Navigation"),
+            ("PA-4", "2026-06-14", "todo", 1, "C-NAV", "B", "Navigation"),
+            ("PA-4", "2026-06-16", "todo", 1, "C-NAV", "C", "Navigation"),
+        ]
+
+    def test_sqlmesh_unit_tests_pass(self):
+        # The SQLMesh unit tests (sqlmesh/tests/*.yaml) state the awkward cases of
+        # @temporal_join as input rows and expected output rows, which the seeded pipeline
+        # above cannot: they run the model against fixtures instead of against the seeds.
+        # They are run here, in the deployed container, because that is where the engine
+        # and its dependencies are -- the suite itself has no SQLMesh installation.
+        result = subprocess.run(
+            ["podman", "exec", "sqlmesh", "uv", "run", "--project", "/sqlmesh", "sqlmesh", "test"],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr

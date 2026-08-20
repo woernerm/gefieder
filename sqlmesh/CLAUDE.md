@@ -14,6 +14,10 @@ reads. Container runs `sqlmesh plan --auto-apply --no-prompts` at startup, then
   staging models into `silver.*`.
 - `models/gold/` — materialized (kind FULL, INCREMENTAL_BY_TIME_RANGE or similar) 
   metrics over silver only, organization wide, no per-tenant logic.
+- `macros/` — SQL a model cannot express, written once: `@temporal_join` joins two
+  change histories on the union of their timestamps (PostgreSQL has no ASOF JOIN).
+  Worked example plus audits and a unit test: `models/silver/project_a/issue_risk_history.sql`,
+  `audits/assert_every_row_is_a_change.sql`, `tests/test_issue_risk_history.yaml`.
 
 ## Rules
 

@@ -1,0 +1,147 @@
+"""@temporal_join -- join two change histories on the union of their timestamps.
+
+An ASOF join follows one history and misses the other's changes; this one follows both:
+
+    tck   every timestamp at which either side may have changed, per item
+    lhs   the left row in effect at that tick (the latest one at or before it)
+    rhs   the right row in effect at that tick, looked up through that left row
+
+    SELECT tck.issue_id, tck.changed_at, lhs.state, rhs.safety_class
+    FROM @temporal_join(
+      lhs_ts := bronze_project_a.issue_history.changed_at,
+      rhs_ts := bronze_project_a.component_history.changed_at,
+      key    := issue_id,
+      on     := (rhs.component_id = lhs.component_id)
+    )
+
+`lhs_ts` and `rhs_ts` name a table and its timestamp column in one go; `key` identifies
+the item, on the left table, which is the spine. Each lookup takes one row per tick, so
+both sources must be unique on (key, timestamp) and on (join columns, timestamp).
+
+The tick list over-collects, so every column of both tables, timestamps aside, is compared
+with the tick before and only a change survives. Those are the *sources'* columns: a SELECT
+that folds two of them into one, or omits one, can still show two identical rows -- which
+the example's audits check for.
+"""
+
+from sqlglot import exp
+from sqlglot.optimizer.normalize_identifiers import normalize_identifiers
+
+from sqlmesh.core.macros import MacroEvaluator, RuntimeStage, macro
+from sqlmesh.utils import columns_to_types_all_known
+from sqlmesh.utils.errors import SQLMeshError
+
+# Fixed rather than configurable: the model file spells them out either way, and a name
+# that changed with the call site would only make the models harder to read.
+TICKS, LEFT, RIGHT = "tck", "lhs", "rhs"
+
+
+def _table_and_column(argument: str, value: exp.Expression) -> tuple[exp.Table, exp.Identifier]:
+    """Split a `schema.table.column` reference into the table it names and the column."""
+    if not isinstance(value, exp.Column) or not value.args.get("table"):
+        raise SQLMeshError(
+            f"@temporal_join: '{argument}' must be a qualified column such as "
+            f"schema.table.column, got '{value.sql()}'."
+        )
+    args = value.args
+    table = exp.Table(this=args["table"], db=args.get("db"), catalog=args.get("catalog"))
+    return table, value.this
+
+
+def _value_columns(
+    evaluator: MacroEvaluator, table: exp.Table, timestamp: exp.Identifier
+) -> list[str]:
+    """Every column of `table` except its timestamp -- what "unchanged" is judged on."""
+    columns_to_types = evaluator.columns_to_types(table)
+    if not columns_to_types_all_known(columns_to_types):
+        if evaluator.runtime_stage != RuntimeStage.LOADING.value:
+            raise SQLMeshError(f"@temporal_join: the columns of '{table.sql()}' are unknown.")
+        # SQLMesh has not read the upstream schemas yet. Asking for them is what keeps this
+        # render out of the cache, so the real columns arrive before anything is executed.
+        return []
+    excluded = normalize_identifiers(timestamp, dialect=evaluator.dialect).name
+    return [c for c in columns_to_types if c != excluded]
+
+
+@macro()
+def temporal_join(
+    evaluator: MacroEvaluator,
+    lhs_ts: exp.Expression,
+    rhs_ts: exp.Expression,
+    key: exp.Expression,
+    on: exp.Expression,
+) -> exp.Expression:
+    lhs_table, lhs_column = _table_and_column("lhs_ts", lhs_ts)
+    rhs_table, rhs_column = _table_and_column("rhs_ts", rhs_ts)
+    if not isinstance(key, exp.Column) or key.args.get("table"):
+        raise SQLMeshError(
+            f"@temporal_join: 'key' must be an unqualified column of the left table, "
+            f"got '{key.sql()}'."
+        )
+
+    dialect = evaluator.dialect
+
+    def name(identifier: str | exp.Identifier) -> str:
+        # Quoted throughout, because a source column may be named like a keyword
+        # ("offset"); normalized first so quoting cannot change what it means.
+        identifier = normalize_identifiers(exp.to_identifier(identifier), dialect=dialect)
+        identifier.set("quoted", True)
+        return identifier.sql(dialect)
+
+    def column(alias: str, identifier: str | exp.Identifier) -> str:
+        return f"{alias}.{name(identifier)}"
+
+    lhs_source, rhs_source = lhs_table.sql(dialect), rhs_table.sql(dialect)
+    predicate = on.unnest().sql(dialect)
+    key_name, ts_name = name(key.this), name(lhs_column)
+    lhs_key, lhs_time = column(LEFT, key.this), column(LEFT, lhs_column)
+    tck_key, tck_time = column(TICKS, key.this), column(TICKS, lhs_column)
+    rhs_time = column(RIGHT, rhs_column)
+
+    # A right row's timestamp is a tick for every item that reaches it, so both sides are
+    # keyed by the left table. UNION, not UNION ALL: both tables may change at once.
+    ticks = (
+        f"SELECT {lhs_key} AS {key_name}, {lhs_time} AS {ts_name} FROM {lhs_source} AS {LEFT} "
+        f"UNION "
+        f"SELECT {lhs_key} AS {key_name}, {rhs_time} AS {ts_name} "
+        f"FROM {lhs_source} AS {LEFT} JOIN {rhs_source} AS {RIGHT} ON {predicate}"
+    )
+
+    # The ASOF lookups, in the one form PostgreSQL has for them: it has no ASOF JOIN, and
+    # pg_duckdb cannot lend one, since PostgreSQL parses the statement long before DuckDB
+    # sees it. The right lookup hangs off the left row rather than off the tick, so
+    # following the left row to a different right row is itself part of the history.
+    lookups = (
+        f"LEFT JOIN LATERAL (SELECT {LEFT}.* FROM {lhs_source} AS {LEFT} "
+        f"WHERE {lhs_key} = {tck_key} AND {lhs_time} <= {tck_time} "
+        f"ORDER BY {lhs_time} DESC LIMIT 1) AS {LEFT} ON TRUE "
+        f"LEFT JOIN LATERAL (SELECT {RIGHT}.* FROM {rhs_source} AS {RIGHT} "
+        f"WHERE {predicate} AND {rhs_time} <= {tck_time} "
+        f"ORDER BY {rhs_time} DESC LIMIT 1) AS {RIGHT} ON TRUE"
+    )
+
+    # DISTINCT ON (key, every column) would say this in one line, but it deduplicates
+    # globally rather than run by run: an issue reopened into a state it held before would
+    # keep only the earlier row -- the reopening gone, the issue closed ever after. Hence
+    # the comparison with the previous tick, and the LAG that is NULL only for the first.
+    # WHERE runs before the window functions, so ticks with no left row are already gone.
+    values = [
+        *(column(LEFT, c) for c in _value_columns(evaluator, lhs_table, lhs_column)),
+        *(column(RIGHT, c) for c in _value_columns(evaluator, rhs_table, rhs_column)),
+    ]
+    compared = [f"{v} IS DISTINCT FROM LAG({v}) OVER w" for v in values]
+    changed = " OR ".join([f"LAG({lhs_time}) OVER w IS NULL", *compared])
+    changes = (
+        f"SELECT {key_name}, {ts_name} FROM ("
+        f"SELECT {tck_key} AS {key_name}, {tck_time} AS {ts_name}, ({changed}) AS __changed "
+        f"FROM ({ticks}) AS {TICKS} {lookups} "
+        f"WHERE NOT {lhs_time} IS NULL "
+        f"WINDOW w AS (PARTITION BY {tck_key} ORDER BY {tck_time})"
+        f") AS __ticks WHERE __changed"
+    )
+
+    # The lookups run again over the surviving ticks rather than carrying their rows out of
+    # the query above, so `tck` exposes the item and its timeline and nothing else. sqlglot
+    # parses statements, not FROM clauses, hence the throwaway SELECT.
+    joined = f"(({changes}) AS {TICKS} {lookups})"
+    return evaluator.parse_one(f"SELECT 1 FROM {joined}").find(exp.From).this

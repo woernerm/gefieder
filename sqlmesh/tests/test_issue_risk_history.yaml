@@ -1,0 +1,66 @@
+# Unit test for the @temporal_join example (models/silver/project_a/issue_risk_history.sql).
+# It runs on hand-written input rows rather than on whatever the seeds happen to contain,
+# which is what lets it state the awkward cases outright and pin the expected answer to
+# them. Run it with `sqlmesh test`; the integration suite runs it inside the deployed
+# container (tests/test_analytics.py).
+#
+# The input is the same data the seeds carry, chosen so that every case the macro has to
+# get right appears at least once:
+#
+#   PA-1  moves from one component to another, so a change of the component it is *not*
+#         on yet (C-PWR on the 12th) must not produce a row -- and neither must a
+#         reclassification that reclassifies nothing (C-PWR again on the 20th).
+#   PA-2  has no component at all: the right side stays empty and the issue's own history
+#         survives on its own.
+#   PA-3  is on a component that is classified only later, so its first period has no
+#         classification and the classification arriving is itself a change.
+#   PA-4  is reopened on the 14th to the state it already had on the 10th. Its three
+#         periods must all survive, which is why repeats are recognized run by run and
+#         not by deduplicating equal rows outright.
+test_issue_risk_history:
+  model: silver_staging.issue_risk_history__project_a
+  inputs:
+    bronze_project_a.issue_history:
+      rows:
+        - {issue_key: PA-1, changed_at: 2026-06-10, status: To Do,       story_points: 5, component_key: C-NAV}
+        - {issue_key: PA-1, changed_at: 2026-06-14, status: In Progress, story_points: 5, component_key: C-NAV}
+        - {issue_key: PA-1, changed_at: 2026-06-18, status: In Progress, story_points: 8, component_key: C-PWR}
+        - {issue_key: PA-1, changed_at: 2026-06-22, status: Done,        story_points: 8, component_key: C-PWR}
+        - {issue_key: PA-2, changed_at: 2026-06-11, status: To Do,       story_points: 3, component_key: null}
+        - {issue_key: PA-2, changed_at: 2026-06-15, status: Done,        story_points: 3, component_key: null}
+        - {issue_key: PA-3, changed_at: 2026-06-13, status: To Do,       story_points: 2, component_key: C-CAB}
+        - {issue_key: PA-4, changed_at: 2026-06-10, status: To Do,       story_points: 1, component_key: C-NAV}
+        - {issue_key: PA-4, changed_at: 2026-06-12, status: Done,        story_points: 1, component_key: C-NAV}
+        - {issue_key: PA-4, changed_at: 2026-06-14, status: To Do,       story_points: 1, component_key: C-NAV}
+    bronze_project_a.component_history:
+      rows:
+        - {component_key: C-NAV, changed_at: 2026-06-09, safety_class: B, owner_team: Navigation}
+        - {component_key: C-NAV, changed_at: 2026-06-16, safety_class: C, owner_team: Navigation}
+        - {component_key: C-PWR, changed_at: 2026-06-12, safety_class: D, owner_team: Power}
+        - {component_key: C-PWR, changed_at: 2026-06-20, safety_class: D, owner_team: Power}
+        - {component_key: C-CAB, changed_at: 2026-06-17, safety_class: A, owner_team: Cabin}
+  outputs:
+    query:
+      rows:
+        # PA-1 starts on the 10th, on a component classified B the day before. C-PWR's
+        # changes on the 12th and the 20th are both absent: the first happens while PA-1
+        # is still on C-NAV, the second reclassified C-PWR to what it already was.
+        - {tenant_id: project_a, issue_id: PA-1, valid_from: 2026-06-10, state: todo,        effort: 5, component_id: C-NAV, safety_class: B,    owner: Navigation}
+        - {tenant_id: project_a, issue_id: PA-1, valid_from: 2026-06-14, state: in_progress, effort: 5, component_id: C-NAV, safety_class: B,    owner: Navigation}
+        - {tenant_id: project_a, issue_id: PA-1, valid_from: 2026-06-16, state: in_progress, effort: 5, component_id: C-NAV, safety_class: C,    owner: Navigation}
+        - {tenant_id: project_a, issue_id: PA-1, valid_from: 2026-06-18, state: in_progress, effort: 8, component_id: C-PWR, safety_class: D,    owner: Power}
+        - {tenant_id: project_a, issue_id: PA-1, valid_from: 2026-06-22, state: closed,      effort: 8, component_id: C-PWR, safety_class: D,    owner: Power}
+        # PA-2 never reaches the right side, and is a history all the same.
+        - {tenant_id: project_a, issue_id: PA-2, valid_from: 2026-06-11, state: todo,        effort: 3, component_id: null,  safety_class: null, owner: null}
+        - {tenant_id: project_a, issue_id: PA-2, valid_from: 2026-06-15, state: closed,      effort: 3, component_id: null,  safety_class: null, owner: null}
+        # PA-3 exists before its component is classified: the classification on the 17th
+        # is a change of the joined history although the issue itself never moved.
+        - {tenant_id: project_a, issue_id: PA-3, valid_from: 2026-06-13, state: todo,        effort: 2, component_id: C-CAB, safety_class: null, owner: null}
+        - {tenant_id: project_a, issue_id: PA-3, valid_from: 2026-06-17, state: todo,        effort: 2, component_id: C-CAB, safety_class: A,    owner: Cabin}
+        # PA-4 is reopened into a state it held before. The row on the 14th is identical
+        # to the one on the 10th except for its timestamp, and must still be here: it is
+        # not a repeat of the row before it, which is the only kind of repeat there is.
+        - {tenant_id: project_a, issue_id: PA-4, valid_from: 2026-06-10, state: todo,        effort: 1, component_id: C-NAV, safety_class: B,    owner: Navigation}
+        - {tenant_id: project_a, issue_id: PA-4, valid_from: 2026-06-12, state: closed,      effort: 1, component_id: C-NAV, safety_class: B,    owner: Navigation}
+        - {tenant_id: project_a, issue_id: PA-4, valid_from: 2026-06-14, state: todo,        effort: 1, component_id: C-NAV, safety_class: B,    owner: Navigation}
+        - {tenant_id: project_a, issue_id: PA-4, valid_from: 2026-06-16, state: todo,        effort: 1, component_id: C-NAV, safety_class: C,    owner: Navigation}

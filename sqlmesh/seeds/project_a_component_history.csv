@@ -1,0 +1,6 @@
+component_key,changed_at,safety_class,owner_team
+C-NAV,2026-06-09,B,Navigation
+C-NAV,2026-06-16,C,Navigation
+C-PWR,2026-06-12,D,Power
+C-PWR,2026-06-20,D,Power
+C-CAB,2026-06-17,A,Cabin
