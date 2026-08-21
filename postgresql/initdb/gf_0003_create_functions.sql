@@ -1,3 +1,38 @@
+-- The name check every function below starts with.
+--
+-- Each one takes a role or schema name from crudman and interpolates it with format()'s
+-- %I, so a name that is not a plain identifier is a caller bug rather than an injection
+-- risk -- but seven copies of the same three checks drifted apart, so they live here.
+-- `label` names the offending parameter, keeping the messages the callers already raise.
+--
+-- Called schema-qualified because most callers pin search_path to pg_catalog alone, which
+-- cannot resolve a function in public -- the reason is_protected_role's callers add public.
+CREATE OR REPLACE FUNCTION public.validate_identifier(name text, label text)
+RETURNS void
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path = pg_catalog
+AS $$
+BEGIN
+    IF name IS NULL OR name = '' THEN
+        RAISE EXCEPTION '% cannot be empty', label;
+    END IF;
+
+    -- 50, not PostgreSQL's 63: the prefixes crudman puts in front have to fit too.
+    IF length(name) > 50 THEN
+        RAISE EXCEPTION '% exceeds maximum length of 50 characters', label;
+    END IF;
+
+    IF name !~ '^[a-zA-Z0-9_]+$' THEN
+        RAISE EXCEPTION '% can only contain letters, numbers, and underscores', label;
+    END IF;
+
+    IF name ~ '^[0-9]' THEN
+        RAISE EXCEPTION '% cannot start with a number', label;
+    END IF;
+END;
+$$;
+
 -- Function tenants can call to toggle duckdb.force_execution
 CREATE OR REPLACE FUNCTION use_duckdb(enable boolean)
 RETURNS void
@@ -41,28 +76,7 @@ AS $$
 DECLARE
     schema_name text := '${BRONZE_SCHEMA_PREFIX}' || tenant_name;
 BEGIN
-    --------------------------------------------------------------------
-    -- Input validation
-    --------------------------------------------------------------------
-    -- Check tenant_name is not empty
-    IF tenant_name IS NULL OR tenant_name = '' THEN
-        RAISE EXCEPTION 'tenant_name cannot be empty';
-    END IF;
-
-    -- Check tenant_name length (PostgreSQL identifier limit is 63)
-    IF length(tenant_name) > 50 THEN
-        RAISE EXCEPTION 'tenant_name exceeds maximum length of 50 characters';
-    END IF;
-
-    -- Check tenant_name contains only valid characters (alphanumeric and underscore)
-    IF tenant_name !~ '^[a-zA-Z0-9_]+$' THEN
-        RAISE EXCEPTION 'tenant_name can only contain letters, numbers, and underscores';
-    END IF;
-
-    -- Check tenant_name doesn't start with a number (PostgreSQL identifier requirement)
-    IF tenant_name ~ '^[0-9]' THEN
-        RAISE EXCEPTION 'tenant_name cannot start with a number';
-    END IF;
+    PERFORM public.validate_identifier(tenant_name, 'tenant_name');
 
     -- Check tenant_password is not empty
     IF tenant_password IS NULL OR tenant_password = '' THEN
@@ -185,9 +199,7 @@ AS $$
 DECLARE
     schema_name text := '${BRONZE_SCHEMA_PREFIX}' || tenant_name;
 BEGIN
-    IF tenant_name !~ '^[a-zA-Z0-9_]+$' THEN
-        RAISE EXCEPTION 'tenant_name can only contain letters, numbers, and underscores';
-    END IF;
+    PERFORM public.validate_identifier(tenant_name, 'tenant_name');
 
     EXECUTE format(
         'COMMENT ON SCHEMA %I IS %L',
@@ -210,18 +222,7 @@ AS $$
 DECLARE
     schema_bronze text := '${BRONZE_SCHEMA_PREFIX}' || tenant_name;
 BEGIN
-    --------------------------------------------------------------------
-    -- Input validation
-    --------------------------------------------------------------------
-    -- Check tenant_name is not empty
-    IF tenant_name IS NULL OR tenant_name = '' THEN
-        RAISE EXCEPTION 'tenant_name cannot be empty';
-    END IF;
-
-    -- Check tenant_name contains only valid characters (alphanumeric and underscore)
-    IF tenant_name !~ '^[a-zA-Z0-9_]+$' THEN
-        RAISE EXCEPTION 'tenant_name can only contain letters, numbers, and underscores';
-    END IF;
+    PERFORM public.validate_identifier(tenant_name, 'tenant_name');
 
     --------------------------------------------------------------------
     -- Remove everything the tenant role owns or was granted, then drop it.
@@ -274,17 +275,7 @@ SECURITY DEFINER
 SET search_path = pg_catalog
 AS $$
 BEGIN
-    --------------------------------------------------------------------
-    -- Input validation
-    --------------------------------------------------------------------
-    -- Check tenant_name is not empty and valid
-    IF tenant_name IS NULL OR tenant_name = '' THEN
-        RAISE EXCEPTION 'tenant_name cannot be empty';
-    END IF;
-
-    IF tenant_name !~ '^[a-zA-Z0-9_]+$' THEN
-        RAISE EXCEPTION 'tenant_name can only contain letters, numbers, and underscores';
-    END IF;
+    PERFORM public.validate_identifier(tenant_name, 'tenant_name');
 
     -- Check role exists
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = tenant_name) THEN
@@ -411,21 +402,7 @@ SECURITY DEFINER
 SET search_path = pg_catalog
 AS $$
 BEGIN
-    IF user_name IS NULL OR user_name = '' THEN
-        RAISE EXCEPTION 'user_name cannot be empty';
-    END IF;
-
-    IF length(user_name) > 50 THEN
-        RAISE EXCEPTION 'user_name exceeds maximum length of 50 characters';
-    END IF;
-
-    IF user_name !~ '^[a-zA-Z0-9_]+$' THEN
-        RAISE EXCEPTION 'user_name can only contain letters, numbers, and underscores';
-    END IF;
-
-    IF user_name ~ '^[0-9]' THEN
-        RAISE EXCEPTION 'user_name cannot start with a number';
-    END IF;
+    PERFORM public.validate_identifier(user_name, 'user_name');
 
     -- Only the three group roles are assignable. Without this check the function would be
     -- a way for crudman to grant itself membership of any role in the cluster, superusers
@@ -500,13 +477,7 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public
 AS $$
 BEGIN
-    IF user_name IS NULL OR user_name = '' THEN
-        RAISE EXCEPTION 'user_name cannot be empty';
-    END IF;
-
-    IF user_name !~ '^[a-zA-Z0-9_]+$' THEN
-        RAISE EXCEPTION 'user_name can only contain letters, numbers, and underscores';
-    END IF;
+    PERFORM public.validate_identifier(user_name, 'user_name');
 
     -- Guard against this function being used to lock out the service roles.
     IF is_protected_role(user_name) THEN
@@ -541,13 +512,7 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public
 AS $$
 BEGIN
-    IF user_name IS NULL OR user_name = '' THEN
-        RAISE EXCEPTION 'user_name cannot be empty';
-    END IF;
-
-    IF user_name !~ '^[a-zA-Z0-9_]+$' THEN
-        RAISE EXCEPTION 'user_name can only contain letters, numbers, and underscores';
-    END IF;
+    PERFORM public.validate_identifier(user_name, 'user_name');
 
     -- The service roles authenticate from podman secrets; clearing one would take the
     -- deployment down, so they are refused here as they are in delete_db_user.
@@ -581,13 +546,7 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public
 AS $$
 BEGIN
-    IF user_name IS NULL OR user_name = '' THEN
-        RAISE EXCEPTION 'user_name cannot be empty';
-    END IF;
-
-    IF user_name !~ '^[a-zA-Z0-9_]+$' THEN
-        RAISE EXCEPTION 'user_name can only contain letters, numbers, and underscores';
-    END IF;
+    PERFORM public.validate_identifier(user_name, 'user_name');
 
     IF is_protected_role(user_name) THEN
         RAISE EXCEPTION 'refusing to drop the service role %', user_name;

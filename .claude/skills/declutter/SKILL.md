@@ -13,14 +13,13 @@ with this skill earns its place by removing more than it adds — measured, not 
 `.claude/skills/declutter/count-code-lines.sh` counts non-blank, non-comment lines 
 across tracked files.
 
-Run it once for a baseline before touching anything, then again after each fix. Never
+Run it once for a baseline before touching anything, then again after each fix. Never 
 report a saving you have not measured.
 
 ## Finding Refactoring Opportunities
 Assume the repo has grown quite a bit and its time to declutter. Now, its time to find 
 both direct and well as indirect/architectural gains through refactoring. Your task is 
-to find refactoring opportunities and architectural tweaks that reduce the amount of 
-code.
+to find refactoring opportunities and architectural tweaks that reduce the amount of code.
 
 Start by reading these pages and their subpages: 
 - https://refactoring.guru/refactoring/smells
@@ -32,15 +31,16 @@ Start by reading these pages and their subpages:
 - https://refactoring.guru/refactoring/how-to
 
 Then read the code of this repository to find refactoring opportunities. Create a list 
-of the 10 refactoring opportunities with the biggest impact in terms of code lines 
-reduced. Include easy wins for other quality aspects if found, but the focus is reducing 
+of the 10 refactoring opportunities ordered by number of code lines a fix likely 
+reduces. Include easy wins for other quality aspects if found, but the focus is reducing 
 code. Exclude anything that would be bad practice, bad design or very complex regardless 
 of how much it removes. Also consider removing features that may not be that useful or 
 even obsolete, dead code and literal code duplication (closely matching code lines).
 
-Don't fix anything yet, just give the list — with the applicable pattern/technique/smell 
-name (see refactoring guru), a short description of what's proposed, any negative side 
-effects, and the benefit. Under 500 words.
+Don't fix anything yet, just provide a sorted table — with the applicable 
+pattern/technique/smell name (see refactoring guru), a short description of what's 
+proposed, any negative side effects, the benefit and an estimate of the total lines
+that the implementation/fix might save. Under 500 words.
 
 ## Fixing
 Ask the user which refactoring opportunities from above shall be fixed. Then, use the 
