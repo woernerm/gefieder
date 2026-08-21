@@ -59,6 +59,7 @@ PROFILE = os.environ.get("TEST_PROFILE", "dev")
 BASE_URL = os.environ["TEST_BASE_URL"]            # e.g. http://localhost:8080
 HTTP_BASE_URL = os.environ["TEST_HTTP_BASE_URL"]  # the plain-HTTP base, for the redirect test
 PG_PORT = os.environ.get("TEST_PG_PORT", "5432")
+PG_DATABASE = os.environ.get("TEST_PG_DATABASE", "postgres")
 SFTP_PORT = int(os.environ.get("TEST_SFTP_PORT", "2222"))
 FLIGHT_PORT = int(os.environ.get("TEST_FLIGHT_PORT", "8815"))
 GRAFANA_PASSWORD = os.environ["TEST_GRAFANA_PASSWORD"]
@@ -70,6 +71,19 @@ SQLMESH_PASSWORD = os.environ["TEST_SQLMESH_PASSWORD"]
 # stack rather than the defaults.
 APP_NAME = os.environ["APP_NAME"]
 SUPERUSER_NAME = os.environ["SUPERUSER_NAME"]
+
+# The names of the podman secrets, keyed by the component whose credential they hold. The
+# suite reads them from the environment for the same reason it reads the role names: a
+# deployment that had to rename one around a secret the host already held is still the
+# stack these tests are pointed at.
+SECRETS = {
+    "superuser": os.environ["SECRET_SUPERUSER_PASSWORD"],
+    "crudman": os.environ["SECRET_CRUDMAN_PASSWORD"],
+    "sqlmesh": os.environ["SECRET_SQLMESH_PASSWORD"],
+    "grafana": os.environ["SECRET_GRAFANA_PASSWORD"],
+    "django_key": os.environ["SECRET_DJANGO_KEY"],
+    "oidc_client": os.environ["SECRET_OIDC_CLIENT"],
+}
 CRUDMAN_PATH = os.environ["CRUDMAN_PATH"]
 GRAFANA_PATH = os.environ["GRAFANA_PATH"]
 
@@ -176,7 +190,7 @@ DB_PASSWORDS = {
 
 def _connect(user):
     conn = psycopg2.connect(
-        host="localhost", port=PG_PORT, dbname="postgres",
+        host="localhost", port=PG_PORT, dbname=PG_DATABASE,
         user=user, password=DB_PASSWORDS[user],
     )
     conn.autocommit = True

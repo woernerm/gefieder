@@ -22,13 +22,16 @@ RunInit=true
 Timezone=local
 Environment=POSTGRES_HOST=localhost
 Environment=POSTGRES_PORT=5432
-Environment=POSTGRES_DB=postgres
+Environment=POSTGRES_DB=${PG_DATABASE}
 Environment=POSTGRES_USER=${SQLMESH_DB_USER}
 Environment=SQLMESH_RUN_INTERVAL=10
 # The dropzones uploads, read-only: analytics models open the files whose paths the
 # crudman.dropzones_upload rows carry, under the same mount point crudman writes to.
 Volume=uploads_data.volume:/var/lib/app/uploads:ro,z
-Secret=sqlmesh_password
+# The names of the secrets mounted below, so the code that reads a file back out of
+# /run/secrets looks for the same name podman put there (see SECRET_* in buildtime.env).
+Environment=SECRET_SQLMESH_PASSWORD=${SECRET_SQLMESH_PASSWORD}
+Secret=${SECRET_SQLMESH_PASSWORD}
 # The slim image has no pgrep and psycopg2 lives in the uv venv, not the system python,
 # so check liveness with a stdlib-only TCP connect to the database the engine needs.
 # Single-quoted to avoid the HealthCmd quote-mangling of a double-quoted -c argument.

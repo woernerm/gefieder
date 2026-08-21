@@ -25,7 +25,7 @@ wiring as `podman run` flags, so a quadlet change usually has a twin there.
 | `build.sh` | docker forwards nothing from its environment, so a missing `--build-arg` ships the `ARG` default in the release image |
 | `run-tests.sh`, `dev.sh` | the same, except for the `*_proxy` values podman copies from its own environment |
 | `VARS=` in `run-tests.sh` and in `.github/workflows/publish.yml` | envsubst substitutes only the tokens in the allowlist; an unlisted `${TOKEN}` in a quadlet or serverstats unit renders empty. Two separate copies of the list |
-| `VARS=` in `grafana/render.sh` | Grafana never expands `${}` inside dashboard JSON, so the render step is the only chance the value gets |
+| `VARS=` in `grafana/render.sh` | Grafana never expands `${}` inside dashboard JSON or its own config file, so the render step is the only chance the value gets. It renders two sources: `provisioning/` and `custom.ini` |
 | `VARS=` in `postgresql/render.sh` | psql expands nothing inside a plpgsql function body, so the render step is the only chance there too. Both render scripts are called from all three builders (`build.sh`, `dev.sh`, `run-tests.sh`) |
 | the `manifest.env` block in `publish.yml` | `install.sh` runs from a release without a checkout; `manifest.env` is all it learns about the build |
 | `envsubst '${REPO} ${TEMPDIR}'` in `publish.yml` | those two are needed before `manifest.env` has been downloaded, so they are baked into the installer instead |
@@ -68,10 +68,20 @@ the rootless user owns them. Quadlet mounts carry `:z`; the `-v` flags in `dev.s
 
 ## Podman secret
 
-`create_secret` appears in `install.sh`, `dev.sh` and `run-tests.sh`, and the list in
-`# --- podman secrets ---` of `uninstall.sh` is hardcoded — it offers to delete only the
-secrets `install.sh` creates. A quadlet naming it needs `Secret=`, and the `dev.sh` twin of
-that quadlet needs `--secret`. `tests/test_secrets.py` is where the coverage lives.
+The name is a **build-time setting** (`SECRET_*` in `buildtime.env`), so that table applies
+too — including both `VARS=` allowlists and the `manifest.env` block, without which
+`install.sh` cannot name the secret it creates. `create_secret` appears in `install.sh`,
+`dev.sh` and `run-tests.sh`; `uninstall.sh` reads the names back out of the installed
+quadlets' `Secret=` lines, so it needs nothing. A quadlet naming it needs `Secret=`, and the
+`dev.sh` twin of that quadlet needs `--secret`.
+
+Whatever reads the file back out of `/run/secrets/` needs the name as well, which is what
+the `Environment=SECRET_*=` lines in the quadlets are for: `settings.py` (`secret_path()`),
+`crudman/entrypoint.sh`, `sqlmesh/entrypoint.sh` and `sqlmesh/config.py` each take it from
+the environment with the shipped name as the fallback. `postgresql/Dockerfile` takes it as an
+`ARG` instead, because its `ENV POSTGRES_PASSWORD_FILE` is baked in; `gf_0004` and the two
+Grafana files get it from their render script's allowlist. `tests/test_secrets.py` is where
+the coverage lives, keyed off `conftest.SECRETS`.
 
 Podman refuses to start a container whose `Secret=` names something that does not exist,
 which is why a secret nobody has configured yet gets a placeholder value the way
@@ -79,15 +89,23 @@ which is why a secret nobody has configured yet gets a placeholder value the way
 
 ## Port
 
-`PublishPort` in `quadlets/main.pod` is literal — quadlet expands no variables there. The
-preflight list in `# --- preflight: the published ports ---` of `install.sh` checks each one
-against the unprivileged-port floor, other listeners and the firewall; `run-tests.sh` moves
-them out of the way for its throwaway stack, `dev.sh` publishes its own, and `README.md`
-tells the operator which to open.
+The published ports are `runtime.env` settings, so a port is also a **runtime setting**
+(above) and everything in that table applies. `PublishPort` in `quadlets/main.pod` names them
+as `${TOKEN}`s: quadlet expands nothing itself but copies the line into the generated unit,
+where systemd expands it against the `[Service] EnvironmentFile=` the pod file carries for
+exactly this reason. So a port token must stay *out* of the `VARS=` allowlists — listed
+there, envsubst freezes it into the shipped unit and the operator's file is ignored.
 
-The dropzone endpoints listen on whatever `SFTP_PORT` and `FLIGHT_PORT` say in
-`crudman.container`, and only there: the same variables build the address a dropzone's admin
-page shows, while the sftp and flight healthchecks probe 2222 and 8815 literally.
+The preflight list in `# --- preflight: the published ports ---` of `install.sh` reads the
+same settings (it sources `runtime.env` first) and checks each against the unprivileged-port
+floor, other listeners and the firewall. `run-tests.sh` writes its isolated ports into the
+test `runtime.env` rather than rewriting the pod file, `dev.sh` captures its own before
+sourcing `runtime.env` over them, and `README.md` tells the operator which to open.
+
+`SFTP_PORT` and `FLIGHT_PORT` are one setting each for both sides: the endpoints listen on
+them, the pod publishes them unchanged, their healthchecks read them out of the container's
+environment, and `crudman` builds the address a dropzone's admin page shows from them.
+`tests/test_published_ports.py` is where the coverage lives.
 
 ## Database user, role or schema
 
@@ -105,8 +123,8 @@ The silver staging layer is not among them — nothing outside the SQLMesh model
 schema name is written once there and never spelled out again — in the quadlet that connects
 as it (`POSTGRES_USER=`, and its `dev.sh` twin), the Grafana data source, the `dbusers` role
 derivation, `tenants/utils.py`'s tenant discovery, `sqlmesh/config.py`, or the tests. A schema, a container and a
-podman secret keep the component's name instead, so `crudman_password` does not move when
-`CRUDMAN_DB_USER` does. `tests/test_render_templates.py` guards both allowlists: an
+podman secret keep the component's name instead, so `SECRET_CRUDMAN_PASSWORD` does not move
+when `CRUDMAN_DB_USER` does. `tests/test_render_templates.py` guards both allowlists: an
 unlisted `${TOKEN}` renders as literal text rather than failing.
 
 The SQLMesh models under `sqlmesh/models/` are the one place that cannot follow, because a

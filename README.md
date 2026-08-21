@@ -127,12 +127,12 @@ The system is a single pod (named after `APP_NAME`, `gefieder` by default; the p
 is `main.pod`, so the systemd unit is `main-pod.service`) of seven containers:
 
 - `postgresql` — the database holding the engineering, analytics and application data,
-  published on port 5432 so external tools can read and write it
+  published on `PG_PORT` (5432 by default) so external tools can read and write it
 - `crudman` — the Django administration panel, reachable through the proxy
 - `sftp` — the SFTP endpoint for dropzone uploads (the crudman image in a second role),
-  published on port 2222
+  published on `SFTP_PORT` (2222 by default)
 - `flight` — the Arrow Flight endpoint for dropzone uploads (the crudman image in a
-  third role), published on port 8815
+  third role), published on `FLIGHT_PORT` (8815 by default)
 - `sqlmesh` — the SQLMesh analytics engine, running models on their cron schedules
 - `grafana` — the Grafana dashboards, with the database pre-configured as a read-only
   data source and the extra panel types from `GRAFANA_PLUGINS` ready to use
@@ -160,6 +160,7 @@ adjust:
 | `SUPERUSER_DEFAULT_PASSWORD` | the password used when the installer's password prompt is left empty |
 | `CRUDMAN_PATH` | the base path of the admin panel, e.g. `crudman` → `https://SERVER_NAME/crudman/` |
 | `GRAFANA_PATH` | the base path of Grafana, e.g. `grafana` → `https://SERVER_NAME/grafana/` |
+| `PG_DATABASE` | the database everything lives in; change it if the cluster already has one named `postgres` |
 | `SERVER_STATS_SCHEMA` | the schema that holds the server-usage and query statistics (see [Server statistics](#server-statistics)) |
 | `SERVER_STATS_INTERVAL` | how often, in seconds, the server statistics are sampled (default 60) |
 | `DUCKDB_EXTENSIONS` | the DuckDB extensions baked into the database image, comma-separated; they are downloaded at build time, so the server needs no internet access to use them |
@@ -179,6 +180,9 @@ on a reinstall, so your edits survive an upgrade.
 | --- | --- |
 | `SERVER_NAME` | the full public host name, e.g. `abc123.mycompany.com` or `mysite.com`; a local development system uses `localhost` |
 | `DEBUG` | development vs. production mode (see below) |
+| `HTTP_PORT`, `HTTPS_PORT` | the ports the two web interfaces are reached on; `80` and `443` (see [Using custom ports](#using-custom-ports)) |
+| `PG_PORT` | the port PostgreSQL is reached on; `5432` |
+| `SFTP_PORT`, `FLIGHT_PORT` | the ports the two dropzone upload endpoints are reached on; `2222` and `8815` |
 | `OIDC_ENABLED` | whether people sign in with their company account (see [Single sign-on](#single-sign-on)); `false` by default |
 | `OIDC_ISSUER` | the address of your identity provider |
 | `OIDC_AUTH_URL`, `OIDC_TOKEN_URL`, `OIDC_USERINFO_URL` | the three addresses Grafana needs spelled out; your provider lists them |
@@ -229,6 +233,10 @@ take effect.
 | `sqlmesh_password` | the database user the analytics engine connects with |
 | `grafana_password` | the read-only database user for the Grafana data source |
 | `oidc_client_secret` | the single sign-on client secret, if you use it (see below) |
+
+These are the names as shipped. If one of them collides with a podman secret your server
+already has, rename it in `buildtime.env` (the `SECRET_*` settings) and rebuild — the
+commands below then use your name instead.
 
 ## Single sign-on
 People can sign in with their company account instead of a separate password here. Once it
@@ -601,38 +609,41 @@ podman logs -f sqlmesh                    # follow a container's live log
 
 ## Connecting directly
 - **Admin panel / Grafana**: log in with `SUPERUSER_NAME` and the `superuser_password`.
-- **PostgreSQL** (with the same password): the pod publishes port 5432, so reporting
+- **PostgreSQL** (with the same password): the pod publishes `PG_PORT` (5432), so reporting
   tools and the tools that fill the bronze schemas connect straight to `SERVER_NAME`:
 
   ```bash
-  psql "host=SERVER_NAME port=5432 dbname=postgres user=SUPERUSER_NAME"
+  psql "host=SERVER_NAME port=PG_PORT dbname=PG_DATABASE user=SUPERUSER_NAME"
   ```
 
   On the server itself you can also skip the network:
 
   ```bash
-  podman exec -it postgresql psql -U SUPERUSER_NAME -d postgres
+  podman exec -it postgresql psql -U SUPERUSER_NAME -d PG_DATABASE
   ```
 
-  `SUPERUSER_NAME` is `admin` unless you changed it in `buildtime.env`.
+  `SUPERUSER_NAME` is `admin` and `PG_DATABASE` is `postgres` unless you changed them
+  in `buildtime.env`.
 
 ## Using custom ports
-The pod publishes ports 80 and 443 for the web services, 5432 for the database, and 2222
-and 8815 for the dropzone endpoints. To serve on different ports (and skip the sysctl
-step above), edit the `PublishPort` lines in the installed pod file and reload:
+The system is published on ports 80 and 443 for the web services, 5432 for the database,
+and 2222 and 8815 for the dropzone endpoints. Each of them is a setting in `runtime.env`,
+so serving on different ports (and skipping the sysctl step above) is an edit there and a
+restart:
 
 ```bash
-sed -i 's/^PublishPort=80:80/PublishPort=8080:80/; s/^PublishPort=443:443/PublishPort=8443:443/' \
-  ~/.config/containers/systemd/main.pod
-systemctl --user daemon-reload
+$EDITOR ~/.config/gefieder/runtime.env   # HTTP_PORT=8080, HTTPS_PORT=8443
 systemctl --user restart main-pod.service
 ```
 
-Everything then works on the new ports with one exception: opening the system over plain
-`http://` still sends the browser to the standard HTTPS port rather than yours, because
-the proxy cannot know which port you published it on. Reach it over `https://` directly.
+The dropzone ports need nothing further: each dropzone's admin page reads `SFTP_PORT` and
+`FLIGHT_PORT` for the address it shows uploaders, so the page follows the change by itself.
 
-If you use single sign-on, also tell Grafana the address it is reached at, by adding this
+The two web ports have one exception. Opening the system over plain `http://` still sends
+the browser to the standard HTTPS port rather than yours, because the proxy cannot know
+which port you published it on — reach it over `https://` directly.
+
+And if you use single sign-on, tell Grafana the address it is reached at, by adding this
 line to `~/.config/containers/systemd/grafana.container` and restarting. Grafana builds the
 sign-in return address from it, and left alone it would leave your port out and send people
 somewhere that does not answer. The admin panel takes the port from the browser and needs
@@ -641,16 +652,6 @@ nothing:
 ```
 Environment=GF_SERVER_ROOT_URL=https://SERVER_NAME:8443/grafana/
 ```
-
-Moving the SFTP or Arrow Flight port takes one more step. Each dropzone's admin page shows
-uploaders the address to connect to, and it builds that address from `SFTP_PORT` and
-`FLIGHT_PORT` — so set the one you changed as an `Environment=` line in `crudman.container`,
-or the page keeps advertising the old port.
-
-Change only the host side of `PublishPort`, and set the variable nowhere else. It also
-decides the port the endpoint listens on inside the pod, and the healthchecks in
-`sftp.container` and `flight.container` probe 2222 and 8815 literally — so moving the in-pod
-port leaves the service failing to start.
 
 ## Testing
 The integration test suite spins up a throwaway stack and asserts the behaviour the

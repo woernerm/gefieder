@@ -56,7 +56,7 @@ GRANT ${DB_ROLE_PREFIX}editor TO ${DB_ROLE_PREFIX}admin;
 -- control is that production is normally deployed from CI on merge; see
 -- sqlmesh/CLAUDE.md.
 --------------------------------------------------------------------
-GRANT CREATE ON DATABASE postgres TO ${DB_ROLE_PREFIX}editor;
+GRANT CREATE ON DATABASE ${PG_DATABASE} TO ${DB_ROLE_PREFIX}editor;
 
 -- SQLMesh's schemas do not exist yet at first start (the engine creates them on its first
 -- plan) and new ones appear whenever a model lands in a new schema. An event trigger

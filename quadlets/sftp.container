@@ -1,4 +1,4 @@
-# The dropzones SFTP endpoint, published by the pod on port 2222 (see main.pod).
+# The dropzones SFTP endpoint, published by the pod on SFTP_PORT (see main.pod).
 #
 # It runs the crudman image in its "sftp" role: a small SFTP server that authenticates
 # uploaders against the dropzones and feeds every cleanly finished session into the
@@ -23,15 +23,19 @@ Environment=APP_NAME=${APP_NAME}
 EnvironmentFile=%h/.config/${APP_NAME}/runtime.env
 Environment=POSTGRES_HOST=localhost
 Environment=POSTGRES_PORT=5432
-Environment=POSTGRES_DB=postgres
+Environment=POSTGRES_DB=${PG_DATABASE}
 Environment=POSTGRES_USER=${CRUDMAN_DB_USER}
 Environment=UPLOADS_DIR=/var/lib/app/uploads
 Volume=uploads_data.volume:/var/lib/app/uploads:z
 Environment=SFTP_DIR=/var/lib/app/sftp
 Volume=sftp_data.volume:/var/lib/app/sftp:z
-Secret=django_secret_key
-Secret=crudman_password
-HealthCmd=python -c 'import socket; socket.create_connection(("127.0.0.1", 2222), 5).close()'
+# The names of the secrets mounted below, so the code that reads a file back out of
+# /run/secrets looks for the same name podman put there (see SECRET_* in buildtime.env).
+Environment=SECRET_DJANGO_KEY=${SECRET_DJANGO_KEY}
+Environment=SECRET_CRUDMAN_PASSWORD=${SECRET_CRUDMAN_PASSWORD}
+Secret=${SECRET_DJANGO_KEY}
+Secret=${SECRET_CRUDMAN_PASSWORD}
+HealthCmd=python -c 'import os, socket; socket.create_connection(("127.0.0.1", int(os.environ["SFTP_PORT"])), 5).close()'
 HealthInterval=10s
 HealthTimeout=5s
 HealthRetries=10
@@ -41,7 +45,7 @@ HealthRetries=10
 # "starting" until a poll happens to look. Polling once a second reports it ready as soon
 # as it is, without a start period that delays the first look; podman switches to the
 # regular interval above after the first success, leaving the steady-state load unchanged.
-HealthStartupCmd=python -c 'import socket; socket.create_connection(("127.0.0.1", 2222), 5).close()'
+HealthStartupCmd=python -c 'import os, socket; socket.create_connection(("127.0.0.1", int(os.environ["SFTP_PORT"])), 5).close()'
 HealthStartupInterval=1s
 HealthStartupTimeout=5s
 

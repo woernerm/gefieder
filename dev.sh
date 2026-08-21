@@ -35,6 +35,16 @@ if ! command -v podman >/dev/null 2>&1; then
   exit 1
 fi
 
+# The ports the local stack publishes, captured before runtime.env is sourced over them.
+# That file carries the deployment's ports, which are not what a developer wants -- its 80
+# is one rootless podman cannot bind -- and sourcing under `set -a` would also overwrite a
+# value given on the command line, e.g. `HTTP_PORT=9000 ./dev.sh up`. Empty here means
+# "not asked for", so the dev defaults below apply.
+ARG_HTTP_PORT="${HTTP_PORT:-}"
+ARG_PG_PORT="${PG_PORT:-}"
+ARG_SFTP_PORT="${SFTP_PORT:-}"
+ARG_FLIGHT_PORT="${FLIGHT_PORT:-}"
+
 # Build-time settings (image names, app name, paths) and the runtime ones (SERVER_NAME).
 # DEBUG is forced on below, whatever runtime.env says.
 set -a
@@ -45,16 +55,17 @@ set +a
 POD="${APP_NAME}"
 # Plain HTTP for local development; mapped to the proxy's port 80 inside the pod. 8080
 # avoids needing privileged ports, which rootless podman does not grant by default.
-HTTP_PORT="${HTTP_PORT:-8080}"
+HTTP_PORT="${ARG_HTTP_PORT:-8080}"
 # Publish PostgreSQL on the host too, so a local psql or DB GUI can connect. The
 # in-pod port stays 5432; only the host port is exposed.
-PG_PORT="${PG_PORT:-5432}"
-# The dropzones SFTP endpoint, same host port as the deployment publishes.
-SFTP_PORT="${SFTP_PORT:-2222}"
+PG_PORT="${ARG_PG_PORT:-5432}"
+# The dropzones SFTP endpoint. Published on the port it listens on, as the deployment does,
+# so the address the admin panel shows uploaders is the one that answers.
+SFTP_PORT="${ARG_SFTP_PORT:-2222}"
 # The dropzones Arrow Flight endpoint, likewise.
-FLIGHT_PORT="${FLIGHT_PORT:-8815}"
+FLIGHT_PORT="${ARG_FLIGHT_PORT:-8815}"
 PG_USER="${SUPERUSER_NAME}"
-PG_DB="postgres"
+PG_DB="${PG_DATABASE}"
 # Publish on the IPv4 loopback explicitly. On WSL "localhost" often resolves to ::1
 # first, which podman's pasta networking does not bind, so binding 127.0.0.1 keeps the
 # printed URLs reachable. Use this address in the summary for the same reason.
@@ -73,7 +84,8 @@ STATS_PIDFILE="$STATE_DIR/dev-serverstats.pid"
 # timer; locally there is no user-systemd, so it is invoked directly. POSTGRES_USER lets it
 # authenticate as the dev superuser.
 run_collector_once() {
-  POSTGRES_USER="$PG_USER" SERVER_STATS_SCHEMA="${SERVER_STATS_SCHEMA:-server_stats}" \
+  POSTGRES_USER="$PG_USER" POSTGRES_DB="$PG_DB" \
+    SERVER_STATS_SCHEMA="${SERVER_STATS_SCHEMA:-server_stats}" \
     ./serverstats/collect.sh
 }
 
@@ -142,9 +154,9 @@ esac
 echo "Building images ..."
 
 # Render the Grafana provisioning templates the grafana Dockerfile COPYs in, exactly as
-# build.sh does; without this the COPY of grafana/.provisioning/ has no source. The output
+# build.sh does; without this the COPY of grafana/.render/ has no source. The output
 # is deterministic, so an unchanged dashboard keeps the grafana COPY layer cached.
-./grafana/render.sh grafana/.provisioning
+./grafana/render.sh grafana/.render
 ./postgresql/render.sh postgresql/.initdb
 
 # The configurable buildtime.env settings, the same list build.sh and run-tests.sh pass:
@@ -159,6 +171,7 @@ for svc in $SERVICES; do
       --build-arg "DOCKER_IO_MIRROR=${DOCKER_IO_MIRROR}" \
       --build-arg "GHCR_IO_MIRROR=${GHCR_IO_MIRROR}" \
       --build-arg "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}" \
+    --build-arg "SECRET_SUPERUSER_PASSWORD=${SECRET_SUPERUSER_PASSWORD}" \
       --build-arg "DUCKDB_EXTENSIONS=${DUCKDB_EXTENSIONS}" \
       --build-arg "GRAFANA_PLUGINS=${GRAFANA_PLUGINS}" \
       -t "${REGISTRY}/${svc}:${IMAGE_TAG}" \
@@ -182,13 +195,13 @@ done
 create_secret() {  # name, value
   podman secret exists "$1" 2>/dev/null || printf '%s' "$2" | podman secret create "$1" - >/dev/null
 }
-create_secret django_secret_key "$(openssl rand -hex 32)"
-create_secret crudman_password  "$(openssl rand -hex 32)"
-create_secret sqlmesh_password  "$(openssl rand -hex 32)"
-create_secret grafana_password  "$(openssl rand -hex 32)"
+create_secret "$SECRET_DJANGO_KEY"       "$(openssl rand -hex 32)"
+create_secret "$SECRET_CRUDMAN_PASSWORD" "$(openssl rand -hex 32)"
+create_secret "$SECRET_SQLMESH_PASSWORD" "$(openssl rand -hex 32)"
+create_secret "$SECRET_GRAFANA_PASSWORD" "$(openssl rand -hex 32)"
 # A placeholder for single sign-on, which a development system leaves off. It still has to
 # exist: the crudman and grafana quadlets name it in a Secret=.
-create_secret oidc_client_secret "unconfigured"
+create_secret "$SECRET_OIDC_CLIENT" "unconfigured"
 
 # The superuser login is a fixed, well-known value (SUPERUSER_DEFAULT_PASSWORD from
 # buildtime.env) so the stack comes up unattended and the printed credentials are always
@@ -196,8 +209,8 @@ create_secret oidc_client_secret "unconfigured"
 # e.g. one a previous install prompted for), because the crudman entrypoint resets the
 # superuser password to this secret on start. This is a dev-only convenience and not for
 # production.
-podman secret rm superuser_password >/dev/null 2>&1 || true
-printf '%s' "$SUPERUSER_DEFAULT_PASSWORD" | podman secret create superuser_password - >/dev/null
+podman secret rm "$SECRET_SUPERUSER_PASSWORD" >/dev/null 2>&1 || true
+printf '%s' "$SUPERUSER_DEFAULT_PASSWORD" | podman secret create "$SECRET_SUPERUSER_PASSWORD" - >/dev/null
 
 # --- volumes --------------------------------------------------------------------------
 # Created up front so the rootless user owns their contents from the start (same reason as
@@ -214,8 +227,8 @@ podman pod rm -f "$POD" >/dev/null 2>&1 || true
 podman pod create --name "$POD" \
   --publish "${HOST_ADDR}:${HTTP_PORT}:80" \
   --publish "${HOST_ADDR}:${PG_PORT}:5432" \
-  --publish "${HOST_ADDR}:${SFTP_PORT}:2222" \
-  --publish "${HOST_ADDR}:${FLIGHT_PORT}:8815" >/dev/null
+  --publish "${HOST_ADDR}:${SFTP_PORT}:${SFTP_PORT}" \
+  --publish "${HOST_ADDR}:${FLIGHT_PORT}:${FLIGHT_PORT}" >/dev/null
 
 # --- run the containers ---------------------------------------------------------------
 # Each `podman run` mirrors the matching *.container quadlet: same image, environment,
@@ -223,13 +236,13 @@ podman pod create --name "$POD" \
 # reach each other on localhost just like the quadlet deployment.
 
 podman run -d --pod "$POD" --name postgresql --restart always \
-  -e POSTGRES_DB=postgres \
+  -e "POSTGRES_DB=${PG_DB}" \
   -e "POSTGRES_USER=${SUPERUSER_NAME}" \
-  -e POSTGRES_PASSWORD_FILE=/run/secrets/superuser_password \
+  -e "POSTGRES_PASSWORD_FILE=/run/secrets/${SECRET_SUPERUSER_PASSWORD}" \
   -v postgresql_data:/var/lib/postgresql/data \
-  --secret superuser_password --secret crudman_password \
-  --secret sqlmesh_password --secret grafana_password \
-  --health-cmd "pg_isready -U ${SUPERUSER_NAME} -d postgres" \
+  --secret "$SECRET_SUPERUSER_PASSWORD" --secret "$SECRET_CRUDMAN_PASSWORD" \
+  --secret "$SECRET_SQLMESH_PASSWORD" --secret "$SECRET_GRAFANA_PASSWORD" \
+  --health-cmd "pg_isready -U ${SUPERUSER_NAME} -d ${PG_DB}" \
   --health-interval 5s --health-retries 10 --health-start-period 10s \
   "${REGISTRY}/postgresql:${IMAGE_TAG}" >/dev/null
 
@@ -243,43 +256,53 @@ podman run -d --pod "$POD" --name crudman --restart always --tz=local \
   -e "CRUDMAN_PATH=${CRUDMAN_PATH}" \
   -e DEBUG=true \
   -e "CSRF_TRUSTED_ORIGINS=http://${HOST_ADDR}:${HTTP_PORT}" \
+  -e "SFTP_PORT=${SFTP_PORT}" -e "FLIGHT_PORT=${FLIGHT_PORT}" \
   -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 \
-  -e POSTGRES_DB=postgres -e "POSTGRES_USER=${CRUDMAN_DB_USER}" \
+  -e "POSTGRES_DB=${PG_DB}" -e "POSTGRES_USER=${CRUDMAN_DB_USER}" \
   -e "DB_ROLE_PREFIX=${DB_ROLE_PREFIX}" \
   -e "SSO_GROUP_PREFIX=${SSO_GROUP_PREFIX}" \
   -e "BRONZE_SCHEMA_PREFIX=${BRONZE_SCHEMA_PREFIX}" \
   -e UPLOADS_DIR=/var/lib/app/uploads \
   -v uploads_data:/var/lib/app/uploads \
-  --secret django_secret_key --secret crudman_password --secret superuser_password \
+  -e "SECRET_DJANGO_KEY=${SECRET_DJANGO_KEY}" \
+  -e "SECRET_CRUDMAN_PASSWORD=${SECRET_CRUDMAN_PASSWORD}" \
+  -e "SECRET_SUPERUSER_PASSWORD=${SECRET_SUPERUSER_PASSWORD}" \
+  -e "SECRET_OIDC_CLIENT=${SECRET_OIDC_CLIENT}" \
+  --secret "$SECRET_DJANGO_KEY" --secret "$SECRET_CRUDMAN_PASSWORD" --secret "$SECRET_SUPERUSER_PASSWORD" \
   "${REGISTRY}/crudman:${IMAGE_TAG}" >/dev/null
 
 # The dropzones SFTP endpoint: the crudman image in its "sftp" role (same entrypoint,
 # sftp argument), writing uploads like crudman does.
 podman run -d --pod "$POD" --name sftp --restart always \
   -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 \
-  -e POSTGRES_DB=postgres -e "POSTGRES_USER=${CRUDMAN_DB_USER}" \
+  -e "POSTGRES_DB=${PG_DB}" -e "POSTGRES_USER=${CRUDMAN_DB_USER}" \
+  -e "SFTP_PORT=${SFTP_PORT}" \
   -e UPLOADS_DIR=/var/lib/app/uploads \
   -e SFTP_DIR=/var/lib/app/sftp \
   -v uploads_data:/var/lib/app/uploads \
   -v sftp_data:/var/lib/app/sftp \
-  --secret django_secret_key --secret crudman_password \
+  -e "SECRET_DJANGO_KEY=${SECRET_DJANGO_KEY}" -e "SECRET_CRUDMAN_PASSWORD=${SECRET_CRUDMAN_PASSWORD}" \
+  --secret "$SECRET_DJANGO_KEY" --secret "$SECRET_CRUDMAN_PASSWORD" \
   "${REGISTRY}/crudman:${IMAGE_TAG}" /crudman/entrypoint.sh sftp >/dev/null
 
 podman run -d --pod "$POD" --name flight --restart always \
   -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 \
-  -e POSTGRES_DB=postgres -e "POSTGRES_USER=${CRUDMAN_DB_USER}" \
+  -e "POSTGRES_DB=${PG_DB}" -e "POSTGRES_USER=${CRUDMAN_DB_USER}" \
+  -e "FLIGHT_PORT=${FLIGHT_PORT}" \
   -e UPLOADS_DIR=/var/lib/app/uploads \
   -v uploads_data:/var/lib/app/uploads \
-  --secret django_secret_key --secret crudman_password \
+  -e "SECRET_DJANGO_KEY=${SECRET_DJANGO_KEY}" -e "SECRET_CRUDMAN_PASSWORD=${SECRET_CRUDMAN_PASSWORD}" \
+  --secret "$SECRET_DJANGO_KEY" --secret "$SECRET_CRUDMAN_PASSWORD" \
   "${REGISTRY}/crudman:${IMAGE_TAG}" /crudman/entrypoint.sh flight >/dev/null
 
 # --tz=local as for crudman above: SQLMesh stamps its own log records too.
 podman run -d --pod "$POD" --name sqlmesh --restart always --tz=local \
-  -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 -e POSTGRES_DB=postgres \
+  -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 -e "POSTGRES_DB=${PG_DB}" \
   -e "POSTGRES_USER=${SQLMESH_DB_USER}" \
   -e SQLMESH_RUN_INTERVAL=10 \
   -v uploads_data:/var/lib/app/uploads:ro \
-  --secret sqlmesh_password \
+  -e "SECRET_SQLMESH_PASSWORD=${SECRET_SQLMESH_PASSWORD}" \
+  --secret "$SECRET_SQLMESH_PASSWORD" \
   "${REGISTRY}/sqlmesh:${IMAGE_TAG}" >/dev/null
 
 # The public address is spelled out rather than derived by the entrypoint, because no
@@ -287,12 +310,12 @@ podman run -d --pod "$POD" --name sqlmesh --restart always --tz=local \
 podman run -d --pod "$POD" --name grafana --restart always \
   -e "APP_NAME=${APP_NAME}" \
   -e "GF_SECURITY_ADMIN_USER=${SUPERUSER_NAME}" \
-  -e GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/superuser_password \
+  -e "GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/${SECRET_SUPERUSER_PASSWORD}" \
   -e "GF_SERVER_ROOT_URL=http://${HOST_ADDR}:${HTTP_PORT}/${GRAFANA_PATH}/" \
   -e GF_SERVER_SERVE_FROM_SUB_PATH=true \
   -e GF_LOG_MODE=console \
   -v grafana_data:/var/lib/grafana \
-  --secret superuser_password --secret grafana_password \
+  --secret "$SECRET_SUPERUSER_PASSWORD" --secret "$SECRET_GRAFANA_PASSWORD" \
   "${REGISTRY}/grafana:${IMAGE_TAG}" >/dev/null
 
 # DEBUG=true makes the proxy entrypoint pick the plain-HTTP template, so the certs mount

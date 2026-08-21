@@ -1,4 +1,4 @@
-# The dropzones Arrow Flight endpoint, published by the pod on port 8815 (see main.pod).
+# The dropzones Arrow Flight endpoint, published by the pod on FLIGHT_PORT (see main.pod).
 #
 # It runs the crudman image in its "flight" role: a small Arrow Flight server that
 # authenticates uploaders against the dropzones and feeds every committed upload into
@@ -23,16 +23,20 @@ Environment=APP_NAME=${APP_NAME}
 EnvironmentFile=%h/.config/${APP_NAME}/runtime.env
 Environment=POSTGRES_HOST=localhost
 Environment=POSTGRES_PORT=5432
-Environment=POSTGRES_DB=postgres
+Environment=POSTGRES_DB=${PG_DATABASE}
 Environment=POSTGRES_USER=${CRUDMAN_DB_USER}
 # Unlike SFTP this endpoint keeps no state of its own — uploads in progress live in the
 # container's temporary directory and are deliberately lost on a restart, because an
 # upload that was never committed is incomplete.
 Environment=UPLOADS_DIR=/var/lib/app/uploads
 Volume=uploads_data.volume:/var/lib/app/uploads:z
-Secret=django_secret_key
-Secret=crudman_password
-HealthCmd=python -c 'import socket; socket.create_connection(("127.0.0.1", 8815), 5).close()'
+# The names of the secrets mounted below, so the code that reads a file back out of
+# /run/secrets looks for the same name podman put there (see SECRET_* in buildtime.env).
+Environment=SECRET_DJANGO_KEY=${SECRET_DJANGO_KEY}
+Environment=SECRET_CRUDMAN_PASSWORD=${SECRET_CRUDMAN_PASSWORD}
+Secret=${SECRET_DJANGO_KEY}
+Secret=${SECRET_CRUDMAN_PASSWORD}
+HealthCmd=python -c 'import os, socket; socket.create_connection(("127.0.0.1", int(os.environ["FLIGHT_PORT"])), 5).close()'
 HealthInterval=10s
 HealthTimeout=5s
 HealthRetries=10
@@ -40,7 +44,7 @@ HealthRetries=10
 # for the reason sftp.container gives: it waits for the database and for crudman's
 # migrations, so it can come up at any point between two of the regular polls while
 # Notify=healthy holds the unit "starting".
-HealthStartupCmd=python -c 'import socket; socket.create_connection(("127.0.0.1", 8815), 5).close()'
+HealthStartupCmd=python -c 'import os, socket; socket.create_connection(("127.0.0.1", int(os.environ["FLIGHT_PORT"])), 5).close()'
 HealthStartupInterval=1s
 HealthStartupTimeout=5s
 

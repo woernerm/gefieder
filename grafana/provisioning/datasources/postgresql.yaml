@@ -1,5 +1,6 @@
 # Provisions the project's PostgreSQL database as a read-only Grafana data source.
-# The password is read from the grafana_password secret mounted into the container.
+# The password is read from the podman secret mounted into the container, named by
+# SECRET_GRAFANA_PASSWORD in buildtime.env and substituted in by grafana/render.sh.
 apiVersion: 1
 
 datasources:
@@ -15,8 +16,8 @@ datasources:
     user: ${GRAFANA_DB_USER}
     isDefault: true
     jsonData:
-      database: postgres
+      database: ${PG_DATABASE}
       sslmode: disable
       postgresVersion: 1600
     secureJsonData:
-      password: $__file{/run/secrets/grafana_password}
+      password: $__file{/run/secrets/${SECRET_GRAFANA_PASSWORD}}

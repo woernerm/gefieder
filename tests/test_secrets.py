@@ -10,14 +10,14 @@ import os
 
 import pytest
 
-from conftest import CONTAINERS, SUPERUSER_NAME, podman
+from conftest import CONTAINERS, SECRETS, SUPERUSER_NAME, podman
 
 # The actual secret values, from the same env the suite uses for its DB connections.
 SECRET_VALUES = {
-    "superuser_password": os.environ["TEST_SUPERUSER_PASSWORD"],
-    "crudman_password": os.environ["TEST_CRUDMAN_PASSWORD"],
-    "sqlmesh_password": os.environ["TEST_SQLMESH_PASSWORD"],
-    "grafana_password": os.environ["TEST_GRAFANA_PASSWORD"],
+    SECRETS["superuser"]: os.environ["TEST_SUPERUSER_PASSWORD"],
+    SECRETS["crudman"]: os.environ["TEST_CRUDMAN_PASSWORD"],
+    SECRETS["sqlmesh"]: os.environ["TEST_SQLMESH_PASSWORD"],
+    SECRETS["grafana"]: os.environ["TEST_GRAFANA_PASSWORD"],
 }
 
 # Config values the quadlets are meant to contain in plain text. The dev profile sets the
@@ -77,7 +77,7 @@ class TestSecretsNotInQuadlets:
     # a placeholder until an operator sets the real one -- but it must exist all the same,
     # because the containers referencing it will not start otherwise.
     @pytest.mark.parametrize(
-        "name", list(SECRET_VALUES) + ["django_secret_key", "oidc_client_secret"]
+        "name", list(SECRET_VALUES) + [SECRETS["django_key"], SECRETS["oidc_client"]]
     )
     def test_secrets_shall_exist_as_podman_secrets(self, name):
         # The credentials are managed as podman secrets, not inline config.

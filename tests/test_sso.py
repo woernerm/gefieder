@@ -22,7 +22,7 @@ import pytest
 
 from conftest import (
     APP_CONFIG_DIR, BASE_URL, CRUDMAN_LOGIN, CRUDMAN_PATH, GRAFANA_PATH, OIDC_ISSUER,
-    RESTART_TIMEOUT, SSO_GROUP_PREFIX, VERIFY_TLS, inspect_container, podman,
+    RESTART_TIMEOUT, SECRETS, SSO_GROUP_PREFIX, VERIFY_TLS, inspect_container, podman,
 )
 
 # The host name the stack was started with, which Grafana has to be told about: its own
@@ -144,7 +144,7 @@ class TestClientSecret:
     def test_the_secret_shall_be_mounted(self, container):
         # Both services read it from this path: Grafana through a $__file{} reference in
         # its configuration, crudman by reading the file in settings.py.
-        podman("exec", container, "test", "-r", "/run/secrets/oidc_client_secret")
+        podman("exec", container, "test", "-r", f"/run/secrets/{SECRETS['oidc_client']}")
 
 
 class TestGrafanaConfiguration:

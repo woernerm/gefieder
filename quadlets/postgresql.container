@@ -11,16 +11,16 @@ ContainerName=postgresql
 Pod=main.pod
 Image=${REGISTRY}/postgresql:${IMAGE_TAG}
 Notify=healthy
-Environment=POSTGRES_DB=postgres
+Environment=POSTGRES_DB=${PG_DATABASE}
 Environment=POSTGRES_USER=${SUPERUSER_NAME}
-Environment=POSTGRES_PASSWORD_FILE=/run/secrets/superuser_password
+Environment=POSTGRES_PASSWORD_FILE=/run/secrets/${SECRET_SUPERUSER_PASSWORD}
 # RHEL/Fedora SELinux needs a relabeled volume for rootless podman to mount it.
 Volume=postgresql_data.volume:/var/lib/postgresql/data:z
-Secret=superuser_password
-Secret=crudman_password
-Secret=sqlmesh_password
-Secret=grafana_password
-HealthCmd=pg_isready -U ${SUPERUSER_NAME} -d postgres
+Secret=${SECRET_SUPERUSER_PASSWORD}
+Secret=${SECRET_CRUDMAN_PASSWORD}
+Secret=${SECRET_SQLMESH_PASSWORD}
+Secret=${SECRET_GRAFANA_PASSWORD}
+HealthCmd=pg_isready -U ${SUPERUSER_NAME} -d ${PG_DATABASE}
 HealthInterval=5s
 HealthTimeout=5s
 HealthRetries=10

@@ -66,8 +66,11 @@ ARG PGDUCKDB_IMAGE
 FROM ${PGDUCKDB_IMAGE}
 
 # The base PostgreSQL image reads POSTGRES_PASSWORD_FILE to load the password from
-# the mounted Podman secret file at runtime.
-ENV POSTGRES_PASSWORD_FILE=/run/secrets/superuser_password
+# the mounted Podman secret file at runtime. Which secret is SECRET_SUPERUSER_PASSWORD in
+# buildtime.env, passed in as a --build-arg: the quadlet sets the same path in an
+# Environment= line, and this keeps the two from drifting apart when the name is changed.
+ARG SECRET_SUPERUSER_PASSWORD=superuser_password
+ENV POSTGRES_PASSWORD_FILE=/run/secrets/${SECRET_SUPERUSER_PASSWORD}
 
 # The schema name for the server-statistics data (see buildtime.env). It is baked in as
 # an ENV so the .sh init scripts can create the schema under it and so the running server
@@ -86,5 +89,5 @@ COPY --from=extensions --chown=postgres:postgres /opt/duckdb-extensions/ /opt/du
 # The scripts come from postgresql/.initdb, which build.sh fills by running
 # postgresql/render.sh over postgresql/initdb: it substitutes the role names from
 # buildtime.env, which the scripts cannot read for themselves because psql interpolates
-# nothing inside a plpgsql function body. Same arrangement as grafana/.provisioning.
+# nothing inside a plpgsql function body. Same arrangement as grafana/.render.
 COPY --chown=postgres:postgres postgresql/.initdb/ /docker-entrypoint-initdb.d/

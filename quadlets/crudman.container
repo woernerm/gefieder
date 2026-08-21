@@ -31,7 +31,7 @@ Environment=SUPERUSER_EMAIL=${SUPERUSER_EMAIL}
 Environment=CRUDMAN_PATH=${CRUDMAN_PATH}
 Environment=POSTGRES_HOST=localhost
 Environment=POSTGRES_PORT=5432
-Environment=POSTGRES_DB=postgres
+Environment=POSTGRES_DB=${PG_DATABASE}
 Environment=POSTGRES_USER=${CRUDMAN_DB_USER}
 # The prefix on the roles crudman provisions for administrators, so the names it builds
 # match the group roles the database created (see DB_ROLE_PREFIX in buildtime.env).
@@ -46,12 +46,18 @@ Environment=BRONZE_SCHEMA_PREFIX=${BRONZE_SCHEMA_PREFIX}
 # so the file paths stored in the database resolve there too.
 Environment=UPLOADS_DIR=/var/lib/app/uploads
 Volume=uploads_data.volume:/var/lib/app/uploads:z
-Secret=django_secret_key
-Secret=crudman_password
-Secret=superuser_password
+# The names of the secrets mounted below, so the code that reads a file back out of
+# /run/secrets looks for the same name podman put there (see SECRET_* in buildtime.env).
+Environment=SECRET_DJANGO_KEY=${SECRET_DJANGO_KEY}
+Environment=SECRET_CRUDMAN_PASSWORD=${SECRET_CRUDMAN_PASSWORD}
+Environment=SECRET_SUPERUSER_PASSWORD=${SECRET_SUPERUSER_PASSWORD}
+Environment=SECRET_OIDC_CLIENT=${SECRET_OIDC_CLIENT}
+Secret=${SECRET_DJANGO_KEY}
+Secret=${SECRET_CRUDMAN_PASSWORD}
+Secret=${SECRET_SUPERUSER_PASSWORD}
 # A placeholder while OIDC_ENABLED is false, but must exist: podman will not start a
 # container whose Secret= is missing.
-Secret=oidc_client_secret
+Secret=${SECRET_OIDC_CLIENT}
 # Any answer below 500 counts as healthy, and redirects are not followed. The panel's own
 # pages redirect when nobody is signed in -- to the login form, or with single sign-on on
 # to the identity provider -- and a probe that followed that would be testing the provider

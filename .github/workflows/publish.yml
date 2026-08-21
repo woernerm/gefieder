@@ -87,7 +87,7 @@ jobs:
           # Render the quadlet templates and the server-stats systemd units, substituting
           # only the known tokens so nginx's $host and Grafana's %(domain)s are left
           # untouched. The units take ${APP_NAME} like the quadlets do.
-          VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_ROLE_PREFIX} ${SSO_GROUP_PREFIX} ${BRONZE_SCHEMA_PREFIX}'
+          VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_ROLE_PREFIX} ${SSO_GROUP_PREFIX} ${BRONZE_SCHEMA_PREFIX} ${SECRET_SUPERUSER_PASSWORD} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD} ${SECRET_DJANGO_KEY} ${SECRET_OIDC_CLIENT}'
           for f in quadlets/* serverstats/server-stats.service serverstats/server-stats.timer; do
             envsubst "$VARS" < "$f" > "dist/$(basename "$f")"
           done
@@ -105,6 +105,13 @@ jobs:
             echo "CRUDMAN_PATH=${CRUDMAN_PATH}"
             echo "GRAFANA_PATH=${GRAFANA_PATH}"
             echo "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}"
+            echo "PG_DATABASE=${PG_DATABASE}"
+            echo "SECRET_SUPERUSER_PASSWORD=${SECRET_SUPERUSER_PASSWORD}"
+            echo "SECRET_CRUDMAN_PASSWORD=${SECRET_CRUDMAN_PASSWORD}"
+            echo "SECRET_SQLMESH_PASSWORD=${SECRET_SQLMESH_PASSWORD}"
+            echo "SECRET_GRAFANA_PASSWORD=${SECRET_GRAFANA_PASSWORD}"
+            echo "SECRET_DJANGO_KEY=${SECRET_DJANGO_KEY}"
+            echo "SECRET_OIDC_CLIENT=${SECRET_OIDC_CLIENT}"
           } > dist/manifest.env
 
           # Bake the repository URL and the scratch directory into the installer: the

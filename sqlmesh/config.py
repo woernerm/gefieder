@@ -31,7 +31,9 @@ from sqlmesh.core.config.linter import LinterConfig
 # The podman secret is mounted only in the container, which makes its presence the
 # honest answer to "am I the deployed engine or a developer's checkout?" -- unlike a
 # hostname or an environment variable, it cannot accidentally be true in the wrong place.
-SECRET_PATH = Path("/run/secrets/sqlmesh_password")
+SECRET_PATH = Path(
+    "/run/secrets", os.environ.get("SECRET_SQLMESH_PASSWORD", "sqlmesh_password")
+)
 IN_CONTAINER = SECRET_PATH.exists()
 
 if IN_CONTAINER:
@@ -55,7 +57,10 @@ else:
     runtime_env = dotenv_values(repo_root / "runtime.env")
     host = runtime_env["SERVER_NAME"]
     port = 5432
-    database = "postgres"
+    # The database name is a build-time setting, so it comes from the other file -- the
+    # deployed engine gets the same value from POSTGRES_DB above, which the quadlet fills
+    # from it.
+    database = dotenv_values(repo_root / "buildtime.env")["PG_DATABASE"]
     # SQLMesh loads sqlmesh/.env into the environment before importing this file, so this
     # picks up either an exported variable or the gitignored file.
     password = os.environ.get("SQLMESH_PASSWORD")

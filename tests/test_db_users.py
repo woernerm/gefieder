@@ -19,6 +19,7 @@ from conftest import (
     CRUDMAN_DB_USER,
     DB_ROLE_PREFIX,
     GRAFANA_DB_USER,
+    PG_DATABASE,
     SILVER_SCHEMA,
     SQLMESH_DB_USER,
     SUPERUSER_NAME,
@@ -188,7 +189,7 @@ def test_editor_can_read_analytics(crudman_db, admin_db, cleanup):
     conn = psycopg2.connect(
         host="localhost",
         port=admin_db.get_dsn_parameters()["port"],
-        dbname="postgres",
+        dbname=PG_DATABASE,
         user=EDITOR,
         password=PASSWORD,
     )
@@ -239,7 +240,7 @@ def test_issuing_the_password_makes_the_account_usable(crudman_db, admin_db, cle
     conn = psycopg2.connect(
         host="localhost",
         port=admin_db.get_dsn_parameters()["port"],
-        dbname="postgres",
+        dbname=PG_DATABASE,
         user=VIEWER,
         password=PASSWORD,
     )
@@ -262,7 +263,7 @@ def test_clearing_a_password_locks_the_account_immediately(crudman_db, admin_db,
         psycopg2.connect(
             host="localhost",
             port=admin_db.get_dsn_parameters()["port"],
-            dbname="postgres",
+            dbname=PG_DATABASE,
             user=VIEWER,
             password=PASSWORD,
         )

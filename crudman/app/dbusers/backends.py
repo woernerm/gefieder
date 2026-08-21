@@ -24,6 +24,8 @@ or without a password accordingly. See dbusers/requirements.md.
 """
 import secrets
 
+from django.conf import settings
+
 
 class ProvisioningBackend:
     """What provisioning needs to know about an authentication method.
@@ -73,7 +75,8 @@ class ScramBackend(ProvisioningBackend):
 
     def connection_hint(self, user_name: str) -> str:
         return (
-            f"psql -h <server> -U {user_name} -d postgres, or set SQLMESH_PASSWORD to "
+            f"psql -h <server> -U {user_name} -d {settings.DATABASES['default']['NAME']}, "
+            f"or set SQLMESH_PASSWORD to "
             f"this password to run sqlmesh with your own account."
         )
 

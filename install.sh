@@ -170,33 +170,53 @@ esac
 
 # The address as seen from outside, not "localhost". DEBUG picks the scheme, as it does
 # for the proxy and the dropzone pages. Used by the check after startup and the cheat sheet.
-if [ "${DEBUG}" = "true" ]; then SCHEME="http"; else SCHEME="https"; fi
-BASE_URL="${SCHEME}://${SERVER_NAME}"
+# The port is named only when it is not the one the scheme implies, which a browser adds by
+# itself: printing ":443" on a standard installation would read as something to configure.
+if [ "${DEBUG}" = "true" ]; then
+  SCHEME="http"; WEB_PORT="${HTTP_PORT}"; SCHEME_PORT=80
+else
+  SCHEME="https"; WEB_PORT="${HTTPS_PORT}"; SCHEME_PORT=443
+fi
+if [ "${WEB_PORT}" = "${SCHEME_PORT}" ]; then
+  BASE_URL="${SCHEME}://${SERVER_NAME}"
+else
+  BASE_URL="${SCHEME}://${SERVER_NAME}:${WEB_PORT}"
+fi
 
 # --- preflight: the published ports must be bindable and reachable ---------------------
-# The pod publishes 80, 443, 5432, 2222 and 8815 (see quadlets/main.pod). Two things can
-# stop them working, and both are silent until someone's browser times out, so they are
-# checked here rather than left to be discovered later. Neither aborts the install: the
-# stack is still worth having with, say, only the database port open, so this reports what
-# is wrong and prints the exact command that fixes it on *this* host.
+# The ports the pod publishes, read from the runtime.env sourced above -- the same file
+# quadlets/main.pod expands its PublishPort lines from, so this checks what will actually
+# be bound rather than the defaults. Two things can stop a port working, and both are
+# silent until someone's browser times out, so they are checked here rather than left to be
+# discovered later. Neither aborts the install: the stack is still worth having with, say,
+# only the database port open, so this reports what is wrong and prints the exact command
+# that fixes it on *this* host.
 if systemctl --user is-active main-pod.service >/dev/null 2>&1; then
   echo "Stopping the currently running deployment before install"
   systemctl --user stop main-pod.service >/dev/null 2>&1 || true
 fi
 step "Checking the published ports"
-PORTS="80 443 5432 2222 8815"
+PORTS="${HTTP_PORT} ${HTTPS_PORT} ${PG_PORT} ${SFTP_PORT} ${FLIGHT_PORT}"
 PORT_HINTS=""   # collected fixes, repeated in the cheat sheet at the end
 
 # 1. Rootless podman may not bind low ports. The kernel reserves everything below
-#    net.ipv4.ip_unprivileged_port_start (1024 by default) for root, so 80 and 443 fail
-#    with "permission denied" while 5432/2222/8815 are fine.
+#    net.ipv4.ip_unprivileged_port_start (1024 by default) for root, so on a default
+#    installation 80 and 443 fail with "permission denied" while the rest are fine. Which
+#    ports those are depends on runtime.env, so they are worked out rather than named: an
+#    installation that moved the web ports above the floor needs no sysctl at all.
 UNPRIV_START=$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo 1024)
-if [ "$UNPRIV_START" -gt 80 ]; then
+LOW_PORTS=""
+for p in $PORTS; do
+  [ "$p" -lt "$UNPRIV_START" ] && LOW_PORTS="${LOW_PORTS} ${p}"
+done
+if [ -n "$LOW_PORTS" ]; then
+  # The floor has to clear the lowest of them; anything above stays reserved.
+  LOWEST=$(echo $LOW_PORTS | tr ' ' '\n' | sort -n | head -1)
   PORT_HINTS="${PORT_HINTS}
-Let rootless podman bind ports 80 and 443 (currently reserved below ${UNPRIV_START}):
-  echo net.ipv4.ip_unprivileged_port_start=80 | sudo tee /etc/sysctl.d/99-${APP_NAME}.conf
+Let rootless podman bind port(s)${LOW_PORTS} (currently reserved below ${UNPRIV_START}):
+  echo net.ipv4.ip_unprivileged_port_start=${LOWEST} | sudo tee /etc/sysctl.d/99-${APP_NAME}.conf
   sudo sysctl --system"
-  echo "  ports 80 and 443 are reserved for root on this host" >&2
+  echo "  port(s)${LOW_PORTS} are reserved for root on this host" >&2
 fi
 
 # 2. A port already in use by another service makes the pod fail to start with a bind
@@ -347,18 +367,18 @@ read_superuser_password() {
   printf '%s' "${SU_PW:-$SUPERUSER_DEFAULT_PASSWORD}"
 }
 step "Creating secrets"
-create_secret django_secret_key "$(openssl rand -hex 32)"
-create_secret crudman_password  "$(openssl rand -hex 32)"
-create_secret sqlmesh_password  "$(openssl rand -hex 32)"
-create_secret grafana_password  "$(openssl rand -hex 32)"
+create_secret "$SECRET_DJANGO_KEY"       "$(openssl rand -hex 32)"
+create_secret "$SECRET_CRUDMAN_PASSWORD" "$(openssl rand -hex 32)"
+create_secret "$SECRET_SQLMESH_PASSWORD" "$(openssl rand -hex 32)"
+create_secret "$SECRET_GRAFANA_PASSWORD" "$(openssl rand -hex 32)"
 
 # The one credential this script cannot produce: the identity provider issues it, and at
 # first install there usually is no provider yet. Created anyway, because a quadlet whose
 # Secret= names a missing secret refuses to start the container; the operator replaces the
 # placeholder with the cheat sheet command. A marker rather than "", which podman rejects.
-create_secret oidc_client_secret "unconfigured"
+create_secret "$SECRET_OIDC_CLIENT" "unconfigured"
 
-if ! podman secret exists superuser_password 2>/dev/null; then
+if ! podman secret exists "$SECRET_SUPERUSER_PASSWORD" 2>/dev/null; then
   if ! SU_PW="$(read_superuser_password)"; then
     echo "The superuser password was not created because it could not be read." >&2
     exit 1
@@ -370,7 +390,7 @@ if ! podman secret exists superuser_password 2>/dev/null; then
     echo "Run the installer again and enter a password." >&2
     exit 1
   fi
-  printf '%s' "$SU_PW" | podman secret create superuser_password - >/dev/null
+  printf '%s' "$SU_PW" | podman secret create "$SECRET_SUPERUSER_PASSWORD" - >/dev/null
   unset SU_PW
 fi
 
@@ -582,8 +602,8 @@ ${APP_NAME} Cheat sheet
 
   Admin panel:  ${BASE_URL}/${CRUDMAN_PATH}/
   Grafana:      ${BASE_URL}/${GRAFANA_PATH}/
-  PostgreSQL:   host=${SERVER_NAME} port=5432 dbname=postgres user=${SUPERUSER_NAME}
-                psql "host=${SERVER_NAME} port=5432 dbname=postgres user=${SUPERUSER_NAME}"
+  PostgreSQL:   host=${SERVER_NAME} port=${PG_PORT} dbname=${PG_DATABASE} user=${SUPERUSER_NAME}
+                psql "host=${SERVER_NAME} port=${PG_PORT} dbname=${PG_DATABASE} user=${SUPERUSER_NAME}"
 
 ${PORT_SECTION}Follow the combined live log of all components:
   journalctl --user -f -u main-pod -u postgresql -u crudman -u sftp -u flight -u sqlmesh -u grafana -u proxy
@@ -607,14 +627,14 @@ Volume paths (cd into them to inspect data):
 The postgresql and grafana volumes are written by a user inside the container, so
 reading their contents from the host needs: podman unshare ls <path>
 
-Edit the runtime configuration (SERVER_NAME, DEBUG, single sign-on). The services read it
-when they start, so restart them to pick a change up:
+Edit the runtime configuration (SERVER_NAME, DEBUG, the published ports, single sign-on).
+The services read it when they start, so restart them to pick a change up:
   ${EDITOR_CMD} \$HOME/.config/${APP_NAME}/runtime.env
   systemctl --user restart main-pod.service
 
 Set the single sign-on client secret (the identity provider issues it). Repeat this when
 it expires -- an expired secret fails every sign-in at once:
-  printf '%s' '<secret>' | podman secret create --replace oidc_client_secret -
+  printf '%s' '<secret>' | podman secret create --replace ${SECRET_OIDC_CLIENT} -
   systemctl --user restart main-pod.service
 
 Uninstall the system (asks before deleting the data volumes and secrets):

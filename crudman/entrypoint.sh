@@ -58,7 +58,10 @@ from django.contrib.auth import get_user_model
 user, _ = get_user_model().objects.get_or_create(username=os.environ.get('SUPERUSER_NAME', 'admin'))
 user.is_staff = user.is_superuser = True
 user.email = os.environ.get('SUPERUSER_EMAIL', '')
-user.set_password(Path('/run/secrets/superuser_password').read_text().strip())
+user.set_password(
+    Path('/run/secrets', os.environ.get('SECRET_SUPERUSER_PASSWORD', 'superuser_password'))
+    .read_text().strip()
+)
 user.save()
 "
 

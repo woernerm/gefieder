@@ -15,7 +15,7 @@ Environment=APP_NAME=${APP_NAME}
 # so changing the host name or identity provider needs a restart rather than a rebuild.
 EnvironmentFile=%h/.config/${APP_NAME}/runtime.env
 Environment=GF_SECURITY_ADMIN_USER=${SUPERUSER_NAME}
-Environment=GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/superuser_password
+Environment=GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/${SECRET_SUPERUSER_PASSWORD}
 # Serve Grafana from the /GRAFANA_PATH subpath behind the proxy so its internal links
 # and assets resolve correctly. The path stays here rather than in custom.ini because it
 # depends on the build-time GRAFANA_PATH variable; the entrypoint builds the public address
@@ -33,9 +33,9 @@ Volume=grafana_data.volume:/var/lib/grafana:z
 # superuser_password for the admin login, grafana_password for the data source,
 # oidc_client_secret for single sign-on. The last is a placeholder while OIDC_ENABLED is
 # false, but must exist: podman will not start a container whose Secret= is missing.
-Secret=superuser_password
-Secret=grafana_password
-Secret=oidc_client_secret
+Secret=${SECRET_SUPERUSER_PASSWORD}
+Secret=${SECRET_GRAFANA_PASSWORD}
+Secret=${SECRET_OIDC_CLIENT}
 HealthCmd=wget -qO /dev/null http://localhost:3000/${GRAFANA_PATH}/api/health
 HealthInterval=10s
 HealthTimeout=5s

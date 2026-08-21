@@ -86,13 +86,20 @@ done
 # containers (crudman, sftp, flight) share one image.
 IMAGES="$(sed -n 's/^Image=//p' "$QUADLET_DIR"/*.container 2>/dev/null | sort -u)"
 
+# The secrets are the Secret= lines of the same files, deduplicated the same way: most are
+# named by more than one container. Their names come from buildtime.env and were rendered
+# into the quadlets at build time, so reading them back is the only way to learn what a
+# deployment that renamed one actually created -- and it keeps this script's promise that
+# nothing here is a second copy of install.sh's list.
+SECRETS="$(sed -n 's/^Secret=//p' "$QUADLET_DIR"/*.container 2>/dev/null | sort -u)"
+
 # Leftovers outlive the unit files: a previous run may have kept the volumes or secrets,
 # and the config directory alone is enough to recover APP_NAME. So "nothing to uninstall"
 # means none of them are present -- checking only the quadlet directory would march
 # through the whole removal with nothing to remove, and checking only APP_NAME would miss
 # a deployment whose config directory is already gone.
 LEFTOVERS=""
-for s in django_secret_key crudman_password sqlmesh_password grafana_password superuser_password oidc_client_secret; do
+for s in $SECRETS; do
   podman secret exists "$s" 2>/dev/null && LEFTOVERS="found"
 done
 for vol in $VOLUMES; do
@@ -178,10 +185,11 @@ else
 fi
 
 # --- podman secrets: ask, the superuser password is not recoverable --------------------
-# Only the secrets install.sh creates are offered; other secrets on the machine are not
-# this deployment's business. Keeping them lets a reinstall skip the password prompt.
+# Only the secrets the quadlets named are offered; other secrets on the machine are not
+# this deployment's business. Keeping them lets a reinstall skip the password prompt. A run
+# whose quadlets are already gone finds none, and says so rather than guessing at names
+# that may belong to something else.
 step "Secrets"
-SECRETS="django_secret_key crudman_password sqlmesh_password grafana_password superuser_password oidc_client_secret"
 FOUND=""
 for s in $SECRETS; do
   podman secret exists "$s" 2>/dev/null && FOUND="$FOUND $s"

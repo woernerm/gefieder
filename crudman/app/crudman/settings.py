@@ -20,6 +20,17 @@ from sso.scopes import scopes_for
 
 APP_NAME = os.environ.get("APP_NAME", "app").capitalize()
 
+
+def secret_path(setting, default):
+    """The file podman mounts one of our secrets at.
+
+    The name comes from buildtime.env through the quadlet, because a machine that already
+    held a secret of that name will have had it renamed there; the default is the name this
+    repository ships, which is also what a container started without the variable gets.
+    """
+    return Path("/run/secrets") / os.environ.get(setting, default)
+
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -28,7 +39,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY_FILE = Path("/run/secrets/django_secret_key")
+SECRET_KEY_FILE = secret_path("SECRET_DJANGO_KEY", "django_secret_key")
 
 SECRET_KEY = (
     SECRET_KEY_FILE.read_text().strip()
@@ -139,7 +150,7 @@ WSGI_APPLICATION = 'crudman.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-PG_PASSWORD_FILE = Path("/run/secrets/crudman_password")
+PG_PASSWORD_FILE = secret_path("SECRET_CRUDMAN_PASSWORD", "crudman_password")
 
 PG_PASSWORD = (
     PG_PASSWORD_FILE.read_text().strip()
@@ -273,7 +284,7 @@ OIDC_PROVIDER_ID = "sso"
 # empty in every installation that has no reason to.
 OIDC_SCOPES = scopes_for(OIDC_ISSUER, os.environ.get("OIDC_SCOPES", ""))
 
-OIDC_CLIENT_SECRET_FILE = Path("/run/secrets/oidc_client_secret")
+OIDC_CLIENT_SECRET_FILE = secret_path("SECRET_OIDC_CLIENT", "oidc_client_secret")
 
 OIDC_CLIENT_SECRET = (
     OIDC_CLIENT_SECRET_FILE.read_text().strip()

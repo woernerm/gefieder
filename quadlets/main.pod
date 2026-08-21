@@ -1,13 +1,16 @@
 # The pod groups all seven containers into a single shared network namespace, so they
 # reach each other on localhost (replacing the implicit shared network compose gave us).
-# The proxy (80/443), the database (5432), the dropzones SFTP endpoint (2222) and the
-# dropzones Arrow Flight endpoint (8815) publish ports, and they do so here at the pod
-# level. Quadlet does not expand shell-style variables in PublishPort, so the host ports
-# are literal; to serve on different ports, change the host side below and set SFTP_PORT or
-# FLIGHT_PORT in crudman.container, which is what builds the address a dropzone's admin
-# page shows. Only there: those variables also decide the port the endpoints listen on
-# inside the pod, and their healthchecks probe 2222 and 8815 literally, so setting them on
-# sftp.container or flight.container leaves the unit failing to start.
+# The proxy, the database, the dropzones SFTP endpoint and the dropzones Arrow Flight
+# endpoint publish ports, and they do so here at the pod level. Which ports comes from the
+# operator's runtime.env, so moving one is an edit there and a restart rather than a
+# rebuild. Quadlet expands no variables of its own, but it copies these lines verbatim into
+# the generated unit's ExecStartPre, where systemd expands them against the EnvironmentFile
+# below -- which is why the pod needs one although it runs no container itself.
+#
+# The two web ports and the database port are the host side only; inside the pod nginx and
+# PostgreSQL keep 80, 443 and 5432. The dropzone endpoints publish the port they listen on,
+# so SFTP_PORT and FLIGHT_PORT are one setting each: the endpoints bind them, their
+# healthchecks probe them, and crudman advertises them on the dropzone pages.
 #
 # PostgreSQL is published so reporting tools and the engineering tools that write the
 # bronze schemas can reach it directly. Unlike the admin panel and Grafana it does not
@@ -19,11 +22,18 @@
 # actually shows for the pod and its containers, images, etc. — ${APP_NAME}.
 [Pod]
 PodName=${APP_NAME}
-PublishPort=80:80
-PublishPort=443:443
-PublishPort=5432:5432
-PublishPort=2222:2222
-PublishPort=8815:8815
+PublishPort=${HTTP_PORT}:80
+PublishPort=${HTTPS_PORT}:443
+PublishPort=${PG_PORT}:5432
+PublishPort=${SFTP_PORT}:${SFTP_PORT}
+PublishPort=${FLIGHT_PORT}:${FLIGHT_PORT}
+
+# Read by systemd, not by podman: this unit only starts the pod, so unlike the container
+# units it passes nothing to --env-file. Without the "-" prefix a missing file fails the
+# unit, which is the honest outcome -- an unexpanded port would fail it a moment later
+# with a message about podman rather than about the file that is not there.
+[Service]
+EnvironmentFile=%h/.config/${APP_NAME}/runtime.env
 
 [Install]
 WantedBy=default.target

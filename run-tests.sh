@@ -110,16 +110,16 @@ make_tempdir() {
 create_secret() {  # name, value
   podman secret exists "$1" 2>/dev/null || printf '%s' "$2" | podman secret create "$1" - >/dev/null
 }
-create_secret django_secret_key "$(openssl rand -hex 32)"
-create_secret crudman_password  "$(openssl rand -hex 32)"
-create_secret sqlmesh_password  "$(openssl rand -hex 32)"
-create_secret grafana_password  "$(openssl rand -hex 32)"
+create_secret "$SECRET_DJANGO_KEY"       "$(openssl rand -hex 32)"
+create_secret "$SECRET_CRUDMAN_PASSWORD" "$(openssl rand -hex 32)"
+create_secret "$SECRET_SQLMESH_PASSWORD" "$(openssl rand -hex 32)"
+create_secret "$SECRET_GRAFANA_PASSWORD" "$(openssl rand -hex 32)"
 # Single sign-on is off in the suite, but the placeholder still has to exist: the crudman
 # and grafana quadlets name it in a Secret=, and podman will not start them without it.
-create_secret oidc_client_secret "unconfigured"
+create_secret "$SECRET_OIDC_CLIENT" "unconfigured"
 # The superuser gets the well-known build-time default rather than a random value, so the
 # tests run unattended without a prompt (install.sh asks for it interactively).
-create_secret superuser_password "$SUPERUSER_DEFAULT_PASSWORD"
+create_secret "$SECRET_SUPERUSER_PASSWORD" "$SUPERUSER_DEFAULT_PASSWORD"
 
 # Isolated host ports so a running stack on the default ports is not disturbed, one per
 # port the production pod publishes. Grafana is not among them: the suite reaches it
@@ -162,9 +162,9 @@ mkdir -p "$CERT_DIR"
 # settings need no --build-arg -- podman copies them from its own environment, where the
 # `set -a` above put them. docker does not, which is why build.sh names them.
 # Render the templated parts of the grafana and postgresql images first, as build.sh and
-# dev.sh do; otherwise the COPY of grafana/.provisioning/ and postgresql/.initdb/ has no
+# dev.sh do; otherwise the COPY of grafana/.render/ and postgresql/.initdb/ has no
 # source.
-./grafana/render.sh grafana/.provisioning
+./grafana/render.sh grafana/.render
 ./postgresql/render.sh postgresql/.initdb
 for svc in postgresql crudman sqlmesh proxy grafana; do
   podman build \
@@ -172,6 +172,7 @@ for svc in postgresql crudman sqlmesh proxy grafana; do
     --build-arg "DOCKER_IO_MIRROR=${DOCKER_IO_MIRROR}" \
     --build-arg "GHCR_IO_MIRROR=${GHCR_IO_MIRROR}" \
     --build-arg "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}" \
+    --build-arg "SECRET_SUPERUSER_PASSWORD=${SECRET_SUPERUSER_PASSWORD}" \
     --build-arg "DUCKDB_EXTENSIONS=${DUCKDB_EXTENSIONS}" \
     --build-arg "GRAFANA_PLUGINS=${GRAFANA_PLUGINS}" \
     -t "${REGISTRY}/${svc}:${IMAGE_TAG}" -f "${svc}/Dockerfile" .
@@ -179,10 +180,10 @@ done
 
 # The suite connects to the database as each role to check its access boundary; the
 # passwords come from the podman secrets created above.
-GRAFANA_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' grafana_password)"
-SUPERUSER_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' superuser_password)"
-CRUDMAN_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' crudman_password)"
-SQLMESH_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' sqlmesh_password)"
+GRAFANA_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_GRAFANA_PASSWORD")"
+SUPERUSER_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_SUPERUSER_PASSWORD")"
+CRUDMAN_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_CRUDMAN_PASSWORD")"
+SQLMESH_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_SQLMESH_PASSWORD")"
 
 if [ "$PROFILE" = "production" ]; then
   DEBUG=false
@@ -269,28 +270,23 @@ fi
 
 # Render the quadlet templates the same way the release workflow does: substitute only
 # the known tokens so nginx's $host and Grafana's %(domain)s are left untouched.
-VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_ROLE_PREFIX} ${SSO_GROUP_PREFIX} ${BRONZE_SCHEMA_PREFIX}'
+VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_ROLE_PREFIX} ${SSO_GROUP_PREFIX} ${BRONZE_SCHEMA_PREFIX} ${SECRET_SUPERUSER_PASSWORD} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD} ${SECRET_DJANGO_KEY} ${SECRET_OIDC_CLIENT}'
 for f in quadlets/*; do
   envsubst "$VARS" < "$f" > "$QUADLET_DIR/$(basename "$f")"
 done
 
-# Quadlet does not expand variables in PublishPort, so overwrite the rendered pod file
-# with the isolated test ports: the same five the production pod publishes (80, 443, 5432,
-# 2222 for the dropzones SFTP endpoint, 8815 for its Arrow Flight one), moved out of the
-# way. PodName stays ${APP_NAME} so podman shows the project name.
-cat > "$QUADLET_DIR/main.pod" <<EOF
-[Pod]
-PodName=${APP_NAME}
-PublishPort=${HTTP_PORT}:80
-PublishPort=${HTTPS_PORT}:443
-PublishPort=${PG_PORT}:5432
-PublishPort=${SFTP_PORT}:2222
-PublishPort=${FLIGHT_PORT}:8815
-PublishPort=${OIDC_PORT}:${OIDC_PORT}
-
-[Install]
-WantedBy=default.target
-EOF
+# The rendered main.pod publishes whatever the runtime.env written below names, so the
+# isolated test ports arrive through the same path a deployment's do -- envsubst leaves the
+# ${*_PORT} tokens alone (they are not in VARS), quadlet copies them into the generated
+# unit, and systemd expands them from the EnvironmentFile. Editing the file here instead
+# would leave that chain untested.
+#
+# One line is added: the stand-in identity provider runs inside the pod and is no part of a
+# deployment, so runtime.env does not name its port. Appended straight after the [Pod]
+# header rather than before a later section, so it stays in [Pod] however the rest of the
+# file is arranged -- a PublishPort under [Service] is silently ignored, and the provider
+# is then simply unreachable.
+sed -i "/^\[Pod\]/a PublishPort=${OIDC_PORT}:${OIDC_PORT}" "$QUADLET_DIR/main.pod"
 
 # Grafana builds its own absolute URLs from root_url rather than from the request, so on a
 # port other than the standard one it has to be told -- exactly the step the README asks a
@@ -315,7 +311,10 @@ done
 install -m 0755 serverstats/collect.sh "$APP_CONFIG_DIR/serverstats/collect.sh"
 # The quadlets read SERVER_NAME and DEBUG from here (EnvironmentFile=), so write the
 # profile's values rather than copying the repository defaults, which would put the
-# production profile back into DEBUG mode. Everything else is copied over unchanged; the
+# production profile back into DEBUG mode. The published ports go the same way: main.pod
+# expands its PublishPort lines from this file, and the repository's 80/443 would both
+# collide with a running deployment and be unbindable for a rootless test run.
+# Everything else is copied over unchanged; the
 # "|| true" keeps a repository file without those keys from aborting the run under set -e.
 # The single sign-on settings point at the stand-in provider started below, but arrive
 # switched off: that is the state every installation runs in, and the state the rest of the
@@ -323,6 +322,11 @@ install -m 0755 serverstats/collect.sh "$APP_CONFIG_DIR/serverstats/collect.sh"
 {
   echo "SERVER_NAME=${SERVER_NAME}"
   echo "DEBUG=${DEBUG}"
+  echo "HTTP_PORT=${HTTP_PORT}"
+  echo "HTTPS_PORT=${HTTPS_PORT}"
+  echo "PG_PORT=${PG_PORT}"
+  echo "SFTP_PORT=${SFTP_PORT}"
+  echo "FLIGHT_PORT=${FLIGHT_PORT}"
   echo "OIDC_ENABLED=false"
   echo "OIDC_ISSUER=${OIDC_ISSUER}"
   echo "OIDC_AUTH_URL=${OIDC_ISSUER}/authorize"
@@ -330,7 +334,9 @@ install -m 0755 serverstats/collect.sh "$APP_CONFIG_DIR/serverstats/collect.sh"
   echo "OIDC_USERINFO_URL=${OIDC_ISSUER}/userinfo"
   echo "OIDC_LOGOUT_URL=${OIDC_ISSUER}/endsession"
   echo "OIDC_CLIENT_ID=${OIDC_CLIENT_ID}"
-  grep -v -e '^SERVER_NAME=' -e '^DEBUG=' -e '^OIDC_' runtime.env || true
+  grep -v -e '^SERVER_NAME=' -e '^DEBUG=' -e '^OIDC_' -e '^HTTP_PORT=' \
+          -e '^HTTPS_PORT=' -e '^PG_PORT=' -e '^SFTP_PORT=' -e '^FLIGHT_PORT=' \
+          runtime.env || true
 } > "$APP_CONFIG_DIR/runtime.env"
 
 cleanup() {
@@ -420,6 +426,7 @@ export TEST_OIDC_ISSUER="$OIDC_ISSUER"
 export TEST_OIDC_CLIENT_ID="$OIDC_CLIENT_ID"
 export TEST_APP_CONFIG_DIR="$APP_CONFIG_DIR"
 export TEST_PG_PORT="$PG_PORT"
+export TEST_PG_DATABASE="$PG_DATABASE"
 export TEST_SFTP_PORT="$SFTP_PORT"
 export TEST_FLIGHT_PORT="$FLIGHT_PORT"
 export TEST_GRAFANA_PASSWORD="$GRAFANA_PASSWORD"
@@ -446,17 +453,18 @@ export TEST_COLLECTOR="$APP_CONFIG_DIR/serverstats/collect.sh"
 # not from the environment).
 echo "Running the crudman unit tests ..."
 UNIT_SECRET_DIR="$(make_tempdir)"
-podman secret inspect --showsecret -f '{{.SecretData}}' superuser_password \
-  > "$UNIT_SECRET_DIR/crudman_password"
+podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_SUPERUSER_PASSWORD" \
+  > "$UNIT_SECRET_DIR/$SECRET_CRUDMAN_PASSWORD"
 # collectstatic first: the tests render admin pages, and the manifest static files
 # storage resolves every asset through the manifest the entrypoint builds at startup —
 # a fresh container has none. UPLOADS_DIR/SFTP_DIR point into the container's own
 # filesystem, which dies with it, so no test writes anywhere persistent.
 unit_tests() {  # extra podman arguments, e.g. the single sign-on settings
   podman run --rm --network host \
-    -v "$UNIT_SECRET_DIR/crudman_password:/run/secrets/crudman_password:ro,Z" \
+    -v "$UNIT_SECRET_DIR/$SECRET_CRUDMAN_PASSWORD:/run/secrets/$SECRET_CRUDMAN_PASSWORD:ro,Z" \
+    -e SECRET_CRUDMAN_PASSWORD="$SECRET_CRUDMAN_PASSWORD" \
     -e POSTGRES_HOST=localhost -e POSTGRES_PORT="$PG_PORT" \
-    -e POSTGRES_USER="$SUPERUSER_NAME" -e POSTGRES_DB=postgres \
+    -e POSTGRES_USER="$SUPERUSER_NAME" -e POSTGRES_DB="$PG_DATABASE" \
     -e DB_ROLE_PREFIX="$DB_ROLE_PREFIX" \
     -e SSO_GROUP_PREFIX="$SSO_GROUP_PREFIX" \
     -e BRONZE_SCHEMA_PREFIX="$BRONZE_SCHEMA_PREFIX" \

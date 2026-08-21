@@ -21,7 +21,7 @@ set +a
 # COPY in. Grafana gets APP_NAME and SERVER_STATS_SCHEMA baked into its dashboard JSON,
 # which Grafana itself cannot interpolate; PostgreSQL gets the database role names baked
 # into its init scripts, which psql cannot interpolate inside a function body.
-./grafana/render.sh grafana/.provisioning
+./grafana/render.sh grafana/.render
 ./postgresql/render.sh postgresql/.initdb
 
 # The entrypoints are committed executable and the Dockerfiles use plain COPY, so the
@@ -35,6 +35,7 @@ for svc in postgresql crudman sqlmesh proxy grafana; do
     --build-arg "DOCKER_IO_MIRROR=${DOCKER_IO_MIRROR}" \
     --build-arg "GHCR_IO_MIRROR=${GHCR_IO_MIRROR}" \
     --build-arg "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}" \
+    --build-arg "SECRET_SUPERUSER_PASSWORD=${SECRET_SUPERUSER_PASSWORD}" \
     --build-arg "DUCKDB_EXTENSIONS=${DUCKDB_EXTENSIONS}" \
     --build-arg "GRAFANA_PLUGINS=${GRAFANA_PLUGINS}" \
     -t "${REGISTRY}/${svc}:${IMAGE_TAG}" \

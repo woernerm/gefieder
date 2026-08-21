@@ -21,11 +21,12 @@ set -e
 out="${1:?usage: render.sh <output-dir>}"
 src="$(dirname "$0")/initdb"
 
-# The role names the scripts create and grant on, and the medallion schemas they create and
-# the event triggers match against. SERVER_STATS_SCHEMA is not among them: gf_0007 reads it
+# The role names the scripts create and grant on, the database gf_0008 grants CREATE on, and
+# the medallion schemas they create and the event triggers match against. SERVER_STATS_SCHEMA is not among them: gf_0007 reads it
 # as a shell variable from the image's ENV, so it stays adjustable without a rebuild of the
 # scripts themselves.
-VARS='${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${GRAFANA_DB_USER} ${DB_ROLE_PREFIX} ${BRONZE_SCHEMA_PREFIX} ${SILVER_SCHEMA} ${GOLD_SCHEMA}'
+VARS='${PG_DATABASE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${GRAFANA_DB_USER} ${DB_ROLE_PREFIX} ${BRONZE_SCHEMA_PREFIX} ${SILVER_SCHEMA} ${GOLD_SCHEMA} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD}'
+: "${PG_DATABASE:?PG_DATABASE must be set (source buildtime.env first)}"
 : "${CRUDMAN_DB_USER:?CRUDMAN_DB_USER must be set (source buildtime.env first)}"
 : "${SQLMESH_DB_USER:?SQLMESH_DB_USER must be set (source buildtime.env first)}"
 : "${GRAFANA_DB_USER:?GRAFANA_DB_USER must be set (source buildtime.env first)}"
@@ -33,6 +34,9 @@ VARS='${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${GRAFANA_DB_USER} ${DB_ROLE_PREFIX}
 : "${BRONZE_SCHEMA_PREFIX:?BRONZE_SCHEMA_PREFIX must be set (source buildtime.env first)}"
 : "${SILVER_SCHEMA:?SILVER_SCHEMA must be set (source buildtime.env first)}"
 : "${GOLD_SCHEMA:?GOLD_SCHEMA must be set (source buildtime.env first)}"
+: "${SECRET_CRUDMAN_PASSWORD:?SECRET_CRUDMAN_PASSWORD must be set (source buildtime.env first)}"
+: "${SECRET_SQLMESH_PASSWORD:?SECRET_SQLMESH_PASSWORD must be set (source buildtime.env first)}"
+: "${SECRET_GRAFANA_PASSWORD:?SECRET_GRAFANA_PASSWORD must be set (source buildtime.env first)}"
 
 rm -rf "$out"
 mkdir -p "$out"
