@@ -20,10 +20,12 @@ from pathlib import Path
 from dotenv import dotenv_values
 from sqlmesh.core.config import (
     Config,
+    DuckDBConnectionConfig,
     GatewayConfig,
     ModelDefaultsConfig,
     PostgresConnectionConfig,
 )
+from sqlmesh.core.config.connection import DuckDBAttachOptions
 from sqlmesh.core.config.linter import LinterConfig
 
 # The podman secret is mounted only in the container, which makes its presence the
@@ -75,6 +77,28 @@ else:
         "gf_u_" + re.sub(r"[^a-z0-9]+", "_", getpass.getuser().strip().lower()).strip("_")
     )[:50]
 
+def attach_path(**settings: object) -> str:
+    """Build the libpq connection string DuckDB attaches PostgreSQL with.
+
+    Two layers of quoting have to survive each other. Each value is single-quoted for
+    libpq, because a password may hold a space; the whole string is then escaped for the
+    literal SQLMesh wraps it in (`ATTACH '<path>'`), where DuckDB reads a doubled quote as
+    one. Skipping either layer works right up until a password is not a tame hex string.
+    """
+
+    def quoted(value: object) -> str:
+        escaped = str(value).replace("\\", "\\\\").replace("'", "\\'")
+        return f"'{escaped}'"
+
+    conninfo = " ".join(f"{key}={quoted(value)}" for key, value in settings.items())
+    return conninfo.replace("'", "''")
+
+
+# The extensions the image installed (see sqlmesh/Dockerfile), read back rather than listed
+# again so the gateway loads exactly what is on disk. Empty on a developer's machine, where
+# DuckDB downloads what a model asks for instead.
+duckdb_extensions = [e for e in os.environ.get("DUCKDB_EXTENSIONS", "").split(",") if e]
+
 config = Config(
     gateways={
         "postgres": GatewayConfig(
@@ -85,7 +109,37 @@ config = Config(
                 user=user,
                 password=password,
             )
-        )
+        ),
+        # DuckDB as the compute engine, PostgreSQL as the storage. It attaches the same
+        # database over the same connection and, being the only catalog, makes it DuckDB's
+        # default -- so a model that asks for this gateway reads the bronze tables and
+        # writes its own table in PostgreSQL like any other. Grafana, the silver union and
+        # gold never learn which engine built it, and state stays in PostgreSQL because
+        # the default gateway keeps it.
+        #
+        # What it buys is DuckDB's *grammar*: ASOF JOIN, QUALIFY, PIVOT. pg_duckdb cannot
+        # offer those however hard it accelerates the execution, because PostgreSQL parses
+        # the statement long before DuckDB sees it. What it costs is a second engine and a
+        # round trip over the wire for every row read and written, so it earns its place
+        # for a query the grammar makes simpler or faster, not as a default.
+        # models/silver/project_b/issue_risk_history.sql is the worked example.
+        "duckdb": GatewayConfig(
+            connection=DuckDBConnectionConfig(
+                catalogs={
+                    database: DuckDBAttachOptions(
+                        type="postgres",
+                        path=attach_path(
+                            dbname=database,
+                            host=host,
+                            port=port,
+                            user=user,
+                            password=password,
+                        ),
+                    )
+                },
+                extensions=["postgres", *duckdb_extensions],
+            )
+        ),
     },
     default_gateway="postgres",
     # Which virtual environment a bare `sqlmesh plan` or `sqlmesh run` targets. The

@@ -1,0 +1,11 @@
+id,updated,state,priority,area
+2001,2026-06-10,open,low,A-API
+2001,2026-06-14,open,high,A-API
+2001,2026-06-18,open,high,A-DATA
+2001,2026-06-22,merged,high,A-DATA
+2002,2026-06-11,open,medium,
+2002,2026-06-15,closed,medium,
+2003,2026-06-13,open,low,A-UI
+2004,2026-06-10,open,low,A-API
+2004,2026-06-12,closed,low,A-API
+2004,2026-06-14,open,low,A-API

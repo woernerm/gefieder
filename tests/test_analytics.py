@@ -12,10 +12,12 @@ use, so a failure there (a missing polars dependency in the image, a broken tran
 tenant left out of the silver union) would show up here as project_c missing from gold,
 while project_a/project_b still pass.
 
-The second point of interest is silver.issue_risk_history, project_a's temporally joined
-history (sqlmesh/macros/temporal_join.py). Its assertions run against PostgreSQL, which is
-the half the SQLMesh unit tests cannot cover: those run on DuckDB, so LATERAL lookups and
-window functions that PostgreSQL rejects would pass there and fail here.
+The second point of interest is silver.issue_risk_history, the same history built two ways:
+project_a's half by PostgreSQL with the @temporal_join macro, project_b's by DuckDB with a
+native ASOF JOIN on the duckdb gateway. Both assertions run against PostgreSQL, which is
+what the SQLMesh unit tests cannot cover -- those run on DuckDB, so SQL PostgreSQL rejects
+would pass there and fail here, and a gateway that never wrote its table back into
+PostgreSQL would show up only in this file.
 """
 import subprocess
 import time
@@ -140,14 +142,65 @@ class TestAnalyticsPipeline:
             ("PA-4", "2026-06-16", "todo", 1, "C-NAV", "C", "Navigation"),
         ]
 
+    def test_issue_risk_history_is_built_by_the_duckdb_gateway_too(self, grafana_db):
+        # project_b's half of the same silver model is built by the same macro on the
+        # DuckDB gateway (sqlmesh/config.py), which attaches this very database as its only
+        # catalog: the engine is DuckDB, the storage is still PostgreSQL. So this assertion
+        # is the proof that the gateway works end to end -- the rows are read back from
+        # PostgreSQL, as the grafana role, from a table a DuckDB ASOF JOIN wrote.
+        #
+        # Two of A-DATA's changes are deliberately absent: the one on the 12th happens
+        # while 2001 is still on A-API, and the one on the 20th reclassified it to the
+        # class it already had.
+        with grafana_db.cursor() as cur:
+            cur.execute(
+                """
+                SELECT issue_id, valid_from, state, effort, component_id, safety_class, owner
+                FROM silver.issue_risk_history
+                WHERE tenant_id = 'project_b'
+                ORDER BY issue_id, valid_from
+                """
+            )
+            rows = [(i, str(v), *rest) for i, v, *rest in cur.fetchall()]
+
+        assert rows == [
+            ("2001", "2026-06-10", "todo", 2, "A-API", "B", "Platform"),
+            ("2001", "2026-06-14", "todo", 8, "A-API", "B", "Platform"),
+            ("2001", "2026-06-16", "todo", 8, "A-API", "C", "Platform"),
+            ("2001", "2026-06-18", "todo", 8, "A-DATA", "D", "Data"),
+            ("2001", "2026-06-22", "closed", 8, "A-DATA", "D", "Data"),
+            ("2002", "2026-06-11", "todo", 5, None, None, None),
+            ("2002", "2026-06-15", "closed", 5, None, None, None),
+            ("2003", "2026-06-13", "todo", 2, "A-UI", None, None),
+            ("2003", "2026-06-17", "todo", 2, "A-UI", "A", "Design"),
+            ("2004", "2026-06-10", "todo", 2, "A-API", "B", "Platform"),
+            ("2004", "2026-06-12", "closed", 2, "A-API", "B", "Platform"),
+            ("2004", "2026-06-14", "todo", 2, "A-API", "B", "Platform"),
+            ("2004", "2026-06-16", "todo", 2, "A-API", "C", "Platform"),
+        ]
+
     def test_sqlmesh_unit_tests_pass(self):
         # The SQLMesh unit tests (sqlmesh/tests/*.yaml) state the awkward cases of
         # @temporal_join as input rows and expected output rows, which the seeded pipeline
-        # above cannot: they run the model against fixtures instead of against the seeds.
-        # They are run here, in the deployed container, because that is where the engine
-        # and its dependencies are -- the suite itself has no SQLMesh installation.
+        # above cannot: they run the models against fixtures instead of against the seeds,
+        # one per gateway. They are run here, in the deployed container, because that is
+        # where the engine and its dependencies are -- the suite itself has no SQLMesh
+        # installation.
         result = subprocess.run(
             ["podman", "exec", "sqlmesh", "uv", "run", "--project", "/sqlmesh", "sqlmesh", "test"],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    def test_the_temporal_join_macro_agrees_across_gateways(self):
+        # The macro emits a different join per gateway, so the one thing neither yaml test
+        # can show is that the two say the same thing: they run different tenants over
+        # different data. sqlmesh/tests/test_temporal_join.py renders both branches over
+        # one fixture and compares them row for row, and runs in the container for the same
+        # reason as the tests above.
+        result = subprocess.run(
+            ["podman", "exec", "sqlmesh", "uv", "run", "--project", "/sqlmesh",
+             "python", "/sqlmesh/app/tests/test_temporal_join.py"],
             capture_output=True, text=True,
         )
         assert result.returncode == 0, result.stdout + result.stderr

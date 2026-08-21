@@ -10,4 +10,15 @@ requires-python = ">=3.13"
 # polars is used by the Project C bronze model (models/bronze/project_c/issues_raw.py),
 # which transforms its raw data with polars instead of SQL. Declared here so the package
 # is present in the image's Python environment.
-dependencies = ["sqlmesh[lsp,github,web]", "psycopg2-binary", "polars"]
+#
+# duckdb is pinned to the version pg_duckdb runs, which the postgresql image prints during
+# its build and stores its extensions under (/opt/duckdb-extensions/v<version>/). SQLMesh
+# itself only asks for ">=0.10", but with the duckdb gateway in config.py there are two
+# DuckDB engines in one system: the extensions in DUCKDB_EXTENSIONS have to exist for both,
+# and a community build lags a new DuckDB release by weeks -- duckpgq had no 1.5.5 build on
+# the day this was pinned, though 1.5.4 had one. Matching the versions also means a query
+# behaves the same whichever of the two engines runs it.
+#
+# tests/test_duckdb_extensions.py fails if the two ever drift apart, which is the signal to
+# bump this line to whatever the new base image runs.
+dependencies = ["sqlmesh[lsp,github,web]", "psycopg2-binary", "polars", "duckdb==1.5.4"]

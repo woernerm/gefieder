@@ -1,6 +1,6 @@
 """@temporal_join -- join two change histories on the union of their timestamps.
 
-An ASOF join follows one history and misses the other's changes; this one follows both:
+One ASOF join follows one history and misses the other's changes; this follows both:
 
     tck   every timestamp at which either side may have changed, per item
     lhs   the left row in effect at that tick (the latest one at or before it)
@@ -14,14 +14,16 @@ An ASOF join follows one history and misses the other's changes; this one follow
       on     := (rhs.component_id = lhs.component_id)
     )
 
-`lhs_ts` and `rhs_ts` name a table and its timestamp column in one go; `key` identifies
-the item, on the left table, which is the spine. Each lookup takes one row per tick, so
-both sources must be unique on (key, timestamp) and on (join columns, timestamp).
+`lhs_ts` and `rhs_ts` name a table and its timestamp column in one go; `key` identifies the
+item, on the left table, which is the spine. Each lookup takes one row per tick, so both
+sources must be unique on (key, timestamp) and on (join columns, timestamp). Which lookup
+it is follows the gateway: an ASOF JOIN on `duckdb`, which then needs `dialect duckdb` too,
+and where no engine has one -- PostgreSQL, parsing long before pg_duckdb could help -- the
+LATERAL ... LIMIT 1 that says the same thing.
 
 The tick list over-collects, so every column of both tables, timestamps aside, is compared
 with the tick before and only a change survives. Those are the *sources'* columns: a SELECT
-that folds two of them into one, or omits one, can still show two identical rows -- which
-the example's audits check for.
+folding two into one can still show two identical rows, which the example's audits catch.
 """
 
 from sqlglot import exp
@@ -34,6 +36,10 @@ from sqlmesh.utils.errors import SQLMeshError
 # Fixed rather than configurable: the model file spells them out either way, and a name
 # that changed with the call site would only make the models harder to read.
 TICKS, LEFT, RIGHT = "tck", "lhs", "rhs"
+
+# The gateway whose engine has an ASOF JOIN, named as config.py names it. A model that asks
+# for it gets the join; every other gateway gets the same lookup written out by hand.
+DUCKDB_GATEWAY = "duckdb"
 
 
 def _table_and_column(argument: str, value: exp.Expression) -> tuple[exp.Table, exp.Identifier]:
@@ -79,7 +85,17 @@ def temporal_join(
             f"got '{key.sql()}'."
         )
 
+    # Which of the two lookups to emit. SQLMesh scopes a model's variables to the gateway
+    # its MODEL block names, so this is the engine that will run the query -- and it is
+    # settled when the model is loaded, so every later render agrees with this one.
     dialect = evaluator.dialect
+    asof = evaluator.gateway == DUCKDB_GATEWAY
+    if asof and dialect != "duckdb":
+        raise SQLMeshError(
+            f"@temporal_join: a model on the '{DUCKDB_GATEWAY}' gateway must declare "
+            "`dialect duckdb`. ASOF JOIN is DuckDB grammar, and any other dialect reads "
+            "the word as a table alias instead of rejecting it."
+        )
 
     def name(identifier: str | exp.Identifier) -> str:
         # Quoted throughout, because a source column may be named like a keyword
@@ -100,25 +116,50 @@ def temporal_join(
 
     # A right row's timestamp is a tick for every item that reaches it, so both sides are
     # keyed by the left table. UNION, not UNION ALL: both tables may change at once.
+    #
+    # Which right rows an item can reach follows from the distinct join keys its versions
+    # carry, not from how many versions carry each -- so the second branch joins the
+    # distinct pairs. Joining the version rows themselves would multiply the two histories
+    # together (a 260-version item on a 260-version component: 68k rows to produce and
+    # throw away, per item) for a tick list the UNION deduplicates back down anyway.
+    reachable = ", ".join(
+        dict.fromkeys(
+            [key_name]
+            + [name(c.this) for c in on.find_all(exp.Column) if c.table == LEFT]
+        )
+    )
     ticks = (
         f"SELECT {lhs_key} AS {key_name}, {lhs_time} AS {ts_name} FROM {lhs_source} AS {LEFT} "
         f"UNION "
         f"SELECT {lhs_key} AS {key_name}, {rhs_time} AS {ts_name} "
-        f"FROM {lhs_source} AS {LEFT} JOIN {rhs_source} AS {RIGHT} ON {predicate}"
+        f"FROM (SELECT DISTINCT {reachable} FROM {lhs_source}) AS {LEFT} "
+        f"JOIN {rhs_source} AS {RIGHT} ON {predicate}"
     )
 
-    # The ASOF lookups, in the one form PostgreSQL has for them: it has no ASOF JOIN, and
-    # pg_duckdb cannot lend one, since PostgreSQL parses the statement long before DuckDB
-    # sees it. The right lookup hangs off the left row rather than off the tick, so
-    # following the left row to a different right row is itself part of the history.
-    lookups = (
-        f"LEFT JOIN LATERAL (SELECT {LEFT}.* FROM {lhs_source} AS {LEFT} "
-        f"WHERE {lhs_key} = {tck_key} AND {lhs_time} <= {tck_time} "
-        f"ORDER BY {lhs_time} DESC LIMIT 1) AS {LEFT} ON TRUE "
-        f"LEFT JOIN LATERAL (SELECT {RIGHT}.* FROM {rhs_source} AS {RIGHT} "
-        f"WHERE {predicate} AND {rhs_time} <= {tck_time} "
-        f"ORDER BY {rhs_time} DESC LIMIT 1) AS {RIGHT} ON TRUE"
-    )
+    # The lookup, in whichever form the engine has for it. Both say the same thing -- the
+    # latest row at or before the tick -- and the right one hangs off the left row rather
+    # than off the tick either way, so following the left row to a different right row is
+    # part of the history in both.
+    #
+    # PostgreSQL has no ASOF JOIN, and pg_duckdb cannot lend it one: it parses the
+    # statement long before DuckDB sees it. LATERAL ... ORDER BY ... LIMIT 1 is the same
+    # lookup written out, and an index on (key, timestamp) serves it directly.
+    if asof:
+        lookups = (
+            f"ASOF LEFT JOIN {lhs_source} AS {LEFT} "
+            f"ON {lhs_key} = {tck_key} AND {lhs_time} <= {tck_time} "
+            f"ASOF LEFT JOIN {rhs_source} AS {RIGHT} "
+            f"ON {predicate} AND {rhs_time} <= {tck_time}"
+        )
+    else:
+        lookups = (
+            f"LEFT JOIN LATERAL (SELECT {LEFT}.* FROM {lhs_source} AS {LEFT} "
+            f"WHERE {lhs_key} = {tck_key} AND {lhs_time} <= {tck_time} "
+            f"ORDER BY {lhs_time} DESC LIMIT 1) AS {LEFT} ON TRUE "
+            f"LEFT JOIN LATERAL (SELECT {RIGHT}.* FROM {rhs_source} AS {RIGHT} "
+            f"WHERE {predicate} AND {rhs_time} <= {tck_time} "
+            f"ORDER BY {rhs_time} DESC LIMIT 1) AS {RIGHT} ON TRUE"
+        )
 
     # DISTINCT ON (key, every column) would say this in one line, but it deduplicates
     # globally rather than run by run: an issue reopened into a state it held before would

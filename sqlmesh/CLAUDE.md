@@ -15,9 +15,27 @@ reads. Container runs `sqlmesh plan --auto-apply --no-prompts` at startup, then
 - `models/gold/` — materialized (kind FULL, INCREMENTAL_BY_TIME_RANGE or similar) 
   metrics over silver only, organization wide, no per-tenant logic.
 - `macros/` — SQL a model cannot express, written once: `@temporal_join` joins two
-  change histories on the union of their timestamps (PostgreSQL has no ASOF JOIN).
-  Worked example plus audits and a unit test: `models/silver/project_a/issue_risk_history.sql`,
-  `audits/assert_every_row_is_a_change.sql`, `tests/test_issue_risk_history.yaml`.
+  change histories on the union of their timestamps, emitting an ASOF JOIN on the duckdb
+  gateway and a LATERAL lookup where there is none. Worked examples plus audits and tests:
+  `models/silver/project_{a,b}/issue_risk_history.sql`,
+  `audits/assert_every_row_is_a_change.sql`, `tests/test_issue_risk_history*.yaml`,
+  `tests/test_temporal_join.py` (the macro itself, both branches over one fixture).
+
+## Gateways
+
+`config.py` defines two. `postgres` is the default and holds the state. `duckdb` is DuckDB
+as the compute engine over the *same* PostgreSQL storage: it attaches this database as its
+only catalog, so a model with `gateway duckdb` reads and writes PostgreSQL tables like any
+other and nothing downstream can tell which engine built it. It buys DuckDB's grammar —
+`ASOF JOIN`, `QUALIFY`, `PIVOT` — which pg_duckdb cannot offer however hard it accelerates
+execution, because PostgreSQL parses the statement first. It costs a second engine and a
+round trip per row, so it is for a query the grammar makes simpler or faster, not a
+default. Such a model also needs `dialect duckdb`. `models/silver/project_a` and
+`models/silver/project_b` build the same history from the same macro, one per gateway: the
+`gateway` line is what decides which join `@temporal_join` writes for them.
+
+The extensions in `DUCKDB_EXTENSIONS` (buildtime.env) are installed into the sqlmesh image
+too, so the gateway offers offline what tenants reach through `use_duckdb()`.
 
 ## Rules
 

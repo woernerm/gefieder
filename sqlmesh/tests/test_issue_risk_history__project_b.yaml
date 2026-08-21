@@ -1,0 +1,54 @@
+# Unit test for the DuckDB-gateway example (models/silver/project_b/issue_risk_history.sql).
+# The same macro as the project_a test next to it, over the same cases, but on the branch
+# @temporal_join takes for a model whose gateway is `duckdb`: a real ASOF JOIN instead of
+# the LATERAL lookup PostgreSQL needs. SQLMesh unit tests run on an in-memory DuckDB, so
+# that branch is executed here exactly as the gateway executes it in production.
+#
+# That the two branches agree is not asserted here but in test_temporal_join.py, which
+# renders both over one fixture and compares them row for row.
+#
+#   2001  moves from one area to another, so A-DATA's change on the 12th (while the issue
+#         is still on A-API) and its reclassification to the class it already had on the
+#         20th must both be absent.
+#   2002  has no area at all: the right side stays empty and the issue's history survives.
+#   2003  sits on an area classified only later; the classification arriving is a change.
+#   2004  is reopened on the 14th into the state it held on the 10th. All three periods
+#         must survive, which is why repeats are recognized run by run.
+test_issue_risk_history__project_b:
+  model: silver_staging.issue_risk_history__project_b
+  inputs:
+    bronze_project_b.issue_history:
+      rows:
+        - {id: 2001, updated: 2026-06-10, state: open,   priority: low,    area: A-API}
+        - {id: 2001, updated: 2026-06-14, state: open,   priority: high,   area: A-API}
+        - {id: 2001, updated: 2026-06-18, state: open,   priority: high,   area: A-DATA}
+        - {id: 2001, updated: 2026-06-22, state: merged, priority: high,   area: A-DATA}
+        - {id: 2002, updated: 2026-06-11, state: open,   priority: medium, area: null}
+        - {id: 2002, updated: 2026-06-15, state: closed, priority: medium, area: null}
+        - {id: 2003, updated: 2026-06-13, state: open,   priority: low,    area: A-UI}
+        - {id: 2004, updated: 2026-06-10, state: open,   priority: low,    area: A-API}
+        - {id: 2004, updated: 2026-06-12, state: closed, priority: low,    area: A-API}
+        - {id: 2004, updated: 2026-06-14, state: open,   priority: low,    area: A-API}
+    bronze_project_b.component_history:
+      rows:
+        - {area: A-API,  updated: 2026-06-09, classification: B, team: Platform}
+        - {area: A-API,  updated: 2026-06-16, classification: C, team: Platform}
+        - {area: A-DATA, updated: 2026-06-12, classification: D, team: Data}
+        - {area: A-DATA, updated: 2026-06-20, classification: D, team: Data}
+        - {area: A-UI,   updated: 2026-06-17, classification: A, team: Design}
+  outputs:
+    query:
+      rows:
+        - {tenant_id: project_b, issue_id: '2001', valid_from: 2026-06-10, state: todo,   effort: 2, component_id: A-API,  safety_class: B,    owner: Platform}
+        - {tenant_id: project_b, issue_id: '2001', valid_from: 2026-06-14, state: todo,   effort: 8, component_id: A-API,  safety_class: B,    owner: Platform}
+        - {tenant_id: project_b, issue_id: '2001', valid_from: 2026-06-16, state: todo,   effort: 8, component_id: A-API,  safety_class: C,    owner: Platform}
+        - {tenant_id: project_b, issue_id: '2001', valid_from: 2026-06-18, state: todo,   effort: 8, component_id: A-DATA, safety_class: D,    owner: Data}
+        - {tenant_id: project_b, issue_id: '2001', valid_from: 2026-06-22, state: closed, effort: 8, component_id: A-DATA, safety_class: D,    owner: Data}
+        - {tenant_id: project_b, issue_id: '2002', valid_from: 2026-06-11, state: todo,   effort: 5, component_id: null,   safety_class: null, owner: null}
+        - {tenant_id: project_b, issue_id: '2002', valid_from: 2026-06-15, state: closed, effort: 5, component_id: null,   safety_class: null, owner: null}
+        - {tenant_id: project_b, issue_id: '2003', valid_from: 2026-06-13, state: todo,   effort: 2, component_id: A-UI,   safety_class: null, owner: null}
+        - {tenant_id: project_b, issue_id: '2003', valid_from: 2026-06-17, state: todo,   effort: 2, component_id: A-UI,   safety_class: A,    owner: Design}
+        - {tenant_id: project_b, issue_id: '2004', valid_from: 2026-06-10, state: todo,   effort: 2, component_id: A-API,  safety_class: B,    owner: Platform}
+        - {tenant_id: project_b, issue_id: '2004', valid_from: 2026-06-12, state: closed, effort: 2, component_id: A-API,  safety_class: B,    owner: Platform}
+        - {tenant_id: project_b, issue_id: '2004', valid_from: 2026-06-14, state: todo,   effort: 2, component_id: A-API,  safety_class: B,    owner: Platform}
+        - {tenant_id: project_b, issue_id: '2004', valid_from: 2026-06-16, state: todo,   effort: 2, component_id: A-API,  safety_class: C,    owner: Platform}

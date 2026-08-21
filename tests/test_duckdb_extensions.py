@@ -30,6 +30,22 @@ def test_the_suite_shall_know_which_extensions_to_expect():
     )
 
 
+def in_sqlmesh(*args):
+    """Run a command in the sqlmesh container, returning stdout ('' on non-zero exit)."""
+    result = subprocess.run(
+        ["podman", "exec", "sqlmesh", *args], capture_output=True, text=True,
+    )
+    return result.stdout.strip()
+
+
+def in_sqlmesh_duckdb(sql):
+    """Run sql in the sqlmesh container's own DuckDB -- the one behind the duckdb gateway."""
+    return in_sqlmesh(
+        "uv", "run", "--project", "/sqlmesh", "python", "-c",
+        f"import duckdb; print(duckdb.connect().execute({sql!r}).fetchone()[0])",
+    )
+
+
 def in_postgresql(*args):
     """Run a command in the postgresql container, returning stdout ('' on non-zero exit).
 
@@ -113,6 +129,37 @@ class TestVersionsMatch:
         shipped = in_postgresql("ls", EXTENSION_DIR)
         assert shipped == running, (
             f"extensions were built for DuckDB {shipped}, but pg_duckdb runs {running}"
+        )
+
+
+class TestSqlmeshGatewayCarriesTheSameExtensions:
+    """The duckdb gateway (sqlmesh/config.py) is the second DuckDB in the system.
+
+    It runs inside the sqlmesh container, so it has its own copy of the extensions and its
+    own DuckDB version -- and a version-scoped extension tree makes the two inseparable:
+    a community extension is built per DuckDB release, so if the gateway's DuckDB ever
+    drifts from pg_duckdb's, DUCKDB_EXTENSIONS stops being installable for both.
+    """
+
+    def test_the_gateway_duckdb_shall_match_pg_duckdb(self):
+        # sqlmesh/pyproject.toml pins duckdb to what the pgduckdb base image runs. This is
+        # the check that says so out loud when a base image bump moves one and not the
+        # other; the fix is to bump the pin to the version named here.
+        gateway = in_sqlmesh_duckdb("SELECT version()")
+        shipped = in_postgresql("ls", EXTENSION_DIR)
+        assert gateway == shipped, (
+            f"the duckdb gateway runs DuckDB {gateway}, but pg_duckdb's extensions are "
+            f"built for {shipped}; pin duckdb=={shipped.lstrip('v')} in sqlmesh/pyproject.toml"
+        )
+
+    @pytest.mark.parametrize("extension", EXTENSIONS)
+    def test_extension_shall_load_in_the_gateway_without_a_download(self, extension):
+        # LOAD without INSTALL is the offline proof: it fails outright unless the image
+        # build already put the extension where this DuckDB looks for it.
+        loaded = in_sqlmesh_duckdb(f"LOAD {extension}; SELECT '{extension}'")
+        assert loaded == extension, (
+            f"{extension} does not load in the sqlmesh image; it was not pre-installed "
+            "for the gateway's DuckDB version"
         )
 
 
