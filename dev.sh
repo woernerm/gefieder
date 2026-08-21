@@ -52,6 +52,9 @@ set -a
 . ./runtime.env
 set +a
 
+# SERVICES, render_build_templates and build_image.
+. ./build-lib.sh
+
 POD="${APP_NAME}"
 # Plain HTTP for local development; mapped to the proxy's port 80 inside the pod. 8080
 # avoids needing privileged ports, which rootless podman does not grant by default.
@@ -70,7 +73,6 @@ PG_DB="${PG_DATABASE}"
 # first, which podman's pasta networking does not bind, so binding 127.0.0.1 keeps the
 # printed URLs reachable. Use this address in the summary for the same reason.
 HOST_ADDR="127.0.0.1"
-SERVICES="postgresql crudman sqlmesh proxy grafana"
 
 # The sampling cadence for the background loop below, taken from buildtime.env, which is
 # where the deployment's systemd timer gets it from too, so dev samples at the same rate.
@@ -153,37 +155,17 @@ esac
 # shown.
 echo "Building images ..."
 
-# Render the Grafana provisioning templates the grafana Dockerfile COPYs in, exactly as
-# build.sh does; without this the COPY of grafana/.render/ has no source. The output
-# is deterministic, so an unchanged dashboard keeps the grafana COPY layer cached.
-./grafana/render.sh grafana/.render
-./postgresql/render.sh postgresql/.initdb
+render_build_templates
 
-# The configurable buildtime.env settings, the same list build.sh and run-tests.sh pass:
-# one left out falls back to the Dockerfile's ARG default, building an image the rest of
-# the stack disagrees with. The proxy settings need no --build-arg here -- podman copies
-# them from its own environment, where the `set -a` above put them.
 for svc in $SERVICES; do
   printf '  %-11s ' "$svc"
-  build_svc() {
-    podman build \
-      --build-arg "PYTHON_INDEX=${PYTHON_INDEX}" \
-      --build-arg "DOCKER_IO_MIRROR=${DOCKER_IO_MIRROR}" \
-      --build-arg "GHCR_IO_MIRROR=${GHCR_IO_MIRROR}" \
-      --build-arg "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}" \
-    --build-arg "SECRET_SUPERUSER_PASSWORD=${SECRET_SUPERUSER_PASSWORD}" \
-      --build-arg "DUCKDB_EXTENSIONS=${DUCKDB_EXTENSIONS}" \
-      --build-arg "GRAFANA_PLUGINS=${GRAFANA_PLUGINS}" \
-      -t "${REGISTRY}/${svc}:${IMAGE_TAG}" \
-      -f "${svc}/Dockerfile" .
-  }
   # Keep the happy path quiet; on failure re-run the same build so its full log is shown,
   # then abort (set -e alone would swallow the log we redirected away).
-  if build_svc >/dev/null 2>&1; then
+  if build_image podman "$svc" >/dev/null 2>&1; then
     echo "ok"
   else
     echo "FAILED"
-    build_svc
+    build_image podman "$svc"
     exit 1
   fi
 done

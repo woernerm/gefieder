@@ -17,27 +17,13 @@ set -a
 . ./buildtime.env
 set +a
 
-# Render the templated parts of two images into temporary directories their Dockerfiles
-# COPY in. Grafana gets APP_NAME and SERVER_STATS_SCHEMA baked into its dashboard JSON,
-# which Grafana itself cannot interpolate; PostgreSQL gets the database role names baked
-# into its init scripts, which psql cannot interpolate inside a function body.
-./grafana/render.sh grafana/.render
-./postgresql/render.sh postgresql/.initdb
+# SERVICES, render_build_templates and build_image.
+. ./build-lib.sh
+
+render_build_templates
 
 # The entrypoints are committed executable and the Dockerfiles use plain COPY, so the
 # build needs no BuildKit-only features and works on any docker (classic or BuildKit).
-for svc in postgresql crudman sqlmesh proxy grafana; do
-  docker build \
-    --build-arg "http_proxy=${HTTP_PROXY}" \
-    --build-arg "https_proxy=${HTTPS_PROXY}" \
-    --build-arg "no_proxy=${NO_PROXY}" \
-    --build-arg "PYTHON_INDEX=${PYTHON_INDEX}" \
-    --build-arg "DOCKER_IO_MIRROR=${DOCKER_IO_MIRROR}" \
-    --build-arg "GHCR_IO_MIRROR=${GHCR_IO_MIRROR}" \
-    --build-arg "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}" \
-    --build-arg "SECRET_SUPERUSER_PASSWORD=${SECRET_SUPERUSER_PASSWORD}" \
-    --build-arg "DUCKDB_EXTENSIONS=${DUCKDB_EXTENSIONS}" \
-    --build-arg "GRAFANA_PLUGINS=${GRAFANA_PLUGINS}" \
-    -t "${REGISTRY}/${svc}:${IMAGE_TAG}" \
-    -f "${svc}/Dockerfile" .
+for svc in $SERVICES; do
+  build_image docker "$svc"
 done

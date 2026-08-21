@@ -90,6 +90,9 @@ set -a
 . ./runtime.env
 set +a
 
+# SERVICES, render_build_templates and build_image.
+. ./build-lib.sh
+
 # Scratch space for the throwaway files below, under TEMPDIR_TESTS from buildtime.env when
 # set and the system default otherwise. TEMPDIR_TESTS names the parent, so what the cleanup
 # trap removes is always a directory this script created.
@@ -153,29 +156,11 @@ mkdir -p "$CERT_DIR"
 # Build the custom images with podman, the engine that runs the quadlets, so the suite
 # exercises exactly what a deployment runs. (build.sh builds with docker for the release
 # workflow; docker and podman keep separate image stores, so a docker build would not be
-# visible to the podman-run stack here.) Tagged REGISTRY/<svc>:IMAGE_TAG to match the
-# Image= lines in the quadlets; built from the working tree, not pulled.
-#
-# Every configurable buildtime.env setting is passed, the same list build.sh uses: one left
-# out falls back to the Dockerfile's ARG default and builds an image the rest of the stack
-# disagrees with (SERVER_STATS_SCHEMA decides which schema the database creates). The proxy
-# settings need no --build-arg -- podman copies them from its own environment, where the
-# `set -a` above put them. docker does not, which is why build.sh names them.
-# Render the templated parts of the grafana and postgresql images first, as build.sh and
-# dev.sh do; otherwise the COPY of grafana/.render/ and postgresql/.initdb/ has no
-# source.
-./grafana/render.sh grafana/.render
-./postgresql/render.sh postgresql/.initdb
-for svc in postgresql crudman sqlmesh proxy grafana; do
-  podman build \
-    --build-arg "PYTHON_INDEX=${PYTHON_INDEX}" \
-    --build-arg "DOCKER_IO_MIRROR=${DOCKER_IO_MIRROR}" \
-    --build-arg "GHCR_IO_MIRROR=${GHCR_IO_MIRROR}" \
-    --build-arg "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}" \
-    --build-arg "SECRET_SUPERUSER_PASSWORD=${SECRET_SUPERUSER_PASSWORD}" \
-    --build-arg "DUCKDB_EXTENSIONS=${DUCKDB_EXTENSIONS}" \
-    --build-arg "GRAFANA_PLUGINS=${GRAFANA_PLUGINS}" \
-    -t "${REGISTRY}/${svc}:${IMAGE_TAG}" -f "${svc}/Dockerfile" .
+# visible to the podman-run stack here.) Built from the working tree, not pulled; the
+# build arguments are in build-lib.sh.
+render_build_templates
+for svc in $SERVICES; do
+  build_image podman "$svc"
 done
 
 # The suite connects to the database as each role to check its access boundary; the
