@@ -25,7 +25,7 @@ from django.test import (
 from django.urls import reverse
 from django.utils import timezone
 
-from . import examples, flight, registry, services, sftp
+from . import endpoint, examples, flight, registry, services, sftp
 from .admin import DropzoneAdmin, DropzoneForm, UploadAdmin
 from .forms import UploadForm
 from .models import Dropzone, Upload, UploadFile, remove_upload_directory
@@ -208,16 +208,16 @@ class DropzoneModelTests(TestCase):
 
     def test_sftp_secret_must_match(self):
         zone = Dropzone(secret="right")
-        self.assertTrue(zone.sftp_secret_matches("right"))
-        self.assertFalse(zone.sftp_secret_matches("wrong"))
-        self.assertFalse(zone.sftp_secret_matches(""))
+        self.assertTrue(zone.secret_matches("right"))
+        self.assertFalse(zone.secret_matches("wrong"))
+        self.assertFalse(zone.secret_matches(""))
 
     def test_sftp_secret_fails_closed_when_unset(self):
         # Unlike the API there is no unguessable URL token, so an empty secret must
         # never mean "open" — not even without a login requirement.
         zone = Dropzone(require_login=False, secret="")
-        self.assertFalse(zone.sftp_secret_matches(""))
-        self.assertFalse(zone.sftp_secret_matches("anything"))
+        self.assertFalse(zone.secret_matches(""))
+        self.assertFalse(zone.secret_matches("anything"))
 
     @override_settings(SERVER_NAME="reports.example.com", SFTP_PORT=2222)
     def test_sftp_address_uses_name_and_port(self):
@@ -1244,25 +1244,25 @@ class SftpTests(TempMediaMixin, TestCase):
         return directory
 
     def test_authenticate_returns_the_dropzone_for_valid_credentials(self):
-        self.assertEqual(sftp._authenticate("sftp-zone", "pw"), self.zone)
+        self.assertEqual(endpoint.authenticate(Dropzone.Method.SFTP, "sftp-zone", "pw"), self.zone)
 
     def test_authenticate_rejects_wrong_or_missing_credentials(self):
-        self.assertIsNone(sftp._authenticate("sftp-zone", "wrong"))
-        self.assertIsNone(sftp._authenticate("sftp-zone", ""))
-        self.assertIsNone(sftp._authenticate("unknown", "pw"))
+        self.assertIsNone(endpoint.authenticate(Dropzone.Method.SFTP, "sftp-zone", "wrong"))
+        self.assertIsNone(endpoint.authenticate(Dropzone.Method.SFTP, "sftp-zone", ""))
+        self.assertIsNone(endpoint.authenticate(Dropzone.Method.SFTP, "unknown", "pw"))
 
     def test_authenticate_rejects_non_sftp_and_disabled_dropzones(self):
         Dropzone.objects.create(name="browser-zone", secret="pw")
-        self.assertIsNone(sftp._authenticate("browser-zone", "pw"))
+        self.assertIsNone(endpoint.authenticate(Dropzone.Method.SFTP, "browser-zone", "pw"))
         self.zone.enabled = False
         self.zone.save()
-        self.assertIsNone(sftp._authenticate("sftp-zone", "pw"))
+        self.assertIsNone(endpoint.authenticate(Dropzone.Method.SFTP, "sftp-zone", "pw"))
 
     def test_store_session_groups_all_files_into_one_upload(self):
         directory = self.session_dir(
             {"b.csv": b"3,4\n", "a.csv": b"1,2\n", "sub/c.csv": b"5,6\n"}
         )
-        upload = sftp._store_session(self.zone.pk, directory)
+        upload = endpoint.store_session(self.zone.pk, sftp._session_files(directory))
         self.assertEqual(Upload.objects.count(), 1)
         self.assertEqual(
             sorted(str(f) for f in upload.files.all()), ["a.csv", "b.csv", "c.csv"]
@@ -1278,12 +1278,18 @@ class SftpTests(TempMediaMixin, TestCase):
             secret="pw",
             default_validity=Dropzone.Validity.ALWAYS,
         )
-        upload = sftp._store_session(zone.pk, self.session_dir({"a.csv": b"1\n"}))
+        upload = endpoint.store_session(
+            zone.pk, sftp._session_files(self.session_dir({"a.csv": b"1\n"}))
+        )
         self.assertIsNone(upload.valid_from)
         self.assertIsNone(upload.valid_until)
 
     def test_store_session_without_files_stores_nothing(self):
-        self.assertIsNone(sftp._store_session(self.zone.pk, self.session_dir({})))
+        self.assertIsNone(
+            endpoint.stored_file_count(
+                self.zone.pk, sftp._session_files(self.session_dir({}))
+            )
+        )
         self.assertEqual(Upload.objects.count(), 0)
 
     def test_store_session_runs_the_checker(self):
@@ -1299,7 +1305,7 @@ class SftpTests(TempMediaMixin, TestCase):
         directory = self.session_dir({"a.csv": b"1\n"})
         with patch.dict(registry._checkers, {"test_angry": angry}):
             with self.assertRaisesMessage(UploadError, "Bad header row."):
-                sftp._store_session(zone.pk, directory)
+                endpoint.store_session(zone.pk, sftp._session_files(directory))
         self.assertEqual(Upload.objects.count(), 0)
 
     def test_store_session_converts_csv_to_parquet(self):
@@ -1312,7 +1318,7 @@ class SftpTests(TempMediaMixin, TestCase):
             converter="csv_to_parquet",
         )
         directory = self.session_dir({"a.csv": b"x,y\n1,2\n", "b.csv": b"x,y\n3,4\n"})
-        upload = sftp._store_session(zone.pk, directory)
+        upload = endpoint.store_session(zone.pk, sftp._session_files(directory))
         self.assertEqual(
             sorted(str(f) for f in upload.files.all()), ["a.parquet", "b.parquet"]
         )
@@ -1328,7 +1334,7 @@ class SftpTests(TempMediaMixin, TestCase):
         )
         directory = self.session_dir({"empty.csv": b"", "good.csv": b"x\n1\n"})
         with self.assertRaisesMessage(UploadError, "empty"):
-            sftp._store_session(zone.pk, directory)
+            endpoint.store_session(zone.pk, sftp._session_files(directory))
         self.assertEqual(Upload.objects.count(), 0)
         self.assertEqual(UploadFile.objects.count(), 0)
 
@@ -1616,8 +1622,11 @@ class ConnectionHygieneTests(TransactionTestCase):
     so a connection left open there is held until the process exits: the endpoints pile
     up idle connections, and a test run cannot drop its test database afterwards.
 
+    Both endpoints wrap their database calls in the one `endpoint.fresh`, so covering it
+    once covers both.
+
     `connection.connection` is the live driver connection, and it is thread-local, so
-    checking it from inside the worker is what tells whether _fresh cleaned up.
+    checking it from inside the worker is what tells whether fresh cleaned up.
     """
 
     def on_worker_thread(self, func):
@@ -1636,12 +1645,10 @@ class ConnectionHygieneTests(TransactionTestCase):
         return left_open[0]
 
     def test_fresh_shall_close_the_connection_it_opened(self):
-        for module in (flight, sftp):
-            with self.subTest(module=module.__name__):
-                left_open = self.on_worker_thread(
-                    lambda m=module: m._fresh(lambda: Dropzone.objects.count())
-                )
-                self.assertFalse(left_open)
+        left_open = self.on_worker_thread(
+            lambda: endpoint.fresh(lambda: Dropzone.objects.count())
+        )
+        self.assertFalse(left_open)
 
     def test_fresh_shall_close_the_connection_when_the_call_raises(self):
         """The rejection path matters just as much: a checker refusing an upload is
@@ -1653,13 +1660,11 @@ class ConnectionHygieneTests(TransactionTestCase):
             Dropzone.objects.count()
             raise UploadError("rejected")
 
-        for module in (flight, sftp):
-            with self.subTest(module=module.__name__):
-                def call(m=module):
-                    with self.assertRaises(UploadError):
-                        m._fresh(boom)
+        def call():
+            with self.assertRaises(UploadError):
+                endpoint.fresh(boom)
 
-                self.assertFalse(self.on_worker_thread(call))
+        self.assertFalse(self.on_worker_thread(call))
 
 
 class FlightModelTests(TestCase):
@@ -1671,15 +1676,15 @@ class FlightModelTests(TestCase):
         )
 
     def test_flight_secret_must_match(self):
-        self.assertTrue(self.zone.flight_secret_matches("pw"))
-        self.assertFalse(self.zone.flight_secret_matches("wrong"))
-        self.assertFalse(self.zone.flight_secret_matches(""))
+        self.assertTrue(self.zone.secret_matches("pw"))
+        self.assertFalse(self.zone.secret_matches("wrong"))
+        self.assertFalse(self.zone.secret_matches(""))
 
     def test_flight_secret_fails_closed_when_unset(self):
         # Like SFTP: the dropzone name is not a secret, so no secret means no logins.
         self.zone.secret = ""
-        self.assertFalse(self.zone.flight_secret_matches(""))
-        self.assertFalse(self.zone.flight_secret_matches("anything"))
+        self.assertFalse(self.zone.secret_matches(""))
+        self.assertFalse(self.zone.secret_matches("anything"))
 
     @override_settings(SERVER_NAME="reports.example.com", FLIGHT_PORT=8815)
     def test_flight_address_uses_server_name_and_port(self):
@@ -1871,7 +1876,7 @@ class ExecutedExampleTests(TempMediaMixin, TestCase):
         # The credentials the example tells the uploader to use must be the ones the
         # endpoint accepts; the transfer itself is covered by the integration suite.
         self.assertIn("sftp -P 2222 sftp-example@reports.example.com", example)
-        self.assertTrue(zone.sftp_secret_matches("s3cret"))
+        self.assertTrue(zone.secret_matches("s3cret"))
         self.assertIn("s3cret", example)
 
 

@@ -29,7 +29,8 @@
   `render.sh`: substitute the database role names at build time.
 - `grafana/` — `custom.ini`: configuration, `provisioning/`: default dashboards, 
   `render.sh`: replace template placeholders at build time.
-- `proxy/` — nginx; `http.conf.template` and `https.conf.template`.
+- `proxy/` — nginx; `http.conf.template` and `https.conf.template` (listeners/TLS),
+  both including the shared `maps.conf.template` and `locations.conf.template`.
 - `serverstats/` — `collect.sh` plus a systemd service and timer. Runs on target machine
   to collect server statistics, used to determine the right VM size in the cloud.
 - `quadlets/` — every unit, centrally: `main.pod`, `*.container`, `*_data.volume`.

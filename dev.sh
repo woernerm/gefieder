@@ -213,102 +213,41 @@ podman pod create --name "$POD" \
   --publish "${HOST_ADDR}:${FLIGHT_PORT}:${FLIGHT_PORT}" >/dev/null
 
 # --- run the containers ---------------------------------------------------------------
-# Each `podman run` mirrors the matching *.container quadlet: same image, environment,
-# secrets and data volume. The containers share the pod's network namespace, so they
-# reach each other on localhost just like the quadlet deployment.
+# The wiring -- images, environment, secrets, volumes, healthchecks -- is read out of the
+# quadlets in quadlets/ (see run_quadlet in build-lib.sh) rather than repeated here, so dev
+# and the deployment cannot drift apart. Only what a development stack genuinely does
+# differently is passed as an override below: DEBUG, and the addresses that name a
+# published port, which no container can work out for itself.
+#
+# The containers share the pod's network namespace, so they reach each other on localhost
+# just as the quadlet deployment does.
 
-podman run -d --pod "$POD" --name postgresql --restart always \
-  -e "POSTGRES_DB=${PG_DB}" \
-  -e "POSTGRES_USER=${SUPERUSER_NAME}" \
-  -e "POSTGRES_PASSWORD_FILE=/run/secrets/${SECRET_SUPERUSER_PASSWORD}" \
-  -v postgresql_data:/var/lib/postgresql/data \
-  --secret "$SECRET_SUPERUSER_PASSWORD" --secret "$SECRET_CRUDMAN_PASSWORD" \
-  --secret "$SECRET_SQLMESH_PASSWORD" --secret "$SECRET_GRAFANA_PASSWORD" \
-  --health-cmd "pg_isready -U ${SUPERUSER_NAME} -d ${PG_DB}" \
-  --health-interval 5s --health-retries 10 --health-start-period 10s \
-  "${REGISTRY}/postgresql:${IMAGE_TAG}" >/dev/null
+run_quadlet postgresql
 
-# --tz=local matches the quadlet: gunicorn stamps its own records, which on the image's
-# UTC would read hours apart from journald's stamp beside them.
-podman run -d --pod "$POD" --name crudman --restart always --tz=local \
-  -e "APP_NAME=${APP_NAME}" \
+run_quadlet crudman \
   -e "SERVER_NAME=${SERVER_NAME}" \
-  -e "SUPERUSER_NAME=${SUPERUSER_NAME}" \
-  -e "SUPERUSER_EMAIL=${SUPERUSER_EMAIL}" \
-  -e "CRUDMAN_PATH=${CRUDMAN_PATH}" \
   -e DEBUG=true \
   -e "CSRF_TRUSTED_ORIGINS=http://${HOST_ADDR}:${HTTP_PORT}" \
-  -e "SFTP_PORT=${SFTP_PORT}" -e "FLIGHT_PORT=${FLIGHT_PORT}" \
-  -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 \
-  -e "POSTGRES_DB=${PG_DB}" -e "POSTGRES_USER=${CRUDMAN_DB_USER}" \
-  -e "DB_ROLE_PREFIX=${DB_ROLE_PREFIX}" \
-  -e "SSO_GROUP_PREFIX=${SSO_GROUP_PREFIX}" \
-  -e "BRONZE_SCHEMA_PREFIX=${BRONZE_SCHEMA_PREFIX}" \
-  -e UPLOADS_DIR=/var/lib/app/uploads \
-  -v uploads_data:/var/lib/app/uploads \
-  -e "SECRET_DJANGO_KEY=${SECRET_DJANGO_KEY}" \
-  -e "SECRET_CRUDMAN_PASSWORD=${SECRET_CRUDMAN_PASSWORD}" \
-  -e "SECRET_SUPERUSER_PASSWORD=${SECRET_SUPERUSER_PASSWORD}" \
-  -e "SECRET_OIDC_CLIENT=${SECRET_OIDC_CLIENT}" \
-  --secret "$SECRET_DJANGO_KEY" --secret "$SECRET_CRUDMAN_PASSWORD" --secret "$SECRET_SUPERUSER_PASSWORD" \
-  "${REGISTRY}/crudman:${IMAGE_TAG}" >/dev/null
+  -e "SFTP_PORT=${SFTP_PORT}" -e "FLIGHT_PORT=${FLIGHT_PORT}"
 
-# The dropzones SFTP endpoint: the crudman image in its "sftp" role (same entrypoint,
-# sftp argument), writing uploads like crudman does.
-podman run -d --pod "$POD" --name sftp --restart always \
-  -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 \
-  -e "POSTGRES_DB=${PG_DB}" -e "POSTGRES_USER=${CRUDMAN_DB_USER}" \
-  -e "SFTP_PORT=${SFTP_PORT}" \
-  -e UPLOADS_DIR=/var/lib/app/uploads \
-  -e SFTP_DIR=/var/lib/app/sftp \
-  -v uploads_data:/var/lib/app/uploads \
-  -v sftp_data:/var/lib/app/sftp \
-  -e "SECRET_DJANGO_KEY=${SECRET_DJANGO_KEY}" -e "SECRET_CRUDMAN_PASSWORD=${SECRET_CRUDMAN_PASSWORD}" \
-  --secret "$SECRET_DJANGO_KEY" --secret "$SECRET_CRUDMAN_PASSWORD" \
-  "${REGISTRY}/crudman:${IMAGE_TAG}" /crudman/entrypoint.sh sftp >/dev/null
+# The dropzones SFTP and Arrow Flight endpoints: the crudman image in its "sftp" and
+# "flight" roles, which the quadlets' Exec= lines select.
+run_quadlet sftp -e "SERVER_NAME=${SERVER_NAME}" -e DEBUG=true -e "SFTP_PORT=${SFTP_PORT}"
 
-podman run -d --pod "$POD" --name flight --restart always \
-  -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 \
-  -e "POSTGRES_DB=${PG_DB}" -e "POSTGRES_USER=${CRUDMAN_DB_USER}" \
-  -e "FLIGHT_PORT=${FLIGHT_PORT}" \
-  -e UPLOADS_DIR=/var/lib/app/uploads \
-  -v uploads_data:/var/lib/app/uploads \
-  -e "SECRET_DJANGO_KEY=${SECRET_DJANGO_KEY}" -e "SECRET_CRUDMAN_PASSWORD=${SECRET_CRUDMAN_PASSWORD}" \
-  --secret "$SECRET_DJANGO_KEY" --secret "$SECRET_CRUDMAN_PASSWORD" \
-  "${REGISTRY}/crudman:${IMAGE_TAG}" /crudman/entrypoint.sh flight >/dev/null
+run_quadlet flight -e "SERVER_NAME=${SERVER_NAME}" -e DEBUG=true -e "FLIGHT_PORT=${FLIGHT_PORT}"
 
-# --tz=local as for crudman above: SQLMesh stamps its own log records too.
-podman run -d --pod "$POD" --name sqlmesh --restart always --tz=local \
-  -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 -e "POSTGRES_DB=${PG_DB}" \
-  -e "POSTGRES_USER=${SQLMESH_DB_USER}" \
-  -e SQLMESH_RUN_INTERVAL=10 \
-  -v uploads_data:/var/lib/app/uploads:ro \
-  -e "SECRET_SQLMESH_PASSWORD=${SECRET_SQLMESH_PASSWORD}" \
-  --secret "$SECRET_SQLMESH_PASSWORD" \
-  "${REGISTRY}/sqlmesh:${IMAGE_TAG}" >/dev/null
+run_quadlet sqlmesh
 
 # The public address is spelled out rather than derived by the entrypoint, because no
 # container can see the port it is published on. Same line the README gives custom ports.
-podman run -d --pod "$POD" --name grafana --restart always \
-  -e "APP_NAME=${APP_NAME}" \
-  -e "GF_SECURITY_ADMIN_USER=${SUPERUSER_NAME}" \
-  -e "GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/${SECRET_SUPERUSER_PASSWORD}" \
-  -e "GF_SERVER_ROOT_URL=http://${HOST_ADDR}:${HTTP_PORT}/${GRAFANA_PATH}/" \
-  -e GF_SERVER_SERVE_FROM_SUB_PATH=true \
-  -e GF_LOG_MODE=console \
-  -v grafana_data:/var/lib/grafana \
-  --secret "$SECRET_SUPERUSER_PASSWORD" --secret "$SECRET_GRAFANA_PASSWORD" \
-  "${REGISTRY}/grafana:${IMAGE_TAG}" >/dev/null
+run_quadlet grafana \
+  -e "SERVER_NAME=${SERVER_NAME}" \
+  -e "GF_SERVER_ROOT_URL=http://${HOST_ADDR}:${HTTP_PORT}/${GRAFANA_PATH}/"
 
-# DEBUG=true makes the proxy entrypoint pick the plain-HTTP template, so the certs mount
-# the quadlet uses is unnecessary and omitted here. --tz=local as for crudman above:
-# nginx's error_log stamp names no zone.
-podman run -d --pod "$POD" --name proxy --restart always --tz=local \
-  -e DEBUG=true \
-  -e "CRUDMAN_PATH=${CRUDMAN_PATH}" \
-  -e "GRAFANA_PATH=${GRAFANA_PATH}" \
-  -v proxy_data:/var/log/app \
-  "${REGISTRY}/proxy:${IMAGE_TAG}" >/dev/null
+# DEBUG=true makes the proxy entrypoint pick the plain-HTTP template, so the certificate
+# directory the quadlet mounts is unnecessary; it is created empty so the mount resolves.
+mkdir -p "$(quadlet_expand "$CERTIFICATE_PATH" | sed "s|%h|${HOME}|g")"
+run_quadlet proxy -e DEBUG=true -e "SERVER_NAME=${SERVER_NAME}"
 
 # --- background server-statistics sampling --------------------------------------------
 # Replace the systemd timer the deployment uses with a background loop, so server_stats
@@ -344,3 +283,4 @@ now with ./dev.sh serverstats.
 
 The database needs a few seconds to initialise on the first run.
 EOF
+

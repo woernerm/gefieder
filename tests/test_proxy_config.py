@@ -162,6 +162,12 @@ def _run_proxy(script, debug, fixtures):
         "envsubst '${CRUDMAN_PATH} ${GRAFANA_PATH}'"
         f" < /etc/nginx/proxy/{template}.conf.template > /etc/nginx/conf.d/default.conf"
     )
+    # Both templates include the shared maps and locations fragments, which the entrypoint
+    # renders beside them; without these the config would not load at all.
+    setup_steps += [
+        "for f in maps locations; do envsubst '${CRUDMAN_PATH} ${GRAFANA_PATH}'"
+        " < /etc/nginx/proxy/$f.conf.template > /etc/nginx/proxy/$f.conf; done"
+    ]
     setup = "; ".join(setup_steps)
     return subprocess.run(
         ["podman", "run", "--rm", NO_PROXY_ENV,

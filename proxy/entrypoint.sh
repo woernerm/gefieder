@@ -132,9 +132,14 @@ else
   reorder_fullchain
 fi
 
-# Render the chosen template, substituting only our own variables so that nginx's
-# variables ($host, $scheme, ...) are left untouched.
+# Render the chosen template and the two fragments it includes, substituting only our own
+# variables so that nginx's variables ($host, $scheme, ...) are left untouched. The
+# fragments are rendered beside the templates, which is where the include lines name them.
 envsubst '${CRUDMAN_PATH} ${GRAFANA_PATH}' < "$template" > /etc/nginx/conf.d/default.conf
+for fragment in maps locations; do
+  envsubst '${CRUDMAN_PATH} ${GRAFANA_PATH}' \
+    < "/etc/nginx/proxy/${fragment}.conf.template" > "/etc/nginx/proxy/${fragment}.conf"
+done
 
 # The templates listen on IPv6 as well, so clients whose DNS answers with an AAAA record are
 # served. A kernel built or booted without IPv6 has no such address family, and nginx aborts

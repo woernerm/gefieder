@@ -31,12 +31,10 @@ from pathlib import Path
 import pyarrow.flight as flight
 import pyarrow.parquet as parquet
 from django.conf import settings
-from django.core.files import File
-from django.db import close_old_connections, connections
-from django.utils import timezone
 
+from . import endpoint
 from .models import Dropzone
-from .services import UploadError, process_upload
+from .services import UploadError
 
 logger = logging.getLogger(__name__)
 
@@ -61,65 +59,6 @@ class Session:
 
     def discard(self):
         shutil.rmtree(self.directory, ignore_errors=True)
-
-
-def _fresh(func, *args):
-    """Run a database-facing function on a healthy connection, and leave none behind.
-
-    The server runs for weeks, so a connection the database dropped in the meantime
-    (restart, idle timeout) is discarded before the call instead of failing it.
-
-    Flight answers on a thread pool, and a connection opened on one of those threads
-    belongs to that thread forever: nothing signals the end of a call the way a request
-    does for a view, so it would be held until the process exits. Closing afterwards
-    keeps the endpoint down to the connections it is actually using, which is also what
-    lets the test database be dropped at the end of a test run.
-    """
-    close_old_connections()
-    try:
-        return func(*args)
-    finally:
-        connections.close_all()
-
-
-def _authenticate(name, secret):
-    """The dropzone the credentials belong to, or None; the username is its name."""
-    dropzone = Dropzone.objects.filter(
-        upload_method=Dropzone.Method.FLIGHT, enabled=True, name=name
-    ).first()
-    if dropzone is not None and dropzone.flight_secret_matches(secret):
-        return dropzone
-    return None
-
-
-def _stored_file_count(dropzone_id, directory):
-    """_store_session, reduced to the file count the commit reports back.
-
-    The count is a query of its own, so it has to happen inside the same _fresh call:
-    asking afterwards would open a second connection on the calling thread that nothing
-    closes again.
-    """
-    return _store_session(dropzone_id, directory).files.count()
-
-
-def _store_session(dropzone_id, directory):
-    """Feed a committed session's parquet files into the pipeline as one upload."""
-    paths = sorted(p for p in directory.iterdir() if p.is_file())
-    dropzone = Dropzone.objects.get(pk=dropzone_id)
-    # Flight carries no validity form, so the dropzone's default applies, exactly as
-    # for SFTP: "always" keeps both bounds open, everything else starts now.
-    valid_from = (
-        None
-        if dropzone.default_validity == Dropzone.Validity.ALWAYS
-        else timezone.now()
-    )
-    streams = [path.open("rb") for path in paths]
-    try:
-        files = [File(stream, name=path.name) for path, stream in zip(paths, streams)]
-        return process_upload(dropzone, files, valid_from=valid_from)
-    finally:
-        for stream in streams:
-            stream.close()
 
 
 class AuthMiddleware(flight.ServerMiddleware):
@@ -171,7 +110,9 @@ class AuthMiddlewareFactory(flight.ServerMiddlewareFactory):
         except Exception:
             raise flight.FlightUnauthenticatedError("Malformed credentials.") from None
         name, _, secret = decoded.partition(":")
-        dropzone = _fresh(_authenticate, name, secret)
+        dropzone = endpoint.fresh(
+            endpoint.authenticate, Dropzone.Method.FLIGHT, name, secret
+        )
         if dropzone is None:
             logger.warning("Rejected Arrow Flight login %r", name)
             raise flight.FlightUnauthenticatedError("Invalid credentials.")
@@ -230,8 +171,10 @@ class FlightEndpoint(flight.FlightServerBase):
             if not any(session.directory.iterdir()):
                 raise flight.FlightServerError("The upload contains no tables.")
             try:
-                count = _fresh(
-                    _stored_file_count, session.dropzone_id, session.directory
+                count = endpoint.fresh(
+                    endpoint.stored_file_count,
+                    session.dropzone_id,
+                    sorted(p for p in session.directory.iterdir() if p.is_file()),
                 )
             except UploadError as error:
                 # The checker/converter verdict; unlike SFTP the uploader is still

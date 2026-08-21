@@ -14,10 +14,12 @@ ARG no_proxy
 # it was assembled, e.g. from a converted p7b file that lists the root CA first.
 RUN apk add --no-cache openssl
 
-# Bake the proxy configuration (the two templates and the entrypoint) into the image so
+# Bake the proxy configuration (the templates and the entrypoint) into the image so
 # the server needs no checkout to run it. The certificate is the only piece that stays
 # host-local: it is a per-host secret and is bind-mounted at /etc/nginx/proxy/certs.
-COPY proxy/http.conf.template proxy/https.conf.template /etc/nginx/proxy/
+# The two profile templates plus the fragments both of them include.
+COPY proxy/http.conf.template proxy/https.conf.template \
+     proxy/maps.conf.template proxy/locations.conf.template /etc/nginx/proxy/
 # The entrypoint is committed executable, so a plain COPY (no BuildKit --chmod) keeps it.
 COPY proxy/entrypoint.sh /etc/nginx/proxy/entrypoint.sh
 

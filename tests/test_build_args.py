@@ -1,9 +1,10 @@
 """Every builder passes the same build-time settings into the images.
 
 Three scripts build the same five Dockerfiles: build.sh (docker, for the release workflow),
-run-tests.sh (podman, this suite) and dev.sh (podman, local development). A setting one of
-them forgets does not fail the build -- the Dockerfile's ARG default takes over -- so the
-image is built with a value the rest of the system does not use. SERVER_STATS_SCHEMA is the
+run-tests.sh (podman, this suite) and dev.sh (podman, local development). All three share the
+build_image function in build-lib.sh, so the arguments are read from a script together with
+the library it sources. A setting they forget does not fail the build -- the Dockerfile's ARG
+default takes over -- so the image is built with a value the rest of the system does not use. SERVER_STATS_SCHEMA is the
 sharp case: it decides which schema gf_0007 creates, while the collector and the Grafana
 dashboards read the same name from buildtime.env. Miss it, and they disagree in silence.
 
@@ -40,9 +41,14 @@ def declared_args():
     return names
 
 
+# The shared build library every builder sources; build_image and its --build-arg list
+# live there, so a builder passes what it plus this file names.
+BUILD_LIB = "build-lib.sh"
+
+
 def passed_args(script):
-    """The build-arg names a build script passes."""
-    text = (REPO / script).read_text()
+    """The build-arg names a build script passes, the shared library included."""
+    text = (REPO / script).read_text() + (REPO / BUILD_LIB).read_text()
     return set(re.findall(r'--build-arg\s+"?([A-Za-z_][A-Za-z0-9_]*)=', text))
 
 

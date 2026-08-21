@@ -134,22 +134,27 @@ class Dropzone(models.Model):
         """URL path of the upload page (the secret link without scheme and host)."""
         return reverse("dropzones:upload", kwargs={"token": self.token})
 
+    def _url(self, view):
+        """The full URL of one of this dropzone's views, token and all.
+
+        The scheme follows DEBUG, exactly as the proxy's choice of template does, so the
+        address handed to an uploader is the one their client will reach.
+        """
+        scheme = "http" if settings.DEBUG else "https"
+        path = reverse(f"dropzones:{view}", kwargs={"token": self.token})
+        return f"{scheme}://{settings.SERVER_NAME}{path}"
+
     def upload_url(self):
         """The full secret upload URL to hand to an uploader."""
-        scheme = "http" if settings.DEBUG else "https"
-        return f"{scheme}://{settings.SERVER_NAME}{self.upload_path()}"
+        return self._url("upload")
 
     def api_upload_url(self):
         """The full URL of the API endpoint, for the POST that uploads files."""
-        scheme = "http" if settings.DEBUG else "https"
-        path = reverse("dropzones:api_upload", kwargs={"token": self.token})
-        return f"{scheme}://{settings.SERVER_NAME}{path}"
+        return self._url("api_upload")
 
     def webhook_url(self):
         """The full URL a device calls with its readings as query parameters."""
-        scheme = "http" if settings.DEBUG else "https"
-        path = reverse("dropzones:webhook_upload", kwargs={"token": self.token})
-        return f"{scheme}://{settings.SERVER_NAME}{path}"
+        return self._url("webhook_upload")
 
     def sftp_address(self):
         """The SFTP address to hand to an uploader; the username is the dropzone name."""
@@ -226,22 +231,13 @@ class Dropzone(models.Model):
             return False
         return secrets.compare_digest(self.secret, presented)
 
-    def sftp_secret_matches(self, presented):
-        """Whether ``presented`` is this dropzone's SFTP password (the secret).
+    def secret_matches(self, presented):
+        """Whether ``presented`` is this dropzone's password (the secret).
 
-        Unlike the API endpoint an SFTP login carries no unguessable URL token — the
-        username is the dropzone's name — so an empty ``secret`` rejects every login
-        rather than opening the server. Compared in constant time, like the API check.
-        """
-        if not self.secret or not presented:
-            return False
-        return secrets.compare_digest(self.secret, presented)
-
-    def flight_secret_matches(self, presented):
-        """Whether ``presented`` is this dropzone's Arrow Flight password (the secret).
-
-        Fails closed on an empty secret for the same reason as the SFTP check: the
-        Flight client authenticates with the dropzone's name, which is not a secret.
+        The check the SFTP and Arrow Flight logins use. Unlike the API endpoint neither
+        carries an unguessable URL token — the username is the dropzone's name — so an
+        empty ``secret`` rejects every login rather than opening the server. Compared in
+        constant time, like the API check.
         """
         if not self.secret or not presented:
             return False

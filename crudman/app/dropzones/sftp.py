@@ -22,12 +22,10 @@ from pathlib import Path
 import asyncssh
 from asgiref.sync import sync_to_async
 from django.conf import settings
-from django.core.files import File
-from django.db import close_old_connections, connections
-from django.utils import timezone
 
+from . import endpoint
 from .models import Dropzone
-from .services import UploadError, process_upload
+from .services import UploadError
 
 logger = logging.getLogger(__name__)
 
@@ -41,73 +39,29 @@ _sessions = {}
 _tasks = set()
 
 
-def _fresh(func, *args):
-    """Run a database-facing function on a healthy connection, and leave none behind.
+def _session_files(directory):
+    """The files a finished session wrote, flattened.
 
-    The server runs for weeks, so a connection the database dropped in the meantime
-    (restart, idle timeout) is discarded before the call instead of failing it.
-
-    sync_to_async runs this on a worker thread, and a connection opened there belongs to
-    that thread forever: nothing signals the end of the call the way a request does for
-    a view, so it would be held until the process exits. Closing afterwards keeps the
-    endpoint down to the connections it is actually using, which is also what lets the
-    test database be dropped at the end of a test run.
+    The pipeline stores bare file names anyway, and how a client arranged its temporary
+    tree carries no meaning, so a subdirectory is not preserved.
     """
-    close_old_connections()
-    try:
-        return func(*args)
-    finally:
-        connections.close_all()
+    return sorted(p for p in directory.rglob("*") if p.is_file())
 
 
-def _authenticate(username, password):
-    """The dropzone the credentials belong to, or None; the username is its name."""
-    dropzone = Dropzone.objects.filter(
-        upload_method=Dropzone.Method.SFTP, enabled=True, name=username
-    ).first()
-    if dropzone is not None and dropzone.sftp_secret_matches(password):
-        return dropzone
-    return None
-
-
-def _stored_file_count(dropzone_id, directory):
-    """_store_session, reduced to the file count the log line needs; the count is a
-    query too, and the ORM must not be touched from the event loop."""
-    upload = _store_session(dropzone_id, directory)
-    return upload.files.count() if upload is not None else None
-
-
-def _store_session(dropzone_id, directory):
-    """Feed a finished session's files into the upload pipeline as one upload.
-
-    Returns the Upload, or None when the session wrote no files. Subdirectories are
-    flattened: the pipeline stores bare file names anyway, and how a client arranged
-    its temporary tree carries no meaning.
-    """
-    paths = sorted(p for p in directory.rglob("*") if p.is_file())
-    if not paths:
-        return None
-    dropzone = Dropzone.objects.get(pk=dropzone_id)
-    # SFTP carries no validity form, so the dropzone's default applies: "always"
-    # keeps both bounds open, everything else is "from now on until replacement".
-    valid_from = (
-        None
-        if dropzone.default_validity == Dropzone.Validity.ALWAYS
-        else timezone.now()
+def _store_session_files(dropzone_id, directory):
+    """One worker-thread call: list what the session wrote and store it."""
+    return endpoint.fresh(
+        endpoint.stored_file_count, dropzone_id, _session_files(directory)
     )
-    streams = [path.open("rb") for path in paths]
-    try:
-        files = [File(stream, name=path.name) for path, stream in zip(paths, streams)]
-        return process_upload(dropzone, files, valid_from=valid_from)
-    finally:
-        for stream in streams:
-            stream.close()
 
 
 async def _finish_session(name, dropzone_id, directory, peer):
     """Store a finished session and clean up its directory afterwards."""
     try:
-        stored = await sync_to_async(_fresh)(_stored_file_count, dropzone_id, directory)
+        # Listing the directory happens on the worker thread too, not on the event loop:
+        # it is filesystem work, and a session with many files would stall every other
+        # connection while it ran here.
+        stored = await sync_to_async(_store_session_files)(dropzone_id, directory)
     except UploadError as error:
         # The checker/converter verdict. The uploader has already disconnected, so
         # the rejection can only be logged here, not shown to them.
@@ -144,7 +98,9 @@ class SFTPEndpoint(asyncssh.SSHServer):
         return True
 
     async def validate_password(self, username, password):
-        dropzone = await sync_to_async(_fresh)(_authenticate, username, password)
+        dropzone = await sync_to_async(endpoint.fresh)(
+            endpoint.authenticate, Dropzone.Method.SFTP, username, password
+        )
         if dropzone is None:
             logger.warning("Rejected SFTP login %r from %s", username, self._peer)
             return False

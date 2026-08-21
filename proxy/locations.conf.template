@@ -1,0 +1,53 @@
+# The routing, shared by both configurations and included inside their server block.
+# What differs between HTTP and HTTPS is the listener and the TLS setup around it, never
+# where a path goes -- so the proxy_pass rules, the visit logging and the WebSocket
+# forwarding are stated once here.
+    # Answer redirects with a path rather than a full URL. nginx builds an absolute one from
+    # the port it listens on inside the pod, not the one the request arrived on, so any
+    # deployment that publishes something other than 80/443 -- dev.sh, or the custom ports
+    # in the README -- would send the browser to a port where nothing listens.
+    absolute_redirect off;
+
+    # The Django application serves its URLs under /${CRUDMAN_PATH} itself, so the
+    # path is forwarded unchanged.
+    location /${CRUDMAN_PATH}/ {
+        # Record page visits (the map drops assets/non-GET); other requests are not logged
+        # here. nginx's own access log on stdout still captures everything.
+        access_log /var/log/app/visits.log visit_json if=$visit_log;
+        # Dropzone file uploads pass through here; nginx's 1m default would reject them.
+        client_max_body_size 512m;
+        # All containers share the pod's network namespace, so the services are reachable
+        # on localhost rather than by container name -- a pod has no internal DNS.
+        proxy_pass http://127.0.0.1:8000;
+        # $http_host, not $host: it keeps the port the browser used. The applications build
+        # absolute URLs from it -- among them the single sign-on callback address, which the
+        # identity provider rejects unless it matches the one registered exactly.
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Grafana is configured to serve from /${GRAFANA_PATH} (see GF_SERVER_*), so the
+    # path is forwarded unchanged.
+    location /${GRAFANA_PATH}/ {
+        access_log /var/log/app/visits.log visit_json if=$visit_log;
+        # Grafana Live streams dashboard updates over a WebSocket. Upgrade and Connection
+        # are hop-by-hop headers, which nginx drops, and the HTTP/1.0 it speaks upstream by
+        # default cannot carry an upgrade at all: without these three lines Grafana answers
+        # the handshake with 400. crudman serves no WebSocket and needs none of this.
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_pass http://127.0.0.1:3000;
+        # $http_host, not $host: it keeps the port the browser used. The applications build
+        # absolute URLs from it -- among them the single sign-on callback address, which the
+        # identity provider rejects unless it matches the one registered exactly.
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Convenience redirect to the administration panel.
+    location = / {
+        return 302 /${CRUDMAN_PATH}/;
+    }

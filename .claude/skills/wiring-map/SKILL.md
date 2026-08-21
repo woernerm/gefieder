@@ -7,14 +7,15 @@ description: Fan-out map for this repo — where a change tends to have a second
 
 The same wiring is spelled out in several places on purpose, and nothing fails loudly when
 one copy is missed: a forgotten `--build-arg` falls back to the Dockerfile's `ARG` default,
-a forgotten envsubst token renders as empty text, a forgotten `dev.sh` line diverges from
-production only in dev.
+and a forgotten envsubst token renders as empty text.
 
 Each row below names a file and the mechanism that ties it to the change. The mechanism is
 the point: where it does not apply to what you are doing, the row does not either.
 
-**The one worth remembering:** `dev.sh` does not read the quadlets. It hand-writes the same
-wiring as `podman run` flags, so a quadlet change usually has a twin there.
+**The one worth remembering:** `dev.sh` *derives* its containers from the quadlets
+(`run_quadlet` in `build-lib.sh`), so a quadlet change reaches it by itself — but only for
+the keys that function handles. An unhandled key aborts the run rather than being dropped
+silently, which is the signal to add a case for it there.
 
 ## Build-time setting (`buildtime.env`)
 
@@ -22,11 +23,10 @@ wiring as `podman run` flags, so a quadlet change usually has a twin there.
 |---|---|
 | `buildtime.env` | it is where the value is declared, with a comment saying why it is build-time rather than runtime |
 | `<svc>/Dockerfile` | an image sees a value only if it arrives as an `ARG` — and declaring one is what brings the next two rows into play |
-| `build.sh` | docker forwards nothing from its environment, so a missing `--build-arg` ships the `ARG` default in the release image |
-| `run-tests.sh`, `dev.sh` | the same, except for the `*_proxy` values podman copies from its own environment |
+| `build_image` in `build-lib.sh` | the one `--build-arg` list, shared by all three builders; docker forwards nothing from its environment, so a missing argument ships the `ARG` default in the release image. The `*_proxy` values are passed only to docker, podman copying them from its own environment |
 | `VARS=` in `run-tests.sh` and in `.github/workflows/publish.yml` | envsubst substitutes only the tokens in the allowlist; an unlisted `${TOKEN}` in a quadlet or serverstats unit renders empty. Two separate copies of the list |
 | `VARS=` in `grafana/render.sh` | Grafana never expands `${}` inside dashboard JSON or its own config file, so the render step is the only chance the value gets. It renders two sources: `provisioning/` and `custom.ini` |
-| `VARS=` in `postgresql/render.sh` | psql expands nothing inside a plpgsql function body, so the render step is the only chance there too. Both render scripts are called from all three builders (`build.sh`, `dev.sh`, `run-tests.sh`) |
+| `VARS=` in `postgresql/render.sh` | psql expands nothing inside a plpgsql function body, so the render step is the only chance there too. Both scripts share `render_tree` in `build-lib.sh`, which also refuses to render with any listed value empty; all three builders call them |
 | the `manifest.env` block in `publish.yml` | `install.sh` runs from a release without a checkout; `manifest.env` is all it learns about the build |
 | `envsubst '${REPO} ${TEMPDIR}'` in `publish.yml` | those two are needed before `manifest.env` has been downloaded, so they are baked into the installer instead |
 
@@ -40,7 +40,7 @@ name also appears in `buildtime.env` has to be passed by all of them.
 | `runtime.env` | it is the file the operator edits; the scripts source it as shell, so a value cannot contain a space or an `&` |
 | the `# --- runtime configuration ---` block in `install.sh` | a reinstall keeps the file already on the host, so a setting this release adds arrives only if that block appends it |
 | the consuming quadlet | a container without `EnvironmentFile=` sees nothing of `runtime.env` — `postgresql` and `sqlmesh` are the two |
-| `dev.sh` | it reads no env file; every value reaches a container as an explicit `-e` |
+| `dev.sh` | it reads no env file: the quadlet's `EnvironmentFile=` is skipped, so a value the dev stack needs reaches the container as an explicit `-e` override there |
 | `run-tests.sh` | it writes `SERVER_NAME`, `DEBUG` and the `OIDC_*` settings itself and copies the rest of `runtime.env` through — so only a setting the test profile needs a value of its own for |
 | `crudman/app/crudman/settings.py`, `grafana/custom.ini` | Django reads `os.environ`, Grafana reads `$__env{}`; a value neither names is inert |
 | `README.md` | an operator who has to set it has to read about it |
@@ -48,12 +48,14 @@ name also appears in `buildtime.env` has to be passed by all of them.
 ## Container
 
 `quadlets/<svc>.container` (`Pod=main.pod`, `[Install] WantedBy=default.target`) is the
-definition. Its twins: the `podman run` block in `dev.sh`, `IMAGES=`, `QUADLETS=` and
-`UNITS=` in `install.sh`, `UNITS=` in `run-tests.sh`, and `CONTAINERS` and `LOGGING_UNITS`
-in `tests/conftest.py`.
+definition, and `dev.sh` reads it rather than restating it. Its twins: `IMAGES=`,
+`QUADLETS=` and `UNITS=` in `install.sh`, `UNITS=` in `run-tests.sh`, and `CONTAINERS` and
+`LOGGING_UNITS` in `tests/conftest.py`. A new container also needs its `run_quadlet` call in
+`dev.sh`, with whatever development override it needs and nothing more.
 
-The four build loops — `build.sh`, `SERVICES=` in `dev.sh`, the loop in `run-tests.sh`, the
-`docker save` loop in `publish.yml` — concern a service only if it ships an image of its own.
+The three build loops — `SERVICES=` in `build-lib.sh` (used by `build.sh`, `dev.sh` and
+`run-tests.sh`) and the `docker save` loop in `publish.yml` — concern a service only if it
+ships an image of its own.
 `sftp` and `flight` run the crudman image in a different role and appear in none of them.
 
 `uninstall.sh` derives its unit list from the quadlet directory, so it needs nothing.
@@ -63,7 +65,8 @@ The four build loops — `build.sh`, `SERVICES=` in `dev.sh`, the loop in `run-t
 `quadlets/<name>_data.volume` carries the `VolumeName=`. `QUADLETS=` in `install.sh` ships
 the file, and the `VOLUMES=` in its `# --- create the volumes up front ---` block is a
 hardcoded list, as is the volume loop in `dev.sh` — both create the directories up front so
-the rootless user owns them. Quadlet mounts carry `:z`; the `-v` flags in `dev.sh` do not.
+the rootless user owns them. `dev.sh` takes the mount itself from the quadlet, dropping only
+the `.volume` unit suffix from the name.
 `uninstall.sh` reads `VolumeName=` back out of the quadlets.
 
 ## Podman secret
@@ -72,8 +75,8 @@ The name is a **build-time setting** (`SECRET_*` in `buildtime.env`), so that ta
 too — including both `VARS=` allowlists and the `manifest.env` block, without which
 `install.sh` cannot name the secret it creates. `create_secret` appears in `install.sh`,
 `dev.sh` and `run-tests.sh`; `uninstall.sh` reads the names back out of the installed
-quadlets' `Secret=` lines, so it needs nothing. A quadlet naming it needs `Secret=`, and the
-`dev.sh` twin of that quadlet needs `--secret`.
+quadlets' `Secret=` lines, so it needs nothing. A quadlet naming it needs `Secret=`, which
+`dev.sh` turns into `--secret` by itself.
 
 Whatever reads the file back out of `/run/secrets/` needs the name as well, which is what
 the `Environment=SECRET_*=` lines in the quadlets are for: `settings.py` (`secret_path()`),
@@ -121,7 +124,7 @@ The medallion schemas ride along: `BRONZE_SCHEMA_PREFIX`, `SILVER_SCHEMA`, `GOLD
 The silver staging layer is not among them — nothing outside the SQLMesh models names it, so
 `tests/conftest.py` derives it from `SILVER_SCHEMA`. So a role or
 schema name is written once there and never spelled out again — in the quadlet that connects
-as it (`POSTGRES_USER=`, and its `dev.sh` twin), the Grafana data source, the `dbusers` role
+as it (`POSTGRES_USER=`), the Grafana data source, the `dbusers` role
 derivation, `tenants/utils.py`'s tenant discovery, `sqlmesh/config.py`, or the tests. A schema, a container and a
 podman secret keep the component's name instead, so `SECRET_CRUDMAN_PASSWORD` does not move
 when `CRUDMAN_DB_USER` does. `tests/test_render_templates.py` guards both allowlists: an
@@ -139,7 +142,7 @@ ending in `_` would otherwise be read as a single-character wildcard.
 The three ranks (`viewer`, `editor`, `admin`) are named once, in `sso.roles.RANKS`, and each
 system puts its own prefix in front: `SSO_GROUP_PREFIX` makes the Django group that carries
 the permissions, `DB_ROLE_PREFIX` makes the database group role `gf_0008` creates. Both
-prefixes are in `buildtime.env`; `crudman.container` (and its `dev.sh` twin) passes them in.
+prefixes are in `buildtime.env`; `crudman.container` passes them in, dev included.
 `dbusers/utils.py` is where the two meet, and it re-lists neither.
 
 `GROUP_ACTIONS` in `sso/roles.py` is what a rank may do, so adding a rank is an edit there
