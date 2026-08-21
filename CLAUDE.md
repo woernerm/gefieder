@@ -25,7 +25,8 @@
 - `crudman/` — Django admin (Unfold); apps in `app/`: tenants, dropzones, sso, dbusers,
   example.
 - `sqlmesh/` — SQLMesh project: `config.py`, `macros/`, `models/{bronze,silver,gold}`.
-- `postgresql/` — pgduckdb image; `initdb/gf_000N_*.{sh,sql}` for initialization.
+- `postgresql/` — pgduckdb image; `initdb/gf_000N_*.{sh,sql}` for initialization,
+  `render.sh`: substitute the database role names at build time.
 - `grafana/` — `custom.ini`: configuration, `provisioning/`: default dashboards, 
   `render.sh`: replace template placeholders at build time.
 - `proxy/` — nginx; `http.conf.template` and `https.conf.template`.

@@ -23,6 +23,7 @@ import subprocess
 import time
 
 import pytest
+from conftest import GOLD_SCHEMA, SILVER_SCHEMA
 
 # The example tenants seeded into a fresh stack. project_c is the polars Python-model one.
 EXAMPLE_TENANTS = {"project_a", "project_b", "project_c"}
@@ -38,7 +39,7 @@ def wait_for_backfill(grafana_db):
     and fill, rather than racing a slow first plan. Both are waited for: they are unrelated
     branches of the DAG, so either can finish first.
     """
-    tables = ("gold.issue_metrics", "silver.issue_risk_history")
+    tables = (f"{GOLD_SCHEMA}.issue_metrics", f"{SILVER_SCHEMA}.issue_risk_history")
     deadline = time.time() + 180
     while True:
         try:
@@ -73,18 +74,18 @@ class TestAnalyticsPipeline:
         # The headline check: gold is the precomputed metrics layer dashboards read, and it
         # must carry a row for every tenant. Catches the polars bronze model (project_c)
         # silently dropping out of the pipeline.
-        present = tenants_in(grafana_db, "gold.issue_metrics")
+        present = tenants_in(grafana_db, f"{GOLD_SCHEMA}.issue_metrics")
         assert EXAMPLE_TENANTS <= present, (
-            f"gold.issue_metrics is missing tenants: {EXAMPLE_TENANTS - present}"
+            f"{GOLD_SCHEMA}.issue_metrics is missing tenants: {EXAMPLE_TENANTS - present}"
         )
 
     def test_silver_has_all_example_tenants(self, grafana_db):
         # silver is where the per-tenant transforms are unioned together; confirming all
         # three appear here too pinpoints a regression to the union/transform rather than
         # to the gold aggregation if the gold check above fails.
-        present = tenants_in(grafana_db, "silver.issues")
+        present = tenants_in(grafana_db, f"{SILVER_SCHEMA}.issues")
         assert EXAMPLE_TENANTS <= present, (
-            f"silver.issues is missing tenants: {EXAMPLE_TENANTS - present}"
+            f"{SILVER_SCHEMA}.issues is missing tenants: {EXAMPLE_TENANTS - present}"
         )
 
     def test_project_c_metrics_are_correct(self, grafana_db):

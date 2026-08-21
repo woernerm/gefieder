@@ -17,10 +17,12 @@ set -a
 . ./buildtime.env
 set +a
 
-# Render the Grafana provisioning templates (data source + dashboards) into a temporary
-# directory the grafana Dockerfile COPYs in. This bakes APP_NAME and SERVER_STATS_SCHEMA
-# into the dashboard JSON, which Grafana itself cannot interpolate.
+# Render the templated parts of two images into temporary directories their Dockerfiles
+# COPY in. Grafana gets APP_NAME and SERVER_STATS_SCHEMA baked into its dashboard JSON,
+# which Grafana itself cannot interpolate; PostgreSQL gets the database role names baked
+# into its init scripts, which psql cannot interpolate inside a function body.
 ./grafana/render.sh grafana/.provisioning
+./postgresql/render.sh postgresql/.initdb
 
 # The entrypoints are committed executable and the Dockerfiles use plain COPY, so the
 # build needs no BuildKit-only features and works on any docker (classic or BuildKit).

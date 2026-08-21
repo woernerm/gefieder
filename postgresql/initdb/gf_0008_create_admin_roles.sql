@@ -13,9 +13,9 @@
 -- NOINHERIT is deliberately NOT set: a member should get the group's rights simply by
 -- connecting, without having to SET ROLE.
 
-CREATE ROLE gf_viewer NOLOGIN;
-CREATE ROLE gf_editor NOLOGIN;
-CREATE ROLE gf_admin NOLOGIN;
+CREATE ROLE ${DB_ROLE_PREFIX}viewer NOLOGIN;
+CREATE ROLE ${DB_ROLE_PREFIX}editor NOLOGIN;
+CREATE ROLE ${DB_ROLE_PREFIX}admin NOLOGIN;
 
 --------------------------------------------------------------------
 -- Read access to the analytics data.
@@ -25,20 +25,20 @@ CREATE ROLE gf_admin NOLOGIN;
 -- grants mirror grafana's in gf_0005 -- deliberately, because "what a dashboard may
 -- read" and "what a person may read" are the same question here.
 --------------------------------------------------------------------
-GRANT USAGE ON SCHEMA silver, gold TO gf_viewer;
-GRANT SELECT ON ALL TABLES IN SCHEMA silver, gold TO gf_viewer;
-ALTER DEFAULT PRIVILEGES FOR ROLE sqlmesh IN SCHEMA silver GRANT SELECT ON TABLES TO gf_viewer;
-ALTER DEFAULT PRIVILEGES FOR ROLE sqlmesh IN SCHEMA gold GRANT SELECT ON TABLES TO gf_viewer;
+GRANT USAGE ON SCHEMA ${SILVER_SCHEMA}, ${GOLD_SCHEMA} TO ${DB_ROLE_PREFIX}viewer;
+GRANT SELECT ON ALL TABLES IN SCHEMA ${SILVER_SCHEMA}, ${GOLD_SCHEMA} TO ${DB_ROLE_PREFIX}viewer;
+ALTER DEFAULT PRIVILEGES FOR ROLE ${SQLMESH_DB_USER} IN SCHEMA ${SILVER_SCHEMA} GRANT SELECT ON TABLES TO ${DB_ROLE_PREFIX}viewer;
+ALTER DEFAULT PRIVILEGES FOR ROLE ${SQLMESH_DB_USER} IN SCHEMA ${GOLD_SCHEMA} GRANT SELECT ON TABLES TO ${DB_ROLE_PREFIX}viewer;
 
 -- The crudman schema, minus the tables that hold credentials or secret tokens. The same
 -- exclusions as grafana's: Django's own auth_/django_ tables and the dropzone table with
 -- its upload-link tokens.
-GRANT USAGE ON SCHEMA crudman TO gf_viewer;
+GRANT USAGE ON SCHEMA crudman TO ${DB_ROLE_PREFIX}viewer;
 
 -- Editors and admins read everything a viewer reads, so they are made members of it
 -- rather than repeating the grants. A rank is therefore cumulative by construction.
-GRANT gf_viewer TO gf_editor;
-GRANT gf_editor TO gf_admin;
+GRANT ${DB_ROLE_PREFIX}viewer TO ${DB_ROLE_PREFIX}editor;
+GRANT ${DB_ROLE_PREFIX}editor TO ${DB_ROLE_PREFIX}admin;
 
 --------------------------------------------------------------------
 -- Write access for SQLMesh development.
@@ -56,7 +56,7 @@ GRANT gf_editor TO gf_admin;
 -- control is that production is normally deployed from CI on merge; see
 -- sqlmesh/CLAUDE.md.
 --------------------------------------------------------------------
-GRANT CREATE ON DATABASE postgres TO gf_editor;
+GRANT CREATE ON DATABASE postgres TO ${DB_ROLE_PREFIX}editor;
 
 -- SQLMesh's schemas do not exist yet at first start (the engine creates them on its first
 -- plan) and new ones appear whenever a model lands in a new schema. An event trigger
@@ -76,18 +76,21 @@ BEGIN
     LOOP
         -- Only the schemas SQLMesh works in: its physical layer (sqlmesh__*), its state
         -- schema (sqlmesh) and the virtual layer of the medallion levels, including the
-        -- per-environment suffixed copies a dev plan creates (silver__dev_marcus, ...).
-        CONTINUE WHEN obj.object_identity NOT LIKE 'sqlmesh%'
-                  AND obj.object_identity NOT LIKE 'silver%'
-                  AND obj.object_identity NOT LIKE 'gold%'
-                  AND obj.object_identity NOT LIKE 'bronze%';
+        -- staging layer and the per-environment suffixed copies a dev plan creates
+        -- (silver_staging, silver__dev_marcus, ...) -- which is why these match on a
+        -- prefix. starts_with rather than LIKE because a configured name may hold an
+        -- underscore, which LIKE would read as a single-character wildcard.
+        CONTINUE WHEN NOT starts_with(obj.object_identity, 'sqlmesh')
+                  AND NOT starts_with(obj.object_identity, '${SILVER_SCHEMA}')
+                  AND NOT starts_with(obj.object_identity, '${GOLD_SCHEMA}')
+                  AND NOT starts_with(obj.object_identity, '${BRONZE_SCHEMA_PREFIX}');
 
-        EXECUTE format('GRANT ALL ON SCHEMA %I TO gf_editor', obj.object_identity);
+        EXECUTE format('GRANT ALL ON SCHEMA %I TO ${DB_ROLE_PREFIX}editor', obj.object_identity);
         EXECUTE format(
-            'GRANT ALL ON ALL TABLES IN SCHEMA %I TO gf_editor', obj.object_identity
+            'GRANT ALL ON ALL TABLES IN SCHEMA %I TO ${DB_ROLE_PREFIX}editor', obj.object_identity
         );
         EXECUTE format(
-            'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT ALL ON TABLES TO gf_editor',
+            'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT ALL ON TABLES TO ${DB_ROLE_PREFIX}editor',
             (SELECT nspowner::regrole FROM pg_namespace WHERE nspname = obj.object_identity),
             obj.object_identity
         );
@@ -100,9 +103,9 @@ CREATE EVENT TRIGGER developer_write_on_create_schema
     WHEN TAG IN ('CREATE SCHEMA')
     EXECUTE FUNCTION grant_developer_write();
 
--- The schemas that already exist at this point (silver and gold from gf_0005) predate the
+-- The two schemas that already exist at this point (created by gf_0005) predate the
 -- trigger, so they are granted directly.
-GRANT ALL ON SCHEMA silver, gold TO gf_editor;
+GRANT ALL ON SCHEMA ${SILVER_SCHEMA}, ${GOLD_SCHEMA} TO ${DB_ROLE_PREFIX}editor;
 
 -- The engine's own run has to be able to read and replace what a developer's plan
 -- materialised, which it cannot do for a table another role owns. Rather than making the
@@ -126,7 +129,7 @@ REVOKE ALL ON FUNCTION delete_db_user(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION clear_db_user_password(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION drop_db_user(text) FROM PUBLIC;
 
-GRANT EXECUTE ON FUNCTION create_db_user(text, text, text) TO crudman;
-GRANT EXECUTE ON FUNCTION delete_db_user(text) TO crudman;
-GRANT EXECUTE ON FUNCTION clear_db_user_password(text) TO crudman;
-GRANT EXECUTE ON FUNCTION drop_db_user(text) TO crudman;
+GRANT EXECUTE ON FUNCTION create_db_user(text, text, text) TO ${CRUDMAN_DB_USER};
+GRANT EXECUTE ON FUNCTION delete_db_user(text) TO ${CRUDMAN_DB_USER};
+GRANT EXECUTE ON FUNCTION clear_db_user_password(text) TO ${CRUDMAN_DB_USER};
+GRANT EXECUTE ON FUNCTION drop_db_user(text) TO ${CRUDMAN_DB_USER};

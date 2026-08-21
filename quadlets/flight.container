@@ -24,7 +24,7 @@ EnvironmentFile=%h/.config/${APP_NAME}/runtime.env
 Environment=POSTGRES_HOST=localhost
 Environment=POSTGRES_PORT=5432
 Environment=POSTGRES_DB=postgres
-Environment=POSTGRES_USER=crudman
+Environment=POSTGRES_USER=${CRUDMAN_DB_USER}
 # Unlike SFTP this endpoint keeps no state of its own — uploads in progress live in the
 # container's temporary directory and are deliberately lost on a restart, because an
 # upload that was never committed is incomplete.

@@ -45,6 +45,11 @@ too, so the gateway offers offline what tenants reach through `use_duckdb()`.
   looking at, the transform belongs in silver instead.
 - `seeds/` exists only so the worked examples run without an external source. A real
   tenant's bronze model reads a source schema.
+- The layer names are configuration (`BRONZE_SCHEMA_PREFIX`, `SILVER_SCHEMA`,
+  `GOLD_SCHEMA` in `buildtime.env`; the staging layer is derived from `SILVER_SCHEMA`), but
+  a model name is parsed by SQLMesh, which never reads that file — so renaming a layer means
+  renaming it in these models too. `tests/test_medallion_schemas.py` fails when the two
+  disagree.
 - Python models use polars — see `models/bronze/project_c/`.
 
 Project A, B and C are examples created at first start (`postgresql/initdb/gf_0006`), 

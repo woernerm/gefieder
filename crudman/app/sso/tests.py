@@ -25,12 +25,19 @@ from .avatars import (
 )
 from .roles import (
     GROUP_ACTIONS,
+    GROUP_FOR_RANK,
     apply_roles,
     claimed_roles,
     create_role_groups,
     highest_role,
 )
 from .scopes import scopes_for
+
+# The group each rank grants, built the way roles.py builds it rather than spelled out, so
+# these tests follow SSO_GROUP_PREFIX instead of asserting the value it ships with.
+VIEWER = GROUP_FOR_RANK["viewer"]
+EDITOR = GROUP_FOR_RANK["editor"]
+ADMIN = GROUP_FOR_RANK["admin"]
 
 
 class RoleGroupTests(TestCase):
@@ -40,14 +47,14 @@ class RoleGroupTests(TestCase):
         # post_migrate has already run for the test database.
         self.assertQuerySetEqual(
             Group.objects.filter(name__in=GROUP_ACTIONS).order_by("name"),
-            ["sso-admin", "sso-editor", "sso-viewer"],
+            sorted([ADMIN, EDITOR, VIEWER]),
             transform=str,
         )
 
     def test_a_viewer_may_only_view(self):
         actions = {
             perm.codename.split("_")[0]
-            for perm in Group.objects.get(name="sso-viewer").permissions.all()
+            for perm in Group.objects.get(name=VIEWER).permissions.all()
         }
         self.assertEqual(actions, {"view"})
 
@@ -72,7 +79,7 @@ class RoleGroupTests(TestCase):
     def test_permissions_of_an_existing_group_are_left_alone(self):
         # Re-running post_migrate must not undo an operator's edits, or every deployment
         # would silently reset the permission sets they tuned.
-        group = Group.objects.get(name="sso-viewer")
+        group = Group.objects.get(name=VIEWER)
         group.permissions.set([Permission.objects.first()])
 
         create_role_groups()
@@ -115,14 +122,14 @@ class HighestRoleTests(TestCase):
     """The claim is a list, and someone may hold several roles at once."""
 
     def test_a_known_role_maps_to_its_group(self):
-        self.assertEqual(highest_role(["Editor"]), "sso-editor")
+        self.assertEqual(highest_role(["Editor"]), EDITOR)
 
     def test_the_most_privileged_role_wins(self):
-        self.assertEqual(highest_role(["Viewer", "Admin", "Editor"]), "sso-admin")
+        self.assertEqual(highest_role(["Viewer", "Admin", "Editor"]), ADMIN)
 
     def test_matching_ignores_capitalisation(self):
         # Providers differ on how they spell the role back to us.
-        self.assertEqual(highest_role(["ADMIN"]), "sso-admin")
+        self.assertEqual(highest_role(["ADMIN"]), ADMIN)
 
     def test_unknown_roles_grant_nothing(self):
         self.assertIsNone(highest_role(["Sales", "Marketing"]))
@@ -141,14 +148,14 @@ class ApplyRolesTests(TestCase):
     def test_the_role_group_is_granted(self):
         apply_roles(self.user, ["Editor"])
         self.assertEqual(
-            list(self.user.groups.values_list("name", flat=True)), ["sso-editor"]
+            list(self.user.groups.values_list("name", flat=True)), [EDITOR]
         )
 
     def test_a_changed_role_replaces_the_previous_one(self):
         apply_roles(self.user, ["Viewer"])
         apply_roles(self.user, ["Editor"])
         self.assertEqual(
-            list(self.user.groups.values_list("name", flat=True)), ["sso-editor"]
+            list(self.user.groups.values_list("name", flat=True)), [EDITOR]
         )
 
     def test_groups_granted_by_hand_survive_a_login(self):
@@ -162,7 +169,7 @@ class ApplyRolesTests(TestCase):
 
         self.assertEqual(
             sorted(self.user.groups.values_list("name", flat=True)),
-            ["project-b-analysts", "sso-viewer"],
+            sorted(["project-b-analysts", VIEWER]),
         )
 
     def test_losing_the_role_deactivates_the_account(self):
@@ -214,7 +221,7 @@ class ApplyRolesTests(TestCase):
         self.assertTrue(self.user.is_active)
 
     def test_the_granted_group_is_returned(self):
-        self.assertEqual(apply_roles(self.user, ["Viewer"]), "sso-viewer")
+        self.assertEqual(apply_roles(self.user, ["Viewer"]), VIEWER)
         self.assertIsNone(apply_roles(self.user, ["Nothing"]))
 
 
@@ -255,7 +262,7 @@ class AdapterTests(TestCase):
         self.adapter.pre_social_login(None, login)
 
         self.assertEqual(
-            list(self.user.groups.values_list("name", flat=True)), ["sso-editor"]
+            list(self.user.groups.values_list("name", flat=True)), [EDITOR]
         )
 
     def test_someone_without_a_role_is_refused(self):
@@ -292,7 +299,7 @@ class AdapterTests(TestCase):
 
         self.user.refresh_from_db()
         self.assertEqual(
-            list(self.user.groups.values_list("name", flat=True)), ["sso-viewer"]
+            list(self.user.groups.values_list("name", flat=True)), [VIEWER]
         )
 
 

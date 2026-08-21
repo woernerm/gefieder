@@ -26,6 +26,7 @@ wiring as `podman run` flags, so a quadlet change usually has a twin there.
 | `run-tests.sh`, `dev.sh` | the same, except for the `*_proxy` values podman copies from its own environment |
 | `VARS=` in `run-tests.sh` and in `.github/workflows/publish.yml` | envsubst substitutes only the tokens in the allowlist; an unlisted `${TOKEN}` in a quadlet or serverstats unit renders empty. Two separate copies of the list |
 | `VARS=` in `grafana/render.sh` | Grafana never expands `${}` inside dashboard JSON, so the render step is the only chance the value gets |
+| `VARS=` in `postgresql/render.sh` | psql expands nothing inside a plpgsql function body, so the render step is the only chance there too. Both render scripts are called from all three builders (`build.sh`, `dev.sh`, `run-tests.sh`) |
 | the `manifest.env` block in `publish.yml` | `install.sh` runs from a release without a checkout; `manifest.env` is all it learns about the build |
 | `envsubst '${REPO} ${TEMPDIR}'` in `publish.yml` | those two are needed before `manifest.env` has been downloaded, so they are baked into the installer instead |
 
@@ -94,6 +95,37 @@ page shows, while the sftp and flight healthchecks probe 2222 and 8815 literally
 schema needs a higher number than the one creating it. A new role's password is a secret
 (above), its connection belongs in the `tests/conftest.py` fixtures, and its boundary is
 what `tests/test_access_control.py` and `tests/test_db_users.py` assert.
+
+The init scripts are templates, not the files that reach the image: `postgresql/render.sh`
+substitutes the role names from `buildtime.env` (`CRUDMAN_DB_USER`, `SQLMESH_DB_USER`,
+`GRAFANA_DB_USER`, `DB_ROLE_PREFIX`) into `postgresql/.initdb/`, which the Dockerfile COPYs.
+The medallion schemas ride along: `BRONZE_SCHEMA_PREFIX`, `SILVER_SCHEMA`, `GOLD_SCHEMA`.
+The silver staging layer is not among them — nothing outside the SQLMesh models names it, so
+`tests/conftest.py` derives it from `SILVER_SCHEMA`. So a role or
+schema name is written once there and never spelled out again — in the quadlet that connects
+as it (`POSTGRES_USER=`, and its `dev.sh` twin), the Grafana data source, the `dbusers` role
+derivation, `tenants/utils.py`'s tenant discovery, `sqlmesh/config.py`, or the tests. A schema, a container and a
+podman secret keep the component's name instead, so `crudman_password` does not move when
+`CRUDMAN_DB_USER` does. `tests/test_render_templates.py` guards both allowlists: an
+unlisted `${TOKEN}` renders as literal text rather than failing.
+
+The SQLMesh models under `sqlmesh/models/` are the one place that cannot follow, because a
+model name is parsed by SQLMesh, which never reads `buildtime.env`. Renaming a layer means
+renaming it there too; `tests/test_medallion_schemas.py` fails when the two disagree.
+
+An event trigger matching a configured prefix uses `starts_with()`, not `LIKE` — a name
+ending in `_` would otherwise be read as a single-character wildcard.
+
+## Identity-provider rank
+
+The three ranks (`viewer`, `editor`, `admin`) are named once, in `sso.roles.RANKS`, and each
+system puts its own prefix in front: `SSO_GROUP_PREFIX` makes the Django group that carries
+the permissions, `DB_ROLE_PREFIX` makes the database group role `gf_0008` creates. Both
+prefixes are in `buildtime.env`; `crudman.container` (and its `dev.sh` twin) passes them in.
+`dbusers/utils.py` is where the two meet, and it re-lists neither.
+
+`GROUP_ACTIONS` in `sso/roles.py` is what a rank may do, so adding a rank is an edit there
+and in `gf_0008` — not a configuration change.
 
 ## Documentation
 

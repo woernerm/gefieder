@@ -82,4 +82,9 @@ COPY --from=extensions --chown=postgres:postgres /opt/duckdb-extensions/ /opt/du
 
 # Setup PostgreSQL using the /docker-entrypoint-initdb.d/ entry point. PostgreSQL will
 # run the scripts when the container starts.
-COPY --chown=postgres:postgres postgresql/initdb/ /docker-entrypoint-initdb.d/
+#
+# The scripts come from postgresql/.initdb, which build.sh fills by running
+# postgresql/render.sh over postgresql/initdb: it substitutes the role names from
+# buildtime.env, which the scripts cannot read for themselves because psql interpolates
+# nothing inside a plpgsql function body. Same arrangement as grafana/.provisioning.
+COPY --chown=postgres:postgres postgresql/.initdb/ /docker-entrypoint-initdb.d/

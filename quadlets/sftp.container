@@ -24,7 +24,7 @@ EnvironmentFile=%h/.config/${APP_NAME}/runtime.env
 Environment=POSTGRES_HOST=localhost
 Environment=POSTGRES_PORT=5432
 Environment=POSTGRES_DB=postgres
-Environment=POSTGRES_USER=crudman
+Environment=POSTGRES_USER=${CRUDMAN_DB_USER}
 Environment=UPLOADS_DIR=/var/lib/app/uploads
 Volume=uploads_data.volume:/var/lib/app/uploads:z
 Environment=SFTP_DIR=/var/lib/app/sftp

@@ -19,10 +19,13 @@ out="${1:?usage: render.sh <output-dir>}"
 src="$(dirname "$0")/provisioning"
 
 # The only variables the templates reference. APP_NAME names the data source (and its uid),
-# SERVER_STATS_SCHEMA is the schema the dashboard SQL reads from.
-VARS='${APP_NAME} ${SERVER_STATS_SCHEMA}'
+# SERVER_STATS_SCHEMA is the schema the dashboard SQL reads from, and GRAFANA_DB_USER is
+# the login role the data source connects as -- the one postgresql/render.sh baked into the
+# database init scripts, so both sides of that connection come from the same setting.
+VARS='${APP_NAME} ${SERVER_STATS_SCHEMA} ${GRAFANA_DB_USER}'
 : "${APP_NAME:?APP_NAME must be set (source buildtime.env first)}"
 : "${SERVER_STATS_SCHEMA:?SERVER_STATS_SCHEMA must be set (source buildtime.env first)}"
+: "${GRAFANA_DB_USER:?GRAFANA_DB_USER must be set (source buildtime.env first)}"
 
 rm -rf "$out"
 # Recreate the source tree, then substitute in place so the directory layout Grafana expects

@@ -73,6 +73,31 @@ SUPERUSER_NAME = os.environ["SUPERUSER_NAME"]
 CRUDMAN_PATH = os.environ["CRUDMAN_PATH"]
 GRAFANA_PATH = os.environ["GRAFANA_PATH"]
 
+# The database login roles the init scripts created, and the prefix on the roles that
+# belong to people. The access-control checks connect as these and assert their boundary,
+# so they have to be the configured names rather than the ones buildtime.env ships with.
+CRUDMAN_DB_USER = os.environ["CRUDMAN_DB_USER"]
+SQLMESH_DB_USER = os.environ["SQLMESH_DB_USER"]
+GRAFANA_DB_USER = os.environ["GRAFANA_DB_USER"]
+DB_ROLE_PREFIX = os.environ["DB_ROLE_PREFIX"]
+
+# The Django group each identity-provider rank grants, and the medallion schemas the init
+# scripts created. Same reason: the suite has to check the configured stack, and a schema
+# name spelled out here would assert the default instead of what was built.
+SSO_GROUP_PREFIX = os.environ["SSO_GROUP_PREFIX"]
+BRONZE_SCHEMA_PREFIX = os.environ["BRONZE_SCHEMA_PREFIX"]
+SILVER_SCHEMA = os.environ["SILVER_SCHEMA"]
+GOLD_SCHEMA = os.environ["GOLD_SCHEMA"]
+
+# The staging layer each tenant's silver transform writes to before the thin UNION ALL into
+# SILVER_SCHEMA. Not a build-time setting, because nothing in the deployment names it: the
+# init scripts grant on it through the SILVER_SCHEMA prefix match, and the only place it is
+# written out is the SQLMesh models. So it is derived here, where the two tests that care
+# about it live -- test_access_control asserts grafana cannot see it, and
+# test_medallion_schemas asserts a shipped model still writes to it, which is what catches
+# the derivation going stale.
+SILVER_STAGING_SCHEMA = f"{SILVER_SCHEMA}_staging"
+
 # The server-statistics schema name and the host-side collector run-tests.sh installed,
 # so the server-stats tests can trigger a real sample and read its rows back.
 SERVER_STATS_SCHEMA = os.environ.get("TEST_SERVER_STATS_SCHEMA", "server_stats")
@@ -143,9 +168,9 @@ def http_follow():
 # The login password of every database role the access-control tests connect as.
 DB_PASSWORDS = {
     SUPERUSER_NAME: SUPERUSER_PASSWORD,
-    "crudman": CRUDMAN_PASSWORD,
-    "sqlmesh": SQLMESH_PASSWORD,
-    "grafana": GRAFANA_PASSWORD,
+    CRUDMAN_DB_USER: CRUDMAN_PASSWORD,
+    SQLMESH_DB_USER: SQLMESH_PASSWORD,
+    GRAFANA_DB_USER: GRAFANA_PASSWORD,
 }
 
 
@@ -233,7 +258,7 @@ def connect():
 @pytest.fixture(scope="session")
 def db(connect):
     """A psycopg2 connection as the read-only grafana role."""
-    return connect("grafana")
+    return connect(GRAFANA_DB_USER)
 
 
 @pytest.fixture(scope="session")
@@ -245,19 +270,19 @@ def admin_db(connect):
 @pytest.fixture(scope="session")
 def crudman_db(connect):
     """A connection as the crudman application role."""
-    return connect("crudman")
+    return connect(CRUDMAN_DB_USER)
 
 
 @pytest.fixture(scope="session")
 def sqlmesh_db(connect):
     """A connection as the sqlmesh analytics role."""
-    return connect("sqlmesh")
+    return connect(SQLMESH_DB_USER)
 
 
 @pytest.fixture(scope="session")
 def grafana_db(connect):
     """A connection as the read-only grafana role (alias of db, for clarity)."""
-    return connect("grafana")
+    return connect(GRAFANA_DB_USER)
 
 
 @pytest.fixture(scope="session", autouse=True)

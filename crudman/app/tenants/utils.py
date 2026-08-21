@@ -6,12 +6,15 @@ A tenant is not a row in a table. It is a PostgreSQL login role that owns a
 the corresponding database functions and by reading PostgreSQL's catalog, so the admin
 interface can present tenants as if they were ordinary model instances.
 """
+import os
 import re
 
 from django.db import connection, transaction
 
 # Prefix every tenant's bronze schema carries; used to discover tenants from the catalog.
-_BRONZE_PREFIX = "bronze_"
+# BRONZE_SCHEMA_PREFIX in buildtime.env, which postgresql/render.sh baked into create_tenant
+# and the crudman quadlet passes in here -- the two have to agree or no tenant is found.
+_BRONZE_PREFIX = os.environ.get("BRONZE_SCHEMA_PREFIX", "bronze_")
 
 
 def slugify_tenant_name(display_name: str) -> str:

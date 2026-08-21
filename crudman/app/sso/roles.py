@@ -13,15 +13,25 @@ apply_roles.
 Deliberately free of any allauth import: the reconciliation is the part worth testing, and
 it stays importable and testable whether or not single sign-on is switched on.
 """
+import os
 
-# The provider's role names, in increasing order of privilege, mapped to the group that
-# carries the permissions. Matching is case-insensitive because providers differ on
-# capitalisation; the order matters, as the most privileged match wins.
-ROLE_GROUPS = (
-    ("viewer", "sso-viewer"),
-    ("editor", "sso-editor"),
-    ("admin", "sso-admin"),
-)
+# The prefix on the group names, from SSO_GROUP_PREFIX in buildtime.env, which the crudman
+# quadlet passes in. It exists so these groups can be kept clear of groups an admin already
+# uses; the default is what buildtime.env ships, for a checkout run without the quadlet.
+GROUP_PREFIX = os.environ.get("SSO_GROUP_PREFIX", "sso-")
+
+# The provider's role names, in increasing order of privilege. The order matters, as the
+# most privileged match wins. These are not configurable: what each may do is GROUP_ACTIONS
+# below, and the database ranks in gf_0008 are the same three words behind DB_ROLE_PREFIX.
+RANKS = ("viewer", "editor", "admin")
+
+# Each rank mapped to the group that carries its permissions. Matching is case-insensitive
+# because providers differ on capitalisation.
+ROLE_GROUPS = tuple((rank, f"{GROUP_PREFIX}{rank}") for rank in RANKS)
+
+# The group a rank grants, by rank name -- the lookup dbusers uses to line the database
+# ranks up with these groups without spelling either set out again.
+GROUP_FOR_RANK = dict(ROLE_GROUPS)
 
 MANAGED_GROUPS = frozenset(group for _, group in ROLE_GROUPS)
 
@@ -36,9 +46,9 @@ ROLE_CLAIM = "roles"
 MANAGED_APPS = ("tenants", "dropzones")
 
 GROUP_ACTIONS = {
-    "sso-viewer": ("view",),
-    "sso-editor": ("view", "add", "change"),
-    "sso-admin": ("view", "add", "change", "delete"),
+    GROUP_FOR_RANK["viewer"]: ("view",),
+    GROUP_FOR_RANK["editor"]: ("view", "add", "change"),
+    GROUP_FOR_RANK["admin"]: ("view", "add", "change", "delete"),
 }
 
 
@@ -97,7 +107,7 @@ def apply_roles(user, claimed):
     # check -- so both are the provider's to give and, more to the point, to take away.
     user.is_active = granted is not None
     user.is_staff = granted is not None
-    user.is_superuser = granted == "sso-admin"
+    user.is_superuser = granted == GROUP_FOR_RANK["admin"]
     user.save(update_fields=["is_active", "is_staff", "is_superuser"])
 
     return granted

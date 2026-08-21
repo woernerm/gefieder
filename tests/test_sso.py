@@ -22,7 +22,7 @@ import pytest
 
 from conftest import (
     APP_CONFIG_DIR, BASE_URL, CRUDMAN_LOGIN, CRUDMAN_PATH, GRAFANA_PATH, OIDC_ISSUER,
-    RESTART_TIMEOUT, VERIFY_TLS, inspect_container, podman,
+    RESTART_TIMEOUT, SSO_GROUP_PREFIX, VERIFY_TLS, inspect_container, podman,
 )
 
 # The host name the stack was started with, which Grafana has to be told about: its own
@@ -35,7 +35,7 @@ SSO_CONTAINERS = ["crudman", "grafana"]
 # The person the stand-in provider describes, and the role it grants them. Editor is the
 # middle of the three, so both a granted and a withheld permission can be asserted.
 SSO_USER = "kim"
-SSO_ROLE_GROUP = "sso-editor"
+SSO_ROLE_GROUP = f"{SSO_GROUP_PREFIX}editor"
 
 
 def _django(script):

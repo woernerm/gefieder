@@ -161,9 +161,11 @@ mkdir -p "$CERT_DIR"
 # disagrees with (SERVER_STATS_SCHEMA decides which schema the database creates). The proxy
 # settings need no --build-arg -- podman copies them from its own environment, where the
 # `set -a` above put them. docker does not, which is why build.sh names them.
-# Render the Grafana provisioning templates the grafana Dockerfile COPYs in first, as
-# build.sh/dev.sh do; otherwise the COPY of grafana/.provisioning/ has no source.
+# Render the templated parts of the grafana and postgresql images first, as build.sh and
+# dev.sh do; otherwise the COPY of grafana/.provisioning/ and postgresql/.initdb/ has no
+# source.
 ./grafana/render.sh grafana/.provisioning
+./postgresql/render.sh postgresql/.initdb
 for svc in postgresql crudman sqlmesh proxy grafana; do
   podman build \
     --build-arg "PYTHON_INDEX=${PYTHON_INDEX}" \
@@ -267,7 +269,7 @@ fi
 
 # Render the quadlet templates the same way the release workflow does: substitute only
 # the known tokens so nginx's $host and Grafana's %(domain)s are left untouched.
-VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA}'
+VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_ROLE_PREFIX} ${SSO_GROUP_PREFIX} ${BRONZE_SCHEMA_PREFIX}'
 for f in quadlets/*; do
   envsubst "$VARS" < "$f" > "$QUADLET_DIR/$(basename "$f")"
 done
@@ -455,6 +457,9 @@ unit_tests() {  # extra podman arguments, e.g. the single sign-on settings
     -v "$UNIT_SECRET_DIR/crudman_password:/run/secrets/crudman_password:ro,Z" \
     -e POSTGRES_HOST=localhost -e POSTGRES_PORT="$PG_PORT" \
     -e POSTGRES_USER="$SUPERUSER_NAME" -e POSTGRES_DB=postgres \
+    -e DB_ROLE_PREFIX="$DB_ROLE_PREFIX" \
+    -e SSO_GROUP_PREFIX="$SSO_GROUP_PREFIX" \
+    -e BRONZE_SCHEMA_PREFIX="$BRONZE_SCHEMA_PREFIX" \
     -e UPLOADS_DIR=/tmp/uploads -e SFTP_DIR=/tmp/sftp \
     "$@" \
     --entrypoint sh "${REGISTRY}/crudman:${IMAGE_TAG}" -c \

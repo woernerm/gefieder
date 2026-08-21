@@ -14,10 +14,11 @@ back with it. delete_tenant now clears the role's grants and owned objects first
 whole tenant disappears.
 """
 import pytest
+from conftest import BRONZE_SCHEMA_PREFIX
 
 # A throwaway tenant name unlikely to collide with anything on the stack.
 TENANT = "itest_tenant"
-BRONZE = f"bronze_{TENANT}"
+BRONZE = f"{BRONZE_SCHEMA_PREFIX}{TENANT}"
 
 
 def role_exists(conn, name):
@@ -42,7 +43,7 @@ def listed_tenants(conn):
     (e.g. one uses a prefix and the other a suffix) a freshly created tenant silently
     fails to appear in the changelist, even though its schema and role exist.
     """
-    prefix = "bronze_"
+    prefix = BRONZE_SCHEMA_PREFIX
     name_start = len(prefix) + 1  # substr() is 1-based.
     with conn.cursor() as cur:
         cur.execute(

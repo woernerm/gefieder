@@ -243,7 +243,7 @@ $$;
 --------------------------------------------------------------------------------
 -- Read access for grafana so the display layer (added later) can chart the data.
 --------------------------------------------------------------------------------
-GRANT USAGE ON SCHEMA :"schema" TO grafana;
-GRANT SELECT ON ALL TABLES IN SCHEMA :"schema" TO grafana;
-ALTER DEFAULT PRIVILEGES IN SCHEMA :"schema" GRANT SELECT ON TABLES TO grafana;
+GRANT USAGE ON SCHEMA :"schema" TO ${GRAFANA_DB_USER};
+GRANT SELECT ON ALL TABLES IN SCHEMA :"schema" TO ${GRAFANA_DB_USER};
+ALTER DEFAULT PRIVILEGES IN SCHEMA :"schema" GRANT SELECT ON TABLES TO ${GRAFANA_DB_USER};
 SQL

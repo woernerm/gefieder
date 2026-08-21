@@ -17,10 +17,14 @@ where it belongs: in the container and in CI.
 
 ## What it must do
 
-- Provision a login role per Django administrator, named `gf_u_<slug>` from their username,
-  with privileges from exactly one `gf_*` group role.
+- Provision a login role per Django administrator, named `<prefix>u_<slug>` from their
+  username, with privileges from exactly one `<prefix>`-group role. The prefix is
+  `DB_ROLE_PREFIX` in `buildtime.env` (`gf_` by default), so the names this app derives
+  and the roles the database created come from one setting.
 - Derive the rank from the single sign-on groups in `sso/roles.py`, so the identity provider
-  stays the source of truth for who may do what.
+  stays the source of truth for who may do what. Both sides share the three rank names and
+  differ only in their prefix (`SSO_GROUP_PREFIX`, `DB_ROLE_PREFIX`), so neither set is
+  listed twice.
 - Reconcile that rank on every login: a promotion or demotion in the provider reaches the
   database on the person's next sign-in.
 - Issue the credential once and never store it. A lost password is reset, not recovered.
@@ -34,11 +38,12 @@ where it belongs: in the container and in CI.
   owner and the audit trail survives. Deleting outright is offered separately, because
   PostgreSQL cannot drop a role that still owns anything: deleting the account deletes
   that data with it.
-- Refuse to touch the service roles — the superuser plus `crudman`, `sqlmesh` and
-  `grafana` — which the `is_protected_role` database function derives rather than lists,
-  because the superuser's name is configurable (`SUPERUSER_NAME`, `admin` by default). And
-  refuse to drop anything that is not a `gf_u_` account — a tenant role owns a bronze
-  schema, and dropping one by mistake would take a tenant's data with it.
+- Refuse to touch the service roles — the superuser plus the three named by
+  `CRUDMAN_DB_USER`, `SQLMESH_DB_USER` and `GRAFANA_DB_USER` — which the
+  `is_protected_role` database function derives rather than lists, because the
+  superuser's name is configurable (`SUPERUSER_NAME`, `admin` by default). And refuse to
+  drop anything that is not a `<prefix>u_` account — a tenant role owns a bronze schema,
+  and dropping one by mistake would take a tenant's data with it.
 
 ## What it deliberately does not do
 

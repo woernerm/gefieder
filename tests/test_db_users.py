@@ -3,7 +3,7 @@ lock a personal login role with the privileges its rank carries.
 
 An administrator who develops SQLMesh models gets a role of their own instead of sharing
 the sqlmesh secret. The role is created by the SECURITY DEFINER functions in
-postgresql/initdb/gf_0003_create_functions.sql and takes its privileges from the gf_*
+postgresql/initdb/gf_0003_create_functions.sql and takes its privileges from the
 group roles in gf_0008_create_admin_roles.sql; crudman only forwards to them, so these
 tests run against the live stack.
 
@@ -15,11 +15,25 @@ reason, and the test below is what keeps the check honest.
 import psycopg2
 import pytest
 
-from conftest import SUPERUSER_NAME
+from conftest import (
+    CRUDMAN_DB_USER,
+    DB_ROLE_PREFIX,
+    GRAFANA_DB_USER,
+    SILVER_SCHEMA,
+    SQLMESH_DB_USER,
+    SUPERUSER_NAME,
+)
 
-# Throwaway account names, matching the gf_u_ prefix crudman derives (dbusers.utils).
-VIEWER = "gf_u_itest_viewer"
-EDITOR = "gf_u_itest_editor"
+# The three ranks gf_0008 created, spelled from the configured prefix rather than listed:
+# a hardcoded name would pass against a deployment that has no such role.
+VIEWER_ROLE = f"{DB_ROLE_PREFIX}viewer"
+EDITOR_ROLE = f"{DB_ROLE_PREFIX}editor"
+ADMIN_ROLE = f"{DB_ROLE_PREFIX}admin"
+
+# Throwaway account names, carrying the personal-account prefix crudman derives
+# (dbusers.utils) -- which is what drop_db_user checks before it drops anything.
+VIEWER = f"{DB_ROLE_PREFIX}u_itest_viewer"
+EDITOR = f"{DB_ROLE_PREFIX}u_itest_editor"
 PASSWORD = "itest-password-long-enough"
 
 
@@ -73,7 +87,7 @@ def cleanup(admin_db):
 
 def test_group_roles_exist(admin_db):
     """The three ranks are created at first start and carry no login of their own."""
-    for name in ("gf_viewer", "gf_editor", "gf_admin"):
+    for name in (VIEWER_ROLE, EDITOR_ROLE, ADMIN_ROLE):
         assert role_exists(admin_db, name), f"{name} is missing"
         assert not can_login(admin_db, name), f"{name} must not be a login role"
 
@@ -81,11 +95,11 @@ def test_group_roles_exist(admin_db):
 def test_create_db_user_provisions_role(crudman_db, admin_db, cleanup):
     """crudman can provision an account, and it lands in the rank it was given."""
     with crudman_db.cursor() as cur:
-        cur.execute("SELECT create_db_user(%s, %s, %s)", (VIEWER, PASSWORD, "gf_viewer"))
+        cur.execute("SELECT create_db_user(%s, %s, %s)", (VIEWER, PASSWORD, VIEWER_ROLE))
 
     assert role_exists(admin_db, VIEWER)
     assert can_login(admin_db, VIEWER)
-    assert "gf_viewer" in memberships(admin_db, VIEWER)
+    assert VIEWER_ROLE in memberships(admin_db, VIEWER)
 
 
 def test_rank_change_replaces_membership(crudman_db, admin_db, cleanup):
@@ -95,12 +109,12 @@ def test_rank_change_replaces_membership(crudman_db, admin_db, cleanup):
     privileged membership would survive it.
     """
     with crudman_db.cursor() as cur:
-        cur.execute("SELECT create_db_user(%s, %s, %s)", (EDITOR, PASSWORD, "gf_viewer"))
+        cur.execute("SELECT create_db_user(%s, %s, %s)", (EDITOR, PASSWORD, VIEWER_ROLE))
         # A NULL password is how crudman re-ranks someone without issuing a new
         # credential; the person keeps the password they already have.
-        cur.execute("SELECT create_db_user(%s, %s, %s)", (EDITOR, None, "gf_editor"))
+        cur.execute("SELECT create_db_user(%s, %s, %s)", (EDITOR, None, EDITOR_ROLE))
 
-    assert memberships(admin_db, EDITOR) == {"gf_editor"}
+    assert memberships(admin_db, EDITOR) == {EDITOR_ROLE}
     assert can_login(admin_db, EDITOR), "re-ranking must not lock the account out"
 
 
@@ -120,7 +134,7 @@ def test_unknown_group_role_is_refused(crudman_db, cleanup):
 def test_delete_db_user_disables_without_dropping(crudman_db, admin_db, cleanup):
     """Offboarding locks the account but keeps the role, so owned objects survive."""
     with crudman_db.cursor() as cur:
-        cur.execute("SELECT create_db_user(%s, %s, %s)", (VIEWER, PASSWORD, "gf_viewer"))
+        cur.execute("SELECT create_db_user(%s, %s, %s)", (VIEWER, PASSWORD, VIEWER_ROLE))
         cur.execute("SELECT delete_db_user(%s)", (VIEWER,))
 
     assert role_exists(admin_db, VIEWER), "the role must survive so its objects keep an owner"
@@ -131,7 +145,7 @@ def test_delete_db_user_disables_without_dropping(crudman_db, admin_db, cleanup)
 # The roles the provisioning functions must refuse. The superuser is named by
 # SUPERUSER_NAME (buildtime.env) rather than being "postgres", which is exactly the case a
 # hardcoded list would miss.
-SERVICE_ROLES = (SUPERUSER_NAME, "crudman", "sqlmesh", "grafana")
+SERVICE_ROLES = (SUPERUSER_NAME, CRUDMAN_DB_USER, SQLMESH_DB_USER, GRAFANA_DB_USER)
 
 
 def test_service_roles_are_protected(crudman_db):
@@ -160,16 +174,16 @@ def test_provisioning_functions_are_not_public(connect, cleanup):
     """Only crudman may provision. The functions run as their superuser owner, so a
     default PUBLIC grant would let any role -- a tenant, grafana -- mint an admin account.
     """
-    grafana = connect("grafana")
+    grafana = connect(GRAFANA_DB_USER)
     with grafana.cursor() as cur:
         with pytest.raises(psycopg2.errors.InsufficientPrivilege):
-            cur.execute("SELECT create_db_user(%s, %s, %s)", (VIEWER, PASSWORD, "gf_admin"))
+            cur.execute("SELECT create_db_user(%s, %s, %s)", (VIEWER, PASSWORD, ADMIN_ROLE))
 
 
 def test_editor_can_read_analytics(crudman_db, admin_db, cleanup):
     """A provisioned editor reaches the medallion layers the dashboards read."""
     with crudman_db.cursor() as cur:
-        cur.execute("SELECT create_db_user(%s, %s, %s)", (EDITOR, PASSWORD, "gf_editor"))
+        cur.execute("SELECT create_db_user(%s, %s, %s)", (EDITOR, PASSWORD, EDITOR_ROLE))
 
     conn = psycopg2.connect(
         host="localhost",
@@ -181,7 +195,7 @@ def test_editor_can_read_analytics(crudman_db, admin_db, cleanup):
     conn.autocommit = True
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT has_schema_privilege('silver', 'USAGE')")
+            cur.execute("SELECT has_schema_privilege(%s, 'USAGE')", (SILVER_SCHEMA,))
             assert cur.fetchone()[0], "an editor must be able to read the silver layer"
     finally:
         conn.close()
@@ -208,7 +222,7 @@ def test_enrolled_account_has_no_password_until_claimed(crudman_db, admin_db, cl
     until the person's next sign-in issues one to them.
     """
     with crudman_db.cursor() as cur:
-        cur.execute("SELECT create_db_user(%s, %s, %s)", (VIEWER, None, "gf_viewer"))
+        cur.execute("SELECT create_db_user(%s, %s, %s)", (VIEWER, None, VIEWER_ROLE))
 
     assert role_exists(admin_db, VIEWER)
     assert not has_password(admin_db, VIEWER), "an unclaimed account must hold no password"
@@ -217,8 +231,8 @@ def test_enrolled_account_has_no_password_until_claimed(crudman_db, admin_db, cl
 def test_issuing_the_password_makes_the_account_usable(crudman_db, admin_db, cleanup):
     """The second half of provisioning, as the login signal performs it."""
     with crudman_db.cursor() as cur:
-        cur.execute("SELECT create_db_user(%s, %s, %s)", (VIEWER, None, "gf_viewer"))
-        cur.execute("SELECT create_db_user(%s, %s, %s)", (VIEWER, PASSWORD, "gf_viewer"))
+        cur.execute("SELECT create_db_user(%s, %s, %s)", (VIEWER, None, VIEWER_ROLE))
+        cur.execute("SELECT create_db_user(%s, %s, %s)", (VIEWER, PASSWORD, VIEWER_ROLE))
 
     assert has_password(admin_db, VIEWER)
 
@@ -239,7 +253,7 @@ def test_clearing_a_password_locks_the_account_immediately(crudman_db, admin_db,
     leaked stops working now.
     """
     with crudman_db.cursor() as cur:
-        cur.execute("SELECT create_db_user(%s, %s, %s)", (VIEWER, PASSWORD, "gf_viewer"))
+        cur.execute("SELECT create_db_user(%s, %s, %s)", (VIEWER, PASSWORD, VIEWER_ROLE))
         cur.execute("SELECT clear_db_user_password(%s)", (VIEWER,))
 
     assert not has_password(admin_db, VIEWER)
@@ -257,7 +271,7 @@ def test_clearing_a_password_locks_the_account_immediately(crudman_db, admin_db,
 def test_drop_db_user_removes_the_role(crudman_db, admin_db, cleanup):
     """The destructive counterpart to delete_db_user: the role itself is gone."""
     with crudman_db.cursor() as cur:
-        cur.execute("SELECT create_db_user(%s, %s, %s)", (VIEWER, PASSWORD, "gf_viewer"))
+        cur.execute("SELECT create_db_user(%s, %s, %s)", (VIEWER, PASSWORD, VIEWER_ROLE))
         cur.execute("SELECT drop_db_user(%s)", (VIEWER,))
 
     assert not role_exists(admin_db, VIEWER)
@@ -274,7 +288,7 @@ def test_drop_db_user_refuses_a_tenant_role(crudman_db, admin_db):
     """Only provisioned personal accounts may be dropped.
 
     Tenant roles own a bronze schema, so dropping one by passing the wrong name would take
-    a tenant's data with it. The gf_u_ prefix is what separates the two.
+    a tenant's data with it. The personal-account prefix is what separates the two.
     """
     with crudman_db.cursor() as cur:
         with pytest.raises(psycopg2.errors.RaiseException):
@@ -285,7 +299,7 @@ def test_drop_db_user_refuses_a_tenant_role(crudman_db, admin_db):
 
 def test_dropping_is_not_reachable_by_other_roles(connect, cleanup):
     """As with the other provisioning functions: crudman only."""
-    grafana = connect("grafana")
+    grafana = connect(GRAFANA_DB_USER)
     with grafana.cursor() as cur:
         with pytest.raises(psycopg2.errors.InsufficientPrivilege):
             cur.execute("SELECT drop_db_user(%s)", (VIEWER,))

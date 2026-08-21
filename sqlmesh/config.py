@@ -43,14 +43,16 @@ if IN_CONTAINER:
     port = int(os.environ.get("POSTGRES_PORT", "5432"))
     database = os.environ.get("POSTGRES_DB", "postgres")
     password = SECRET_PATH.read_text().strip()
-    # The deployed engine owns production, so it keeps the shared service role.
-    user = "sqlmesh"
+    # The deployed engine owns production, so it keeps the shared service role, named by
+    # SQLMESH_DB_USER in buildtime.env and passed in by sqlmesh.container.
+    user = os.environ.get("POSTGRES_USER", "sqlmesh")
 else:
     # On a developer's machine the database is reached over the network, on the port the
     # pod publishes. SERVER_NAME is the address the system is reached under, so it is
     # already the right one -- and it names a local development stack just as well as a
     # server, which is why no separate development setting is needed here.
-    runtime_env = dotenv_values(Path(__file__).resolve().parent.parent / "runtime.env")
+    repo_root = Path(__file__).resolve().parent.parent
+    runtime_env = dotenv_values(repo_root / "runtime.env")
     host = runtime_env["SERVER_NAME"]
     port = 5432
     database = "postgres"
@@ -70,11 +72,15 @@ else:
     # a matter of disabling one role.
     #
     # The role name is derived exactly as crudman derives it when provisioning (see
-    # dbusers.utils.role_name_for), so nothing has to be looked up or configured. Someone
-    # whose local account is named differently from their login here overrides it with
-    # SQLMESH_USER.
+    # dbusers.utils.role_name_for), so nothing has to be looked up or configured. The
+    # prefix comes from buildtime.env, the same file the database was initialised from, so
+    # a renamed prefix reaches a developer's checkout without an edit here. Someone whose
+    # local account is named differently from their login here overrides the whole name
+    # with SQLMESH_USER.
+    role_prefix = dotenv_values(repo_root / "buildtime.env").get("DB_ROLE_PREFIX", "gf_")
     user = os.environ.get("SQLMESH_USER") or (
-        "gf_u_" + re.sub(r"[^a-z0-9]+", "_", getpass.getuser().strip().lower()).strip("_")
+        f"{role_prefix}u_"
+        + re.sub(r"[^a-z0-9]+", "_", getpass.getuser().strip().lower()).strip("_")
     )[:50]
 
 def attach_path(**settings: object) -> str:

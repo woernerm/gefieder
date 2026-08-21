@@ -23,6 +23,7 @@ Timezone=local
 Environment=POSTGRES_HOST=localhost
 Environment=POSTGRES_PORT=5432
 Environment=POSTGRES_DB=postgres
+Environment=POSTGRES_USER=${SQLMESH_DB_USER}
 Environment=SQLMESH_RUN_INTERVAL=10
 # The dropzones uploads, read-only: analytics models open the files whose paths the
 # crudman.dropzones_upload rows carry, under the same mount point crudman writes to.

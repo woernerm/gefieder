@@ -225,9 +225,9 @@ take effect.
 | --- | --- |
 | `django_secret_key` | Django's cryptographic signing key |
 | `superuser_password` | the PostgreSQL, Django and Grafana admin login |
-| `crudman_password` | the `crudman` database user the Django app connects with |
-| `sqlmesh_password` | the `sqlmesh` database user the analytics engine connects with |
-| `grafana_password` | the read-only `grafana` database user for the Grafana data source |
+| `crudman_password` | the database user the Django app connects with |
+| `sqlmesh_password` | the database user the analytics engine connects with |
+| `grafana_password` | the read-only database user for the Grafana data source |
 | `oidc_client_secret` | the single sign-on client secret, if you use it (see below) |
 
 ## Single sign-on

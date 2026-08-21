@@ -1,14 +1,18 @@
-CREATE SCHEMA IF NOT EXISTS crudman AUTHORIZATION crudman;
+-- The schema is named after the component, the role after CRUDMAN_DB_USER in
+-- buildtime.env (postgresql/render.sh substituted it): a role shares one namespace with
+-- every other role in the cluster and may have to dodge a collision, a schema does not.
+-- The same split applies to the sqlmesh and grafana roles below.
+CREATE SCHEMA IF NOT EXISTS crudman AUTHORIZATION ${CRUDMAN_DB_USER};
 
-GRANT ALL PRIVILEGES ON SCHEMA crudman TO crudman;
-ALTER DEFAULT PRIVILEGES IN SCHEMA crudman GRANT ALL ON TABLES TO crudman;
-ALTER DEFAULT PRIVILEGES IN SCHEMA crudman GRANT ALL ON SEQUENCES TO crudman;
+GRANT ALL PRIVILEGES ON SCHEMA crudman TO ${CRUDMAN_DB_USER};
+ALTER DEFAULT PRIVILEGES IN SCHEMA crudman GRANT ALL ON TABLES TO ${CRUDMAN_DB_USER};
+ALTER DEFAULT PRIVILEGES IN SCHEMA crudman GRANT ALL ON SEQUENCES TO ${CRUDMAN_DB_USER};
 
--- The sqlmesh user may read, but not write, the crudman schema. The default
--- privileges are set FOR ROLE crudman because crudman creates the tables.
-GRANT USAGE ON SCHEMA crudman TO sqlmesh;
-GRANT SELECT ON ALL TABLES IN SCHEMA crudman TO sqlmesh;
-ALTER DEFAULT PRIVILEGES FOR ROLE crudman IN SCHEMA crudman GRANT SELECT ON TABLES TO sqlmesh;
+-- The analytics role may read, but not write, the crudman schema. The default privileges
+-- name the schema's owner in their FOR ROLE, because that is what creates the tables.
+GRANT USAGE ON SCHEMA crudman TO ${SQLMESH_DB_USER};
+GRANT SELECT ON ALL TABLES IN SCHEMA crudman TO ${SQLMESH_DB_USER};
+ALTER DEFAULT PRIVILEGES FOR ROLE ${CRUDMAN_DB_USER} IN SCHEMA crudman GRANT SELECT ON TABLES TO ${SQLMESH_DB_USER};
 
 -- Grafana reads, but never writes, the analytics data: the per-tenant bronze schemas
 -- (bronze_<tenant>), the standardized silver schema and the materialized gold schema.
@@ -32,17 +36,19 @@ BEGIN
         FROM pg_event_trigger_ddl_commands()
         WHERE command_tag = 'CREATE SCHEMA'
     LOOP
-        -- Only the tenant bronze schemas are visible to grafana. Match bronze_% but
-        -- exclude sqlmesh's physical mirror of them (sqlmesh__bronze_%), which is internal.
-        CONTINUE WHEN obj.object_identity NOT LIKE 'bronze\_%'
-                   OR obj.object_identity LIKE 'sqlmesh\_\_%';
+        -- Only the tenant bronze schemas are visible to grafana, and not sqlmesh's
+        -- physical mirror of them (sqlmesh__bronze_*), which is internal. starts_with
+        -- rather than LIKE because the prefix is configurable and ends in an
+        -- underscore, which LIKE would read as a single-character wildcard.
+        CONTINUE WHEN NOT starts_with(obj.object_identity, '${BRONZE_SCHEMA_PREFIX}')
+                   OR starts_with(obj.object_identity, 'sqlmesh__');
 
-        EXECUTE format('GRANT USAGE ON SCHEMA %I TO grafana', obj.object_identity);
+        EXECUTE format('GRANT USAGE ON SCHEMA %I TO ${GRAFANA_DB_USER}', obj.object_identity);
         EXECUTE format(
-            'GRANT SELECT ON ALL TABLES IN SCHEMA %I TO grafana', obj.object_identity
+            'GRANT SELECT ON ALL TABLES IN SCHEMA %I TO ${GRAFANA_DB_USER}', obj.object_identity
         );
         EXECUTE format(
-            'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT SELECT ON TABLES TO grafana',
+            'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT SELECT ON TABLES TO ${GRAFANA_DB_USER}',
             (SELECT nspowner::regrole FROM pg_namespace WHERE nspname = obj.object_identity),
             obj.object_identity
         );
@@ -59,20 +65,20 @@ CREATE EVENT TRIGGER grafana_read_on_create_schema
 -- sqlmesh, which writes its models there. Grant grafana read on them directly (the event
 -- trigger above only handles the bronze schemas). The default privileges are set FOR
 -- sqlmesh so grafana can also read tables and views sqlmesh adds to them later.
-CREATE SCHEMA IF NOT EXISTS silver AUTHORIZATION sqlmesh;
-CREATE SCHEMA IF NOT EXISTS gold AUTHORIZATION sqlmesh;
+CREATE SCHEMA IF NOT EXISTS ${SILVER_SCHEMA} AUTHORIZATION ${SQLMESH_DB_USER};
+CREATE SCHEMA IF NOT EXISTS ${GOLD_SCHEMA} AUTHORIZATION ${SQLMESH_DB_USER};
 
-GRANT USAGE ON SCHEMA silver, gold TO grafana;
-GRANT SELECT ON ALL TABLES IN SCHEMA silver, gold TO grafana;
-ALTER DEFAULT PRIVILEGES FOR ROLE sqlmesh IN SCHEMA silver GRANT SELECT ON TABLES TO grafana;
-ALTER DEFAULT PRIVILEGES FOR ROLE sqlmesh IN SCHEMA gold GRANT SELECT ON TABLES TO grafana;
+GRANT USAGE ON SCHEMA ${SILVER_SCHEMA}, ${GOLD_SCHEMA} TO ${GRAFANA_DB_USER};
+GRANT SELECT ON ALL TABLES IN SCHEMA ${SILVER_SCHEMA}, ${GOLD_SCHEMA} TO ${GRAFANA_DB_USER};
+ALTER DEFAULT PRIVILEGES FOR ROLE ${SQLMESH_DB_USER} IN SCHEMA ${SILVER_SCHEMA} GRANT SELECT ON TABLES TO ${GRAFANA_DB_USER};
+ALTER DEFAULT PRIVILEGES FOR ROLE ${SQLMESH_DB_USER} IN SCHEMA ${GOLD_SCHEMA} GRANT SELECT ON TABLES TO ${GRAFANA_DB_USER};
 
 -- Grafana may also read the crudman model tables, but not the Django-internal tables
 -- (user, session, migration, ... tables, recognisable by their auth_/django_ prefix)
 -- which hold credentials and framework state. The crudman schema already exists, so
 -- grafana is granted USAGE here and an event trigger grants SELECT on every model
 -- table crudman creates afterwards.
-GRANT USAGE ON SCHEMA crudman TO grafana;
+GRANT USAGE ON SCHEMA crudman TO ${GRAFANA_DB_USER};
 
 CREATE OR REPLACE FUNCTION grant_grafana_read_crudman()
 RETURNS event_trigger
@@ -96,7 +102,7 @@ BEGIN
             CONTINUE;
         END IF;
 
-        EXECUTE format('GRANT SELECT ON %s TO grafana', obj.object_identity);
+        EXECUTE format('GRANT SELECT ON %s TO ${GRAFANA_DB_USER}', obj.object_identity);
     END LOOP;
 END;
 $$;

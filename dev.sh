@@ -145,6 +145,7 @@ echo "Building images ..."
 # build.sh does; without this the COPY of grafana/.provisioning/ has no source. The output
 # is deterministic, so an unchanged dashboard keeps the grafana COPY layer cached.
 ./grafana/render.sh grafana/.provisioning
+./postgresql/render.sh postgresql/.initdb
 
 # The configurable buildtime.env settings, the same list build.sh and run-tests.sh pass:
 # one left out falls back to the Dockerfile's ARG default, building an image the rest of
@@ -243,7 +244,10 @@ podman run -d --pod "$POD" --name crudman --restart always --tz=local \
   -e DEBUG=true \
   -e "CSRF_TRUSTED_ORIGINS=http://${HOST_ADDR}:${HTTP_PORT}" \
   -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 \
-  -e POSTGRES_DB=postgres -e POSTGRES_USER=crudman \
+  -e POSTGRES_DB=postgres -e "POSTGRES_USER=${CRUDMAN_DB_USER}" \
+  -e "DB_ROLE_PREFIX=${DB_ROLE_PREFIX}" \
+  -e "SSO_GROUP_PREFIX=${SSO_GROUP_PREFIX}" \
+  -e "BRONZE_SCHEMA_PREFIX=${BRONZE_SCHEMA_PREFIX}" \
   -e UPLOADS_DIR=/var/lib/app/uploads \
   -v uploads_data:/var/lib/app/uploads \
   --secret django_secret_key --secret crudman_password --secret superuser_password \
@@ -253,7 +257,7 @@ podman run -d --pod "$POD" --name crudman --restart always --tz=local \
 # sftp argument), writing uploads like crudman does.
 podman run -d --pod "$POD" --name sftp --restart always \
   -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 \
-  -e POSTGRES_DB=postgres -e POSTGRES_USER=crudman \
+  -e POSTGRES_DB=postgres -e "POSTGRES_USER=${CRUDMAN_DB_USER}" \
   -e UPLOADS_DIR=/var/lib/app/uploads \
   -e SFTP_DIR=/var/lib/app/sftp \
   -v uploads_data:/var/lib/app/uploads \
@@ -263,7 +267,7 @@ podman run -d --pod "$POD" --name sftp --restart always \
 
 podman run -d --pod "$POD" --name flight --restart always \
   -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 \
-  -e POSTGRES_DB=postgres -e POSTGRES_USER=crudman \
+  -e POSTGRES_DB=postgres -e "POSTGRES_USER=${CRUDMAN_DB_USER}" \
   -e UPLOADS_DIR=/var/lib/app/uploads \
   -v uploads_data:/var/lib/app/uploads \
   --secret django_secret_key --secret crudman_password \
@@ -272,6 +276,7 @@ podman run -d --pod "$POD" --name flight --restart always \
 # --tz=local as for crudman above: SQLMesh stamps its own log records too.
 podman run -d --pod "$POD" --name sqlmesh --restart always --tz=local \
   -e POSTGRES_HOST=localhost -e POSTGRES_PORT=5432 -e POSTGRES_DB=postgres \
+  -e "POSTGRES_USER=${SQLMESH_DB_USER}" \
   -e SQLMESH_RUN_INTERVAL=10 \
   -v uploads_data:/var/lib/app/uploads:ro \
   --secret sqlmesh_password \

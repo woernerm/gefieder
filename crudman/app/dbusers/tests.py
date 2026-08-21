@@ -9,10 +9,13 @@ from unittest.mock import patch
 
 from django.contrib.auth.models import Group, User
 from django.test import TestCase
+from sso.roles import GROUP_FOR_RANK
 
 from .backends import ScramBackend, get_backend
 from .models import DatabaseUser
 from .utils import (
+    GROUP_TO_DB_ROLE,
+    ROLE_PREFIX,
     db_role_for_user,
     enroll,
     issue_credential,
@@ -22,16 +25,30 @@ from .utils import (
     sync,
 )
 
+# The names the configured DB_ROLE_PREFIX produces, rather than the ones it happens to
+# produce at its default: what these tests are about is the derivation, so pinning the
+# literals here would only assert that buildtime.env is unchanged.
+VIEWER = GROUP_TO_DB_ROLE[GROUP_FOR_RANK["viewer"]]
+EDITOR = GROUP_TO_DB_ROLE[GROUP_FOR_RANK["editor"]]
+ADMIN = GROUP_TO_DB_ROLE[GROUP_FOR_RANK["admin"]]
+MARCUS = f"{ROLE_PREFIX}marcus"
+
+# The Django groups those ranks come from, named the way sso.roles builds them.
+VIEWER_GROUP = GROUP_FOR_RANK["viewer"]
+EDITOR_GROUP = GROUP_FOR_RANK["editor"]
+ADMIN_GROUP = GROUP_FOR_RANK["admin"]
+
 
 class RoleNameTests(TestCase):
     def test_username_is_slugged(self):
-        self.assertEqual(role_name_for("marcus"), "gf_u_marcus")
+        self.assertEqual(role_name_for("marcus"), MARCUS)
 
     def test_email_username_becomes_an_identifier(self):
         """Providers commonly send an email address as the username, which is not a valid
         PostgreSQL identifier."""
         self.assertEqual(
-            role_name_for("Marcus.Woerner@example.com"), "gf_u_marcus_woerner_example_com"
+            role_name_for("Marcus.Woerner@example.com"),
+            f"{ROLE_PREFIX}marcus_woerner_example_com",
         )
 
     def test_name_is_capped_to_the_identifier_limit(self):
@@ -39,12 +56,12 @@ class RoleNameTests(TestCase):
         self.assertLessEqual(len(role_name_for("x" * 200)), 50)
 
     def test_prefix_keeps_the_name_from_starting_with_a_digit(self):
-        self.assertTrue(role_name_for("1st.analyst").startswith("gf_u_"))
+        self.assertTrue(role_name_for("1st.analyst").startswith(ROLE_PREFIX))
 
 
 class RankTests(TestCase):
     def setUp(self):
-        for name in ("sso-viewer", "sso-editor", "sso-admin"):
+        for name in (VIEWER_GROUP, EDITOR_GROUP, ADMIN_GROUP):
             Group.objects.get_or_create(name=name)
         self.user = User.objects.create(username="marcus")
 
@@ -52,27 +69,27 @@ class RankTests(TestCase):
         self.assertIsNone(db_role_for_user(self.user))
 
     def test_group_maps_to_rank(self):
-        self.user.groups.add(Group.objects.get(name="sso-editor"))
-        self.assertEqual(db_role_for_user(self.user), "gf_editor")
+        self.user.groups.add(Group.objects.get(name=EDITOR_GROUP))
+        self.assertEqual(db_role_for_user(self.user), EDITOR)
 
     def test_highest_rank_wins(self):
         """Someone may hold several groups at once; the most privileged decides, matching
         how sso.roles.highest_role resolves the same ambiguity."""
-        self.user.groups.add(Group.objects.get(name="sso-viewer"))
-        self.user.groups.add(Group.objects.get(name="sso-admin"))
-        self.assertEqual(db_role_for_user(self.user), "gf_admin")
+        self.user.groups.add(Group.objects.get(name=VIEWER_GROUP))
+        self.user.groups.add(Group.objects.get(name=ADMIN_GROUP))
+        self.assertEqual(db_role_for_user(self.user), ADMIN)
 
 
 class SyncTests(TestCase):
     def setUp(self):
-        for name in ("sso-viewer", "sso-editor", "sso-admin"):
+        for name in (VIEWER_GROUP, EDITOR_GROUP, ADMIN_GROUP):
             Group.objects.get_or_create(name=name)
         self.user = User.objects.create(username="marcus")
-        self.user.groups.add(Group.objects.get(name="sso-viewer"))
+        self.user.groups.add(Group.objects.get(name=VIEWER_GROUP))
         self.record = DatabaseUser.objects.create(
             user=self.user,
-            role_name="gf_u_marcus",
-            group_role="gf_viewer",
+            role_name=MARCUS,
+            group_role=VIEWER,
             awaiting_credential=False,
         )
 
@@ -91,7 +108,7 @@ class SyncTests(TestCase):
 
     def test_promotion_is_applied(self):
         self.user.groups.clear()
-        self.user.groups.add(Group.objects.get(name="sso-admin"))
+        self.user.groups.add(Group.objects.get(name=ADMIN_GROUP))
         with patch("dbusers.utils.connection") as conn:
             sync(self.user)
 
@@ -99,9 +116,9 @@ class SyncTests(TestCase):
         sql, params = cursor.execute.call_args[0]
         self.assertIn("create_db_user", sql)
         # A NULL password: re-ranking must not issue a new credential.
-        self.assertEqual(params, ["gf_u_marcus", None, "gf_admin"])
+        self.assertEqual(params, [MARCUS, None, ADMIN])
         self.record.refresh_from_db()
-        self.assertEqual(self.record.group_role, "gf_admin")
+        self.assertEqual(self.record.group_role, ADMIN)
 
     def test_losing_every_role_disables_the_account(self):
         self.user.groups.clear()
@@ -111,7 +128,7 @@ class SyncTests(TestCase):
         cursor = conn.cursor.return_value.__enter__.return_value
         sql, params = cursor.execute.call_args[0]
         self.assertIn("delete_db_user", sql)
-        self.assertEqual(params, ["gf_u_marcus"])
+        self.assertEqual(params, [MARCUS])
         self.record.refresh_from_db()
         self.assertFalse(self.record.is_enabled)
 
@@ -151,9 +168,9 @@ class CredentialHandoverTests(TestCase):
     """
 
     def setUp(self):
-        Group.objects.get_or_create(name="sso-editor")
+        Group.objects.get_or_create(name=EDITOR_GROUP)
         self.user = User.objects.create(username="marcus")
-        self.user.groups.add(Group.objects.get(name="sso-editor"))
+        self.user.groups.add(Group.objects.get(name=EDITOR_GROUP))
 
     def test_enrolling_creates_the_role_without_a_password(self):
         with patch("dbusers.utils.connection") as conn:
@@ -162,7 +179,7 @@ class CredentialHandoverTests(TestCase):
         cursor = conn.cursor.return_value.__enter__.return_value
         sql, params = cursor.execute.call_args[0]
         self.assertIn("create_db_user", sql)
-        self.assertEqual(params, ["gf_u_marcus", None, "gf_editor"])
+        self.assertEqual(params, [MARCUS, None, EDITOR])
         self.assertTrue(record.awaiting_credential)
 
     def test_the_password_is_issued_on_the_next_login(self):
@@ -175,7 +192,7 @@ class CredentialHandoverTests(TestCase):
         self.assertIsNotNone(secret)
         cursor = conn.cursor.return_value.__enter__.return_value
         _, params = cursor.execute.call_args[0]
-        self.assertEqual(params[0], "gf_u_marcus")
+        self.assertEqual(params[0], MARCUS)
         self.assertEqual(params[1], secret, "the issued password must be the one set")
 
     def test_the_password_is_issued_only_once(self):
@@ -214,7 +231,7 @@ class CredentialHandoverTests(TestCase):
         # Cleared straight away, so a leaked password stops working now rather than at the
         # person's next sign-in.
         self.assertIn("clear_db_user_password", sql)
-        self.assertEqual(params, ["gf_u_marcus"])
+        self.assertEqual(params, [MARCUS])
         self.assertTrue(DatabaseUser.objects.get(user=self.user).awaiting_credential)
 
     def test_reset_then_login_issues_a_different_password(self):
@@ -230,9 +247,9 @@ class CredentialHandoverTests(TestCase):
 
 class RemovalTests(TestCase):
     def setUp(self):
-        Group.objects.get_or_create(name="sso-editor")
+        Group.objects.get_or_create(name=EDITOR_GROUP)
         self.user = User.objects.create(username="marcus")
-        self.user.groups.add(Group.objects.get(name="sso-editor"))
+        self.user.groups.add(Group.objects.get(name=EDITOR_GROUP))
         with patch("dbusers.utils.connection"):
             enroll(self.user)
 
@@ -243,7 +260,7 @@ class RemovalTests(TestCase):
         cursor = conn.cursor.return_value.__enter__.return_value
         sql, params = cursor.execute.call_args[0]
         self.assertIn("drop_db_user", sql)
-        self.assertEqual(params, ["gf_u_marcus"])
+        self.assertEqual(params, [MARCUS])
         self.assertFalse(DatabaseUser.objects.filter(user=self.user).exists())
 
     def test_removing_an_account_that_does_not_exist_is_refused(self):
@@ -259,4 +276,4 @@ class RemovalTests(TestCase):
             record = enroll(self.user)
 
         self.assertTrue(record.awaiting_credential)
-        self.assertEqual(record.role_name, "gf_u_marcus")
+        self.assertEqual(record.role_name, MARCUS)

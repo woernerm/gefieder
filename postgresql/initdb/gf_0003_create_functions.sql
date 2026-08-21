@@ -39,7 +39,7 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public
 AS $$
 DECLARE
-    schema_name text := 'bronze_' || tenant_name;
+    schema_name text := '${BRONZE_SCHEMA_PREFIX}' || tenant_name;
 BEGIN
     --------------------------------------------------------------------
     -- Input validation
@@ -155,13 +155,13 @@ BEGIN
     -- it. The default privileges are set FOR ROLE tenant because the
     -- tenant creates the tables.
     --------------------------------------------------------------------
-    EXECUTE format('GRANT USAGE, CREATE ON SCHEMA %I TO sqlmesh', schema_name);
+    EXECUTE format('GRANT USAGE, CREATE ON SCHEMA %I TO ${SQLMESH_DB_USER}', schema_name);
     EXECUTE format(
-        'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO sqlmesh',
+        'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO ${SQLMESH_DB_USER}',
         schema_name
     );
     EXECUTE format(
-        'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sqlmesh',
+        'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${SQLMESH_DB_USER}',
         tenant_name,
         schema_name
     );
@@ -183,7 +183,7 @@ SECURITY DEFINER
 SET search_path = pg_catalog
 AS $$
 DECLARE
-    schema_name text := 'bronze_' || tenant_name;
+    schema_name text := '${BRONZE_SCHEMA_PREFIX}' || tenant_name;
 BEGIN
     IF tenant_name !~ '^[a-zA-Z0-9_]+$' THEN
         RAISE EXCEPTION 'tenant_name can only contain letters, numbers, and underscores';
@@ -208,7 +208,7 @@ SECURITY DEFINER
 SET search_path = pg_catalog
 AS $$
 DECLARE
-    schema_bronze text := 'bronze_' || tenant_name;
+    schema_bronze text := '${BRONZE_SCHEMA_PREFIX}' || tenant_name;
 BEGIN
     --------------------------------------------------------------------
     -- Input validation
@@ -380,7 +380,7 @@ AS $$
     SELECT EXISTS (
         SELECT 1 FROM pg_roles
         WHERE rolname = role_name
-          AND (rolsuper OR rolname IN ('crudman', 'sqlmesh', 'grafana'))
+          AND (rolsuper OR rolname IN ('${CRUDMAN_DB_USER}', '${SQLMESH_DB_USER}', '${GRAFANA_DB_USER}'))
     );
 $$;
 
@@ -430,8 +430,8 @@ BEGIN
     -- Only the three group roles are assignable. Without this check the function would be
     -- a way for crudman to grant itself membership of any role in the cluster, superusers
     -- included, which is exactly what SECURITY DEFINER makes dangerous.
-    IF group_role NOT IN ('gf_viewer', 'gf_editor', 'gf_admin') THEN
-        RAISE EXCEPTION 'group_role must be one of gf_viewer, gf_editor, gf_admin';
+    IF group_role NOT IN ('${DB_ROLE_PREFIX}viewer', '${DB_ROLE_PREFIX}editor', '${DB_ROLE_PREFIX}admin') THEN
+        RAISE EXCEPTION 'group_role must be one of ${DB_ROLE_PREFIX}viewer, ${DB_ROLE_PREFIX}editor, ${DB_ROLE_PREFIX}admin';
     END IF;
 
     -- A password is optional: with an external identity provider the role authenticates
@@ -463,18 +463,18 @@ BEGIN
 
     -- Exactly one rank at a time: the old membership is dropped before the new one is
     -- granted, so a demotion actually removes rights instead of adding a second rank.
-    EXECUTE format('REVOKE gf_viewer FROM %I', user_name);
-    EXECUTE format('REVOKE gf_editor FROM %I', user_name);
-    EXECUTE format('REVOKE gf_admin FROM %I', user_name);
+    EXECUTE format('REVOKE ${DB_ROLE_PREFIX}viewer FROM %I', user_name);
+    EXECUTE format('REVOKE ${DB_ROLE_PREFIX}editor FROM %I', user_name);
+    EXECUTE format('REVOKE ${DB_ROLE_PREFIX}admin FROM %I', user_name);
     EXECUTE format('GRANT %I TO %I', group_role, user_name);
 
     -- What this person creates while developing must stay usable by the deployed engine,
-    -- which runs as sqlmesh and cannot otherwise touch a table another role owns.
+    -- which runs as the analytics role and cannot otherwise touch a table another owns.
     EXECUTE format(
-        'ALTER DEFAULT PRIVILEGES FOR ROLE %I GRANT ALL ON TABLES TO sqlmesh', user_name
+        'ALTER DEFAULT PRIVILEGES FOR ROLE %I GRANT ALL ON TABLES TO ${SQLMESH_DB_USER}', user_name
     );
     EXECUTE format(
-        'ALTER DEFAULT PRIVILEGES FOR ROLE %I GRANT ALL ON SEQUENCES TO sqlmesh', user_name
+        'ALTER DEFAULT PRIVILEGES FOR ROLE %I GRANT ALL ON SEQUENCES TO ${SQLMESH_DB_USER}', user_name
     );
 
     RAISE NOTICE 'Database user % provisioned as %', user_name, group_role;
@@ -515,9 +515,9 @@ BEGIN
 
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = user_name) THEN
         EXECUTE format('ALTER ROLE %I NOLOGIN', user_name);
-        EXECUTE format('REVOKE gf_viewer FROM %I', user_name);
-        EXECUTE format('REVOKE gf_editor FROM %I', user_name);
-        EXECUTE format('REVOKE gf_admin FROM %I', user_name);
+        EXECUTE format('REVOKE ${DB_ROLE_PREFIX}viewer FROM %I', user_name);
+        EXECUTE format('REVOKE ${DB_ROLE_PREFIX}editor FROM %I', user_name);
+        EXECUTE format('REVOKE ${DB_ROLE_PREFIX}admin FROM %I', user_name);
         RAISE NOTICE 'Database user % disabled', user_name;
     END IF;
 END;
@@ -596,7 +596,7 @@ BEGIN
     -- Refuse anything that is not a provisioned personal account. Without this the
     -- function would drop a tenant role -- and its bronze schema with it -- for a caller
     -- who passed the wrong name.
-    IF user_name !~ '^gf_u_' THEN
+    IF user_name !~ '^${DB_ROLE_PREFIX}u_' THEN
         RAISE EXCEPTION 'refusing to drop %, which is not a provisioned user role', user_name;
     END IF;
 

@@ -5,28 +5,38 @@ in ``postgresql/initdb/gf_0003_create_functions.sql``) because creating a role n
 CREATEROLE, which crudman does not have and should not be given -- the same arrangement
 the tenants app uses, for the same reason.
 """
+import os
 import re
 
 from django.db import connection, transaction
+from sso.roles import GROUP_FOR_RANK, RANKS
 
 from .backends import get_backend
 
+# The prefix the database was initialised with: DB_ROLE_PREFIX in buildtime.env, which
+# postgresql/render.sh baked into the init scripts and crudman.container passes in here.
+# Both sides have to agree -- a role this module names is one gf_0008 created -- so the
+# fallback is the value buildtime.env ships, for a checkout run without the quadlet.
+DB_ROLE_PREFIX = os.environ.get("DB_ROLE_PREFIX", "gf_")
+
 # The single sign-on group a person is in decides the database rank they get. Both sides
-# of this mapping are defined elsewhere -- the groups in sso/roles.py, the gf_* roles in
+# are defined elsewhere -- the groups in sso/roles.py, the group roles in
 # postgresql/initdb/gf_0008_create_admin_roles.sql -- and this is the one place they meet.
+# Neither set is listed again here: they share the three rank names, and each side puts its
+# own prefix in front, so a rank added to sso.roles.RANKS reaches the database rank of the
+# same name without an edit here.
 #
 # Viewers are included so that read-only access is still a provisioned account rather than
 # a shared credential; what separates the ranks is write access to SQLMesh's schemas.
 GROUP_TO_DB_ROLE = {
-    "sso-viewer": "gf_viewer",
-    "sso-editor": "gf_editor",
-    "sso-admin": "gf_admin",
+    GROUP_FOR_RANK[rank]: f"{DB_ROLE_PREFIX}{rank}" for rank in RANKS
 }
 
-# Prefix every provisioned role carries. It keeps these roles apart from the service roles
-# (crudman, sqlmesh, grafana) and the tenant roles, which share the same namespace, so a
-# person called "grafana" cannot collide with the service of that name.
-ROLE_PREFIX = "gf_u_"
+# Prefix every provisioned role carries, one level below the group roles above. It keeps
+# these roles apart from the service roles (CRUDMAN_DB_USER and its two siblings in
+# buildtime.env) and the tenant roles, which share the same namespace, so a person called
+# "grafana" cannot collide with the service of that name.
+ROLE_PREFIX = f"{DB_ROLE_PREFIX}u_"
 
 
 def role_name_for(username: str) -> str:
@@ -44,13 +54,16 @@ def role_name_for(username: str) -> str:
 
 
 def db_role_for_user(user) -> str | None:
-    """The gf_* rank a Django user's groups earn them, or None if they have none.
+    """The group role a Django user's groups earn them, or None if they have none.
 
     Someone may hold several managed groups at once; the most privileged wins, matching how
     sso.roles.highest_role resolves the same ambiguity.
     """
     names = set(user.groups.values_list("name", flat=True))
-    for group in ("sso-admin", "sso-editor", "sso-viewer"):
+    # RANKS runs from least to most privileged, so walking it backwards returns the highest
+    # the person holds -- the same resolution sso.roles.highest_role makes.
+    for rank in reversed(RANKS):
+        group = GROUP_FOR_RANK[rank]
         if group in names:
             return GROUP_TO_DB_ROLE[group]
     return None

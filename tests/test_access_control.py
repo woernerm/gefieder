@@ -26,13 +26,24 @@ assertions are deterministic regardless of what the running apps have created.
 import psycopg2
 import pytest
 
-from conftest import allowed, denied
+from conftest import (
+    BRONZE_SCHEMA_PREFIX,
+    GOLD_SCHEMA,
+    GRAFANA_DB_USER,
+    SILVER_SCHEMA,
+    SILVER_STAGING_SCHEMA,
+    SQLMESH_DB_USER,
+    allowed,
+    denied,
+)
 
 # Tables the seed fixture creates, addressed per schema.
 CRUDMAN_MODEL = "crudman.example_team"        # a non-Django model table
 CRUDMAN_DJANGO = "crudman.auth_user"          # a Django-internal table (created by migrations)
-SILVER_TABLE = "silver.example_metric"
-GOLD_TABLE = "gold.example_metric"
+# A throwaway schema that looks like a tenant's, to watch the event trigger fire.
+BRONZE_PROBE = f"{BRONZE_SCHEMA_PREFIX}probe"
+SILVER_TABLE = f"{SILVER_SCHEMA}.example_metric"
+GOLD_TABLE = f"{GOLD_SCHEMA}.example_metric"
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -49,14 +60,14 @@ def seed(crudman_db, sqlmesh_db):
         # which gives grafana SELECT (and sqlmesh reads it via its default privileges).
         cur.execute("CREATE TABLE IF NOT EXISTS crudman.example_team (id int)")
     with sqlmesh_db.cursor() as cur:
-        cur.execute("CREATE TABLE IF NOT EXISTS silver.example_metric (id int)")
-        cur.execute("CREATE TABLE IF NOT EXISTS gold.example_metric (id int)")
+        cur.execute(f"CREATE TABLE IF NOT EXISTS {SILVER_TABLE} (id int)")
+        cur.execute(f"CREATE TABLE IF NOT EXISTS {GOLD_TABLE} (id int)")
     yield
     with crudman_db.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS crudman.example_team")
     with sqlmesh_db.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS silver.example_metric")
-        cur.execute("DROP TABLE IF EXISTS gold.example_metric")
+        cur.execute(f"DROP TABLE IF EXISTS {SILVER_TABLE}")
+        cur.execute(f"DROP TABLE IF EXISTS {GOLD_TABLE}")
 
 
 class TestCrudmanUser:
@@ -86,8 +97,8 @@ class TestSqlmeshUser:
         allowed(sqlmesh_db, f"INSERT INTO {GOLD_TABLE} VALUES (1)")
 
     def test_sqlmesh_shall_create_tables_in_the_analytics_schemas(self, sqlmesh_db):
-        allowed(sqlmesh_db, "CREATE TABLE gold.__probe (id int)")
-        allowed(sqlmesh_db, "DROP TABLE gold.__probe")
+        allowed(sqlmesh_db, f"CREATE TABLE {GOLD_SCHEMA}.__probe (id int)")
+        allowed(sqlmesh_db, f"DROP TABLE {GOLD_SCHEMA}.__probe")
 
     def test_sqlmesh_shall_read_the_crudman_schema(self, sqlmesh_db):
         allowed(sqlmesh_db, f"SELECT * FROM {CRUDMAN_MODEL}")
@@ -114,7 +125,9 @@ class TestGrafanaUser:
     def test_grafana_shall_not_read_the_sqlmesh_schema(self, grafana_db):
         # The sqlmesh state schema holds internal bookkeeping; grafana must not see it.
         with grafana_db.cursor() as cur:
-            cur.execute("SELECT has_schema_privilege('grafana', 'sqlmesh', 'USAGE')")
+            cur.execute(
+                "SELECT has_schema_privilege(%s, 'sqlmesh', 'USAGE')", (GRAFANA_DB_USER,)
+            )
             assert cur.fetchone()[0] is False
 
     def test_grafana_shall_not_read_sqlmesh_internal_schemas(self, admin_db, grafana_db):
@@ -124,18 +137,19 @@ class TestGrafanaUser:
         # CREATE SCHEMA IF NOT EXISTS is not atomic, so the live sqlmesh engine creating
         # the same schema concurrently can still raise a duplicate-key error between the
         # check and the create; the test only needs the schema to exist, so ignore it.
-        for schema in ("sqlmesh__silver", "silver_staging"):
+        for schema in (f"sqlmesh__{SILVER_SCHEMA}", SILVER_STAGING_SCHEMA):
             with admin_db.cursor() as cur:
                 try:
                     cur.execute(
-                        f"CREATE SCHEMA IF NOT EXISTS {schema} AUTHORIZATION sqlmesh"
+                        f"CREATE SCHEMA IF NOT EXISTS {schema} AUTHORIZATION {SQLMESH_DB_USER}"
                     )
                 except psycopg2.errors.DuplicateSchema:
                     pass  # sqlmesh created it first; that is exactly the state we want
-        for schema in ("sqlmesh__silver", "silver_staging"):
+        for schema in (f"sqlmesh__{SILVER_SCHEMA}", SILVER_STAGING_SCHEMA):
             with grafana_db.cursor() as cur:
                 cur.execute(
-                    "SELECT has_schema_privilege('grafana', %s, 'USAGE')", (schema,)
+                    "SELECT has_schema_privilege(%s, %s, 'USAGE')",
+                    (GRAFANA_DB_USER, schema),
                 )
                 assert cur.fetchone()[0] is False, f"grafana can see {schema}"
 
@@ -144,24 +158,32 @@ class TestGrafanaUser:
         # (this is how a newly onboarded tenant's data becomes visible in Grafana).
         with admin_db.cursor() as cur:
             cur.execute(
-                "CREATE SCHEMA IF NOT EXISTS bronze_probe AUTHORIZATION sqlmesh"
+                f"CREATE SCHEMA IF NOT EXISTS {BRONZE_PROBE} AUTHORIZATION {SQLMESH_DB_USER}"
             )
         try:
             with grafana_db.cursor() as cur:
-                cur.execute("SELECT has_schema_privilege('grafana', 'bronze_probe', 'USAGE')")
+                cur.execute(
+                    "SELECT has_schema_privilege(%s, %s, 'USAGE')",
+                    (GRAFANA_DB_USER, BRONZE_PROBE),
+                )
                 assert cur.fetchone()[0] is True
         finally:
             with admin_db.cursor() as cur:
-                cur.execute("DROP SCHEMA bronze_probe CASCADE")
+                cur.execute(f"DROP SCHEMA {BRONZE_PROBE} CASCADE")
 
     def test_grafana_shall_not_gain_access_to_non_bronze_schemas(self, admin_db, grafana_db):
         # A non-bronze schema created later (e.g. one of sqlmesh's own) must not become
         # visible: the trigger only grants the bronze_<tenant> schemas.
         with admin_db.cursor() as cur:
-            cur.execute("CREATE SCHEMA IF NOT EXISTS test_probe AUTHORIZATION sqlmesh")
+            cur.execute(
+                f"CREATE SCHEMA IF NOT EXISTS test_probe AUTHORIZATION {SQLMESH_DB_USER}"
+            )
         try:
             with grafana_db.cursor() as cur:
-                cur.execute("SELECT has_schema_privilege('grafana', 'test_probe', 'USAGE')")
+                cur.execute(
+                    "SELECT has_schema_privilege(%s, 'test_probe', 'USAGE')",
+                    (GRAFANA_DB_USER,),
+                )
                 assert cur.fetchone()[0] is False
         finally:
             with admin_db.cursor() as cur:

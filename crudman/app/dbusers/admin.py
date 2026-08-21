@@ -19,7 +19,7 @@ from unfold.admin import ModelAdmin
 
 from .backends import get_backend
 from .models import DatabaseUser
-from .utils import db_role_for_user, disable, enroll, remove, reset
+from .utils import GROUP_TO_DB_ROLE, db_role_for_user, disable, enroll, remove, reset
 
 
 @admin.register(DatabaseUser)
@@ -154,7 +154,7 @@ def create_database_user(modeladmin, request, queryset):
             modeladmin.message_user(
                 request,
                 f"{user.username} is in none of the roles that grant database access "
-                f"(sso-viewer, sso-editor, sso-admin).",
+                f"({', '.join(GROUP_TO_DB_ROLE)}).",
                 messages.ERROR,
             )
             continue
