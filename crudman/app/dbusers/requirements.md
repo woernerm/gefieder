@@ -52,8 +52,9 @@ same schemas a developer must be able to write to plan anything at all, so Postg
 cannot separate the two. The only arrangement that could is a private state schema and
 physical layer per developer, which costs a full backfill per person — at this system's
 data volumes that is not worth it. **This is an accepted risk, not an oversight.** The
-control is that production is normally deployed from CI on merge to main; a hand-run
-`sqlmesh plan prod` is a deliberate break-glass action.
+control is that production is normally reached the deployed way — a push to main builds the
+release, and the sqlmesh container applies the plan on start; a hand-run `sqlmesh plan prod`
+is a deliberate break-glass action.
 
 **It does not use the person's single sign-on password.** It cannot: see below.
 

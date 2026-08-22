@@ -18,7 +18,6 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        # No timestamp in the format: the entrypoint prefixes one on every line, and
-        # the persistent log must carry exactly one.
+        # No timestamp in the format: journald stamps every line it captures.
         logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
         serve(options["port"])

@@ -287,10 +287,10 @@ for q in $QUADLETS; do
 done
 echo "  $(echo $QUADLETS | wc -w) unit files installed in ${QUADLET_DIR}"
 
-# --- server-statistics collector: host-side timer, collector and default config --------
+# --- server-statistics collector: host-side timer and collector ------------------------
 # The collector runs on the host (not in a container) so it can read the pod's cgroup
 # counters, disk IOPS and network egress. Its systemd user units live with the other user
-# units; the script and the runtime config live under ~/.config/<APP_NAME>/.
+# units; the script itself goes under ~/.config/<APP_NAME>/serverstats/.
 step "Installing the server-statistics collector"
 SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 mkdir -p "$SYSTEMD_USER_DIR" "$APP_CONFIG_DIR/serverstats"

@@ -16,11 +16,12 @@ silver/
 
 One canonical model per entity, each with the same two levels. Besides `issues` there is
 `issue_risk_history`: for every issue, the periods during which its state, its effort and
-the safety classification of its component all stayed the same. Only `project_a` records
-the two histories it needs, so `silver/issue_risk_history.sql` has a single SELECT and no
-`UNION ALL` yet. It is also the worked example for `@temporal_join`
+the safety classification of its component all stayed the same. `project_a` and
+`project_b` both record the two histories it needs, so `silver/issue_risk_history.sql`
+unions the two staging models. It is also the worked example for `@temporal_join`
 (`macros/temporal_join.py`), the answer to "these two tables both have a history and I
-need to follow both timelines".
+need to follow both timelines" -- project_a on the PostgreSQL gateway, project_b on the
+duckdb one, which is where the macro's two lookups are compared.
 
 `project_a` and `project_b` are worked examples. They deliberately start from different
 raw column names and different status vocabularies, yet both produce the same canonical

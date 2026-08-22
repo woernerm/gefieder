@@ -14,7 +14,7 @@ class DatabaseUser(models.Model):
     """
 
     # The Django account is the source of truth for who exists and what rank they hold;
-    # deleting it takes the row with it, and the signal in apps.py disables the role.
+    # deleting it takes the row with it, and the pre_delete receiver disables the role.
     user = models.OneToOneField(
         User,
         on_delete=models.CASCADE,

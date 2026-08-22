@@ -3,10 +3,12 @@
 # interpolated here because psql cannot template an identifier inside a plain .sql file;
 # every identifier goes through %I/quote_ident so the configured name cannot inject SQL.
 #
-# Three raw tables are filled by the collector, one snapshot per tick:
-#   host_sample   -- host/cgroup/network counters (the sizing inputs)
-#   query_sample  -- a pg_stat_statements snapshot (which queries cost the most)
-#   table_sample  -- a pg_stat_user_tables / pg_statio snapshot (which table needs an index)
+# Four raw tables are filled by the collector:
+#   host_sample     -- host/cgroup/network counters (the sizing inputs)
+#   query_sample    -- a pg_stat_statements snapshot (which queries cost the most)
+#   table_sample    -- a pg_stat_user_tables / pg_statio snapshot (which table needs an index)
+#   dashboard_visit -- the page visits drained from the proxy's visits.log
+# The first three are one snapshot per tick; dashboard_visit gets one row per visit.
 # The host, IO and network values are monotonic counters stored raw, so a rate is a delta
 # between two rows. That is restart-safe — a reset shows up as one ignored negative delta —
 # and lets the display pick any window.

@@ -194,8 +194,8 @@ done
 
 # --- (re)create the pod ---------------------------------------------------------------
 # A fresh pod each run keeps things reproducible; the data lives in the volumes, not the
-# containers, so this loses nothing. Only the proxy publishes a port, at the pod level,
-# exactly as main.pod does.
+# containers, so this loses nothing. The ports are published at the pod level, exactly as
+# main.pod does.
 podman pod rm -f "$POD" >/dev/null 2>&1 || true
 podman pod create --name "$POD" \
   --publish "${HOST_ADDR}:${HTTP_PORT}:80" \

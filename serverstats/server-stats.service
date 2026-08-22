@@ -17,7 +17,7 @@ Wants=main-pod.service
 
 [Service]
 Type=oneshot
-# The collector derives its config and state paths from the app name.
+# The collector derives its state directory from the app name.
 Environment=APP_NAME=${APP_NAME}
 # The role it connects as, the database it connects to and the schema it writes to. Passed
 # rather than left to the collector's fallbacks, which fit only a deployment that kept the

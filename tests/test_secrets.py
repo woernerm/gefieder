@@ -1,4 +1,4 @@
-"""Secrets hygiene docs/decisions.md implies.
+"""Secrets hygiene CLAUDE.md implies.
 
 Passwords and keys are podman secrets, so their values never appear in the rendered
 quadlet units or the images.

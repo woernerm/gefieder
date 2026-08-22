@@ -10,8 +10,11 @@ information is to be avoided, leaving less chance for comments and docstrings to
 Comments and docstrings should have the same stye, respectively.
 
 ## Process
-1. Go through all files and find information in the comments and docstrings that is not 
-true. Correct that information or remove it if it is obsolete.
+1. Go through all files and find information in the comments, docstrings and readme 
+files that are obviously not true (by checking the code) or obsolete (by checking the 
+git history). Correct that information (if not true or obsolete) or remove it (only if 
+obsolete). Do not consider other comments, docstrings and readme files as source of 
+truth. Just code and third-party documentation are valid sources of truth.
 
 2. For python, comments and docstrings shall be [Google style](https://google.github.io/styleguide/pyguide.html#Comments) 
 (fetch and read the resource).
@@ -39,4 +42,10 @@ kept. The desired comment and docstrings lengths are:
 
 4. For comments in non-python files use the same length guide but a style consistent
 with what is most common for the type of file.
+
+5. Again, go through all files and find information in the comments, docstrings and 
+readme files that are obviously not true (by checking the code) or obsolete (by checking 
+the git history). Correct that information (if not true or obsolete) or remove it (only 
+if obsolete). Do not consider other comments, docstrings and readme files as source of 
+truth. Just code and third-party documentation are valid sources of truth.
 

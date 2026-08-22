@@ -67,4 +67,5 @@ the role name from your local username, or takes `SQLMESH_USER` if it differs.
 A bare `sqlmesh plan` targets a `dev` environment, so the easiest command is the safe one.
 `sqlmesh plan prod` is *not* blocked — PostgreSQL cannot separate promoting from planning,
 since both write the same schemas (see `crudman/app/dbusers/requirements.md`). Production is
-normally deployed from CI on merge to main; running it by hand is a deliberate exception.
+normally reached the deployed way — a push to main builds the release, and the sqlmesh
+container applies the plan on start; running it by hand is a deliberate exception.

@@ -1,4 +1,4 @@
-"""Resilience behaviours docs/decisions.md describes.
+"""Resilience behaviours CLAUDE.md describes.
 
 The system restarts itself after a failure, and data in the named volumes survives a
 container restart.

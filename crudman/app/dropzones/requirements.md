@@ -8,17 +8,17 @@ from other systems, files agreed upon with their producers.
 # Models
 - There shall be a model `Dropzone`. It defines the purpose of a set of files, the
   expected file format, who may upload (by user or by secret URL) and by what method
-  (browser upload, POST to an API endpoint, SFTP, webhook GET — all four feed the
-  same pipeline).
+  (browser upload, POST to an API endpoint, SFTP, webhook GET, Arrow Flight — all five
+  feed the same pipeline).
 - Every dropzone has an unguessable token that forms its upload URL, so a secret link
   can be handed to someone without creating an account.
 - A dropzone has exactly one upload method, so one `secret` field serves as the machine
   credential of whichever method needs one: the Bearer token of an API or webhook
-  dropzone or the SFTP password of an SFTP dropzone.
+  dropzone or the login password of an SFTP or Arrow Flight dropzone.
 - A dropzone carries a `default_validity`: preselected on the browser upload page,
-  applied to API uploads that send no validity and to SFTP and webhook uploads (which
-  cannot send one). "Valid for a given time period" needs dates from the uploader, so
-  it is only allowed as default for browser dropzones.
+  applied to API uploads that send no validity and to SFTP, webhook and Arrow Flight
+  uploads (which cannot send one). "Valid for a given time period" needs dates from the
+  uploader, so it is only allowed as default for browser dropzones.
 - There shall be a model `Upload` keeping the metadata of each upload: upload time,
   uploading user (empty for secret-link uploads), validity start and end date, the
   directory of the stored files (relative to the uploads volume, using the dropzone's
@@ -123,3 +123,28 @@ from other systems, files agreed upon with their producers.
   cannot carry dates).
 - The server's ed25519 host key is generated on first start and kept on the sftp
   volume, so the server identity survives restarts and updates.
+
+# Arrow Flight upload
+- Dropzones with the Arrow Flight method are served by an Arrow Flight server the
+  application runs itself (`manage.py flightserver` in `dropzones/flight.py`, run by the
+  `flight` container and published on port 8815). It is the method for a client that
+  already holds tables — a polars frame, a duckdb result — and would otherwise have to
+  write them to files first: each table is sent as it is and stored as one Parquet file
+  named after it, so the set becomes one upload through the usual pipeline.
+- Authentication: the client presents the dropzone's name and secret as `Basic`
+  credentials; the server answers with a bearer token that ties the rest of the upload
+  together. An Arrow Flight dropzone must have a secret (there is no unguessable URL
+  standing in for one), so an empty secret rejects every login and the admin form requires
+  one. Disabled and non-Flight dropzones reject logins exactly like unknown names.
+- One upload spans several `DoPut` calls and is stored only on an explicit `commit`
+  action, because a client killed mid-transfer looks exactly like one that finished. A
+  session whose client dies beforehand stores nothing, and one that saw a table break off
+  mid-transfer refuses to commit. Sessions idle past `FLIGHT_SESSION_TIMEOUT` are swept
+  and discarded.
+- Unlike SFTP the uploader is still connected at commit time, so a checker/converter
+  rejection reaches them as an error rather than only the journal.
+- Each session collects its tables in its own throwaway directory, discarded when the
+  session ends however it ends. Nothing survives a restart: an uncommitted upload is
+  incomplete by definition, so the container keeps no volume of its own.
+- The validity is the dropzone's default validity ("until replaced" or "always"; Arrow
+  Flight cannot carry dates).

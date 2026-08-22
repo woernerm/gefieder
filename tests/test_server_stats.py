@@ -1,8 +1,9 @@
 """Server-statistics recording: the schema, the query stats and the host collector.
 
 These cover the data-recording side that sizes a future server (CPU, RAM, temp/fast
-storage, disk space, IOPS, throughput, egress) and finds queries worth an index. The
-display is added later, so the tests assert that the data is collected, not how it looks.
+storage, disk space, IOPS, throughput, egress) and finds queries worth an index. They
+assert that the data is collected, not how it looks; the shipped dashboard that displays
+it is checked in test_grafana.py.
 """
 import hashlib
 import os

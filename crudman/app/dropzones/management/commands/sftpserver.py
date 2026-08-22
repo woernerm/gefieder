@@ -19,9 +19,8 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        # No timestamp in the format: the entrypoint prefixes one on every line, and
-        # the persistent log must carry exactly one. asyncssh's own logger narrates
-        # every channel at INFO, so it is kept to warnings.
+        # No timestamp in the format: journald stamps every line it captures. asyncssh's
+        # own logger narrates every channel at INFO, so it is kept to warnings.
         logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
         logging.getLogger("asyncssh").setLevel(logging.WARNING)
         asyncio.run(serve(options["port"]))

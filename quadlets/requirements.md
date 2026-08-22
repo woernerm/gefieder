@@ -4,11 +4,11 @@ The units here describe the whole system to systemd: `main.pod`, one `*.containe
 service (`postgresql`, `crudman`, `sqlmesh`, `grafana`, `proxy`, `sftp`, `flight`) and one
 `*_data.volume` per volume. They are shipped and installed as one set, so they live in this
 one directory rather than one directory per service. The reasoning behind the choices below
-is in `docs/decisions.md`.
+is in `CLAUDE.md`.
 
 # Deployment
 - The system shall be deployed using podman quadlets and shall run with rootless podman.
-- Each service shall have its own data volume for persistence.
+- Each service that keeps state shall have its own data volume for persistence.
 - All services shall run in the same pod and be able to reach each other.
 - The system shall support at least Ubuntu and Red Hat.
 - The README.md file shall include installation instructions.

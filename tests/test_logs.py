@@ -3,7 +3,7 @@
 podman forwards the stream to journald, so the log survives a crash, a restart and the
 container being replaced.
 
-This is the behaviour docs/decisions.md requires: the services log to the journal, which persists
+This is the behaviour CLAUDE.md requires: the services log to the journal, which persists
 and rotates them, rather than to a file on a data volume. Reading a service's log needs no
 `podman unshare`, because journalctl reads the journal rather than a file owned by a user
 inside the container's namespace."""
@@ -31,7 +31,7 @@ JOURNAL_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\
 SYSLOG_HEADER = re.compile(r"^\S+ \S+?\[\d+\]: ")
 
 # The services that stamp their own records on top of journald's: whether that stamp names
-# a zone, and why the service cannot be configured out of it. docs/decisions.md allows the second
+# a zone, and why the service cannot be configured out of it. CLAUDE.md allows the second
 # stamp only on that condition, so one that merely *was* configured to add it belongs in a
 # fix, not here. PostgreSQL is listed for a remnant only: its steady-state log lost its
 # stamp with %m, and what is left is the base image's bootstrap, which runs before gf_0001.
