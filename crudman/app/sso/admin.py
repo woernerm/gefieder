@@ -63,6 +63,10 @@ class UserAdmin(BaseUserAdmin, ModelAdmin):
     add_form = UserCreationForm
     change_password_form = AdminPasswordChangeForm
 
+    # Both are stamped by Django on login and on creation; an edit here would only make
+    # them disagree with what actually happened.
+    readonly_fields = ("last_login", "date_joined")
+
     # Nothing to show without single sign-on, where the inline's model does not even exist.
     inlines = [SingleSignOnInline] if settings.OIDC_ENABLED else []
 
