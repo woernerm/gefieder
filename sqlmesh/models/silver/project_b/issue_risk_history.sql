@@ -1,23 +1,18 @@
--- The same history as models/silver/project_a/issue_risk_history.sql -- an issue's own
--- changes combined with those of the component it belongs to -- and the same macro. What
--- differs is one line: `gateway duckdb`.
+-- The same history as models/silver/project_a/issue_risk_history.sql, and the same macro.
+-- What differs is one line: `gateway duckdb`.
 --
--- @temporal_join reads that gateway and emits the lookup its engine has. project_a gets
--- PostgreSQL's LATERAL ... ORDER BY ... LIMIT 1; this model gets DuckDB's ASOF JOIN, which
--- says the same thing in one line and executes as a single merge instead of a seek per
--- tick. `dialect duckdb` is what makes that legal to write down, and the macro refuses the
--- combination if it is missing -- ASOF is DuckDB grammar, and other dialects read the word
--- as a table alias rather than rejecting it.
+-- @temporal_join reads that gateway and emits the lookup its engine has: project_a gets
+-- PostgreSQL's LATERAL ... LIMIT 1, this model DuckDB's ASOF JOIN, which executes as a
+-- single merge instead of a seek per tick. `dialect duckdb` makes that legal to write
+-- down, and the macro refuses the combination without it — ASOF is DuckDB grammar, which
+-- other dialects read as a table alias rather than rejecting.
 --
 -- The storage is PostgreSQL either way: the gateway attaches this database as its only
--- catalog (see config.py), so the bronze seeds are read from it and this table is written
--- back into it. The silver union downstream cannot tell which engine produced which half.
+-- catalog, so the seeds are read from it and this table written back into it, and the
+-- silver union cannot tell which engine produced which half.
 --
--- The status mapping stays one-to-one for the reason project_a's does: the macro judges
--- "unchanged" by the source columns, so folding "closed" and "merged" onto one canonical
--- state would let a source change through as a second row identical to the first. The
--- vocabulary is the same todo/in_progress/closed the other tenants use, and this tenant's
--- tool simply never reports in_progress.
+-- The status mapping stays one-to-one for the reason project_a's does. The vocabulary is
+-- the same todo/in_progress/closed, and this tenant's tool never reports in_progress.
 MODEL (
   name silver_staging.issue_risk_history__project_b,
   kind FULL,

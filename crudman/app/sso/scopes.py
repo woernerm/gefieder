@@ -1,41 +1,42 @@
 """What a sign-in asks the provider for.
 
-The three standard OpenID Connect scopes carry every claim this project reads, and every
-provider has them. The profile picture is the exception: some providers keep it behind
-their own API and want a permission of their own before parting with it.
+The three standard OpenID Connect scopes carry every claim this project reads. The
+profile picture is the exception: some providers keep it behind their own API and want a
+permission of their own before parting with it.
 
-Which permission cannot be discovered. Entra ID's own document advertises
-`"scopes_supported": ["openid", "profile", "email", "offline_access"]` and stops there,
-while the permission its photographs actually need -- User.Read, a Microsoft Graph
-permission rather than an OpenID Connect scope -- goes unmentioned. Its `claims_supported`
-omits `picture` as well, though its userinfo endpoint returns one. So the document cannot
-be asked, and the provider is recognised by the issuer it was configured with instead.
-
-Asking everywhere would be worse than useless: a provider refuses an authorization request
-naming a scope it has never heard of, so a scope asked of the wrong provider does not cost
-a picture, it costs the sign-in.
+Which permission cannot be discovered — Entra ID's document advertises neither User.Read
+(a Microsoft Graph permission rather than a scope) nor the ``picture`` claim its userinfo
+endpoint returns — so the provider is recognised by its configured issuer instead.
+Asking everywhere is not an option: a provider refuses an authorization request naming a
+scope it has never heard of, so a misplaced scope costs the sign-in, not just a picture.
 """
 from urllib.parse import urlparse
 
-# What this project needs to know who somebody is. Universal, and enough on its own.
 STANDARD_SCOPES = ("openid", "profile", "email")
+"""What this project needs to know who somebody is. Universal, and enough on its own."""
 
-# The extra permission a provider wants before it will hand over a profile picture, found
-# by the host its issuer names. Written as domains rather than whole host names because
-# every tenant has an issuer of its own beneath them.
+# Domains rather than whole host names, because every tenant has an issuer of its own
+# beneath them.
 PICTURE_SCOPES = (
     ("microsoftonline.com", "User.Read"),  # Entra ID, worldwide
     ("microsoftonline.us", "User.Read"),  # Entra ID, US government
     ("microsoftonline.cn", "User.Read"),  # Entra ID, China (21Vianet)
 )
+"""The extra permission a provider wants before handing over a profile picture, keyed by
+the domain its issuer sits beneath."""
 
 
 def scopes_for(issuer, override=""):
-    """The scopes to ask `issuer` for, or the ones `override` names instead.
+    """The scopes to ask an issuer for.
 
-    The override is there for the tenant that will not grant the extra permission. Such a
-    sign-in fails outright rather than merely losing the picture, and naming the standard
-    scopes puts it back as it was without waiting for a new release.
+    Args:
+        issuer: The configured issuer URL, whose host picks the picture scope.
+        override: Space-separated scopes to ask for instead. There for the tenant that
+            will not grant the extra permission, whose sign-in then fails outright
+            rather than merely losing the picture.
+
+    Returns:
+        The scope names to send with the authorization request.
     """
     if named := override.split():
         return named
@@ -43,7 +44,7 @@ def scopes_for(issuer, override=""):
     host = (urlparse(issuer).hostname or "").lower()
     return [
         *STANDARD_SCOPES,
-        # A dot before the domain, so that only a host truly beneath it matches and not
+        # A dot before the domain, so only a host truly beneath it matches and not
         # merely one whose name ends in the same letters.
         *(
             scope

@@ -1,27 +1,21 @@
 """Registry for the file checking and conversion functions of dropzones.
 
-The functions live in the designated folder named by ``FUNCTIONS_PACKAGE`` and register
-themselves with the ``@checker`` and ``@converter`` decorators. ``autodiscover()`` runs
-once at startup (``DropzonesConfig.ready``) and imports every module in that folder, so
-adding a function is just adding a decorated function to a module there and rebuilding
-the image.
+Functions live in the package named by ``FUNCTIONS_PACKAGE`` and register themselves
+with the ``@checker`` and ``@converter`` decorators. ``autodiscover()`` imports every
+module there at startup (``DropzonesConfig.ready``).
 
-Signatures:
+A function registers under its own name, which is the identifier a dropzone stores, so
+renaming a function orphans dropzones still referencing the old name.
+
+Typical usage example:
 
     @checker("My check")
     def my_check(files: list[Path]) -> None:
-        # Raise any exception to reject the upload; the message is shown to the
-        # uploading user and nothing is stored.
+        # Raise any exception to reject the upload; nothing is stored.
 
     @converter("My conversion")
     def my_convert(files: list[Path], out_dir: Path) -> None:
-        # Write the files to store into out_dir; everything found there afterwards is
-        # stored. To store files as uploaded, leave the dropzone's converter empty.
-
-A function registers under its own name — the identifier a dropzone stores, so
-renaming a function orphans dropzones still referencing the old name. The decorator's
-optional argument is the human-readable label shown in the admin dropdowns; used bare
-(``@checker``), the label defaults to the name.
+        # Write the files to store into out_dir.
 """
 
 import importlib
@@ -29,14 +23,13 @@ import pkgutil
 
 from django.core.exceptions import ImproperlyConfigured
 
-# The designated folder holding all check/convert functions, as a dotted module path so
-# discovery can import from it. Change this constant to relocate the folder.
 FUNCTIONS_PACKAGE = "dropzones.functions"
+"""Dotted path of the package holding all check and convert functions."""
 
 _checkers = {}
 _converters = {}
-# The dropdown labels, keyed like the function tables; a function registered without
-# a label falls back to its name wherever a label is displayed.
+# Dropdown labels, keyed like the function tables; a function registered without a
+# label falls back to its name.
 _checker_labels = {}
 _converter_labels = {}
 
@@ -57,7 +50,12 @@ def _register(table, labels, kind, label, func):
 def checker(label=None):
     """Register the decorated function as a file checker, named after itself.
 
-    Used bare (``@checker``) or with the dropdown label (``@checker("My check")``).
+    Args:
+        label: Dropdown label shown in the admin, or the decorated function when used
+            bare as ``@checker``. Defaults to the function name.
+
+    Returns:
+        The decorator, or the registered function when used bare.
     """
     if callable(label):
         return _register(_checkers, _checker_labels, "checker", None, label)
@@ -67,8 +65,12 @@ def checker(label=None):
 def converter(label=None):
     """Register the decorated function as a file converter, named after itself.
 
-    Used bare (``@converter``) or with the dropdown label
-    (``@converter("My conversion")``).
+    Args:
+        label: Dropdown label shown in the admin, or the decorated function when used
+            bare as ``@converter``. Defaults to the function name.
+
+    Returns:
+        The decorator, or the registered function when used bare.
     """
     if callable(label):
         return _register(_converters, _converter_labels, "converter", None, label)

@@ -3,7 +3,6 @@ from django.apps import AppConfig
 
 class TenantsConfig(AppConfig):
     name = 'tenants'
-    # A distinct app label so the sidebar's app heading ("Tenant administration") does
-    # not read identically to the model link under it ("Tenants"), which looked like a
-    # duplicate menu entry.
+    # A distinct heading, so the sidebar's app label does not read like the model link
+    # under it and look like a duplicate menu entry.
     verbose_name = 'System'

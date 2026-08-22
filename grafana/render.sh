@@ -7,17 +7,15 @@
 # It writes <output-dir>/provisioning/ (the data source and the shipped dashboards) and
 # <output-dir>/grafana.ini (the server configuration, from custom.ini).
 #
-# Why a render step instead of letting Grafana interpolate at runtime: Grafana only expands
-# ${VAR} inside provisioning YAML, never inside the dashboard JSON and never in its own
-# configuration file. Baking the values in here lets the dashboards reference the real
-# data-source uid and the configured server-stats schema, and lets both files name the
-# podman secrets they read passwords from, so a renamed schema or secret keeps working. The
-# values come from buildtime.env, already sourced into the environment by build.sh.
+# A render step rather than runtime interpolation because Grafana expands ${VAR} only
+# inside provisioning YAML, never in the dashboard JSON or its own configuration file.
+# Baking the values in lets the dashboards name the real data-source uid, the configured
+# schema and the podman secrets, so a rename keeps working. The values come from
+# buildtime.env, already sourced by build.sh.
 #
-# The substitution itself is render_tree in build-lib.sh, shared with postgresql/render.sh.
-# Only the names listed below are substituted; every other $-token (notably the $__file{}
-# and $__env{} references Grafana resolves itself, and its own %(...)s tokens) is passed
-# through untouched.
+# The substitution is render_tree in build-lib.sh, shared with postgresql/render.sh. Only
+# the names listed below are substituted; every other $-token survives, notably the
+# $__file{} and $__env{} references Grafana resolves itself and its own %(...)s tokens.
 set -e
 
 out="${1:?usage: render.sh <output-dir>}"

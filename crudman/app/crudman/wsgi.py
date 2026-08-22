@@ -1,10 +1,6 @@
-"""
-WSGI config for crudman project.
+"""WSGI config for the crudman project.
 
-It exposes the WSGI callable as a module-level variable named ``application``.
-
-For more information on this file, see
-https://docs.djangoproject.com/en/6.0/howto/deployment/wsgi/
+Exposes the WSGI callable as a module-level variable named ``application``.
 """
 
 import os

@@ -21,10 +21,10 @@ RunInit=true
 # setting: Django's logging emits no timestamp, so there is nothing to align.
 Timezone=local
 Environment=APP_NAME=${APP_NAME}
-# SERVER_NAME and DEBUG come from the operator's runtime.env, so changing either needs a
-# restart rather than a rebuild. The installer writes the file before the units start;
-# podman rejects a missing env file, and systemd's optional "-" prefix is not supported
-# here -- quadlet passes the path to --env-file, which takes it literally.
+# SERVER_NAME and DEBUG come from runtime.env, so changing either needs a restart rather
+# than a rebuild. The installer writes the file before the units start; podman rejects a
+# missing env file, and systemd's optional "-" prefix does not work here — quadlet passes
+# the path to --env-file, which takes it literally.
 EnvironmentFile=%h/.config/${APP_NAME}/runtime.env
 Environment=SUPERUSER_NAME=${SUPERUSER_NAME}
 Environment=SUPERUSER_EMAIL=${SUPERUSER_EMAIL}
@@ -36,10 +36,9 @@ Environment=POSTGRES_USER=${CRUDMAN_DB_USER}
 # The prefix on the roles crudman provisions for administrators, so the names it builds
 # match the group roles the database created (see DB_ROLE_PREFIX in buildtime.env).
 Environment=DB_ROLE_PREFIX=${DB_ROLE_PREFIX}
-# The prefix on the Django groups an identity-provider rank grants, and the one on the
-# per-tenant bronze schemas -- which is how the admin finds tenants in the catalog. Only
-# this container needs either: the sftp and flight roles neither sign anyone in nor
-# onboard a tenant.
+# The prefix on the Django groups a provider rank grants, and the one on the per-tenant
+# bronze schemas, which is how the admin finds tenants in the catalog. Only this container
+# needs either: the sftp and flight roles neither sign anyone in nor onboard a tenant.
 Environment=SSO_GROUP_PREFIX=${SSO_GROUP_PREFIX}
 Environment=BRONZE_SCHEMA_PREFIX=${BRONZE_SCHEMA_PREFIX}
 # The dropzones uploads. Shared read-only with the sqlmesh container at the same path,
@@ -58,22 +57,18 @@ Secret=${SECRET_SUPERUSER_PASSWORD}
 # A placeholder while OIDC_ENABLED is false, but must exist: podman will not start a
 # container whose Secret= is missing.
 Secret=${SECRET_OIDC_CLIENT}
-# Any answer below 500 counts as healthy, and redirects are not followed. The panel's own
-# pages redirect when nobody is signed in -- to the login form, or with single sign-on on
-# to the identity provider -- and a probe that followed that would be testing the provider
-# rather than this container, and would fail the whole service when it is unreachable.
-# Single-quoted -c argument: quadlet mangles the closing quote of a double-quoted
-# HealthCmd, so the inner strings use "..." and the whole argument is single-quoted.
+# Any answer below 500 counts as healthy, and redirects are not followed: the panel
+# redirects when nobody is signed in, and a probe that followed it would test the identity
+# provider rather than this container. Single-quoted -c argument, because quadlet mangles
+# the closing quote of a double-quoted HealthCmd.
 HealthCmd=python -c 'import http.client,os; c=http.client.HTTPConnection("127.0.0.1",8000,timeout=5); c.request("GET","/"+os.environ["CRUDMAN_PATH"]+"/"); raise SystemExit(0 if c.getresponse().status<500 else 1)'
 HealthInterval=10s
 HealthTimeout=5s
 HealthRetries=10
-# The same probe again as a startup healthcheck, polled every second instead of every ten.
-# Migrations, collectstatic and the superuser update run before gunicorn binds, so readiness
-# lands at an unpredictable point; without this, Notify=healthy waits out the start period
-# and then up to a full interval before the first look. Polling once a second reports the
-# panel ready as soon as it answers; podman switches to the regular interval above after the
-# first success, leaving the steady-state load unchanged.
+# The same probe as a startup healthcheck, polled every second. Migrations, collectstatic
+# and the superuser update run before gunicorn binds, so readiness lands at an
+# unpredictable point and Notify=healthy would otherwise wait out the start period plus an
+# interval. Podman switches to the regular interval after the first success.
 HealthStartupCmd=python -c 'import http.client,os; c=http.client.HTTPConnection("127.0.0.1",8000,timeout=5); c.request("GET","/"+os.environ["CRUDMAN_PATH"]+"/"); raise SystemExit(0 if c.getresponse().status<500 else 1)'
 HealthStartupInterval=1s
 HealthStartupTimeout=5s

@@ -1,4 +1,4 @@
-# Bronze for the "Project C" tenant -- a Python model instead of SQL.
+# Bronze for the "Project C" tenant — a Python model instead of SQL.
 #
 # Project A and Project B keep their bronze layer as a raw SEED passthrough and do the
 # transform later in SQL (see their silver/<tenant>/issues.sql). Project C is the worked
@@ -48,7 +48,7 @@ def execute(
 
     # Read the raw CSV and harmonize it with polars. This tenant's phase vocabulary
     # ("resolved"/"active"/"backlog") is mapped onto the canonical open/closed states, and
-    # its "weight" field carries the effort estimate -- the same kind of per-tenant quirk
+    # its "weight" field carries the effort estimate — the same kind of per-tenant quirk
     # the SQL tenants resolve in their staging models, expressed here as polars operations.
     harmonized = pl.read_csv(seed_path).select(
         pl.lit("project_c").alias("tenant_id"),

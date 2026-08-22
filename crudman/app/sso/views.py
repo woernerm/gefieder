@@ -10,21 +10,27 @@ from django.urls import reverse
 
 from .avatars import PICTURE_MAX_AGE, stored_picture
 
-# Adding this to the login URL reaches the local form while single sign-on is on. It is the
-# way back in for the superuser when the provider is unreachable or misconfigured, so it is
-# named in the README; Grafana's equivalent is /login?disableAutoLogin.
 LOCAL_LOGIN_PARAM = "local"
+"""Query parameter that reaches the local login form while single sign-on is on.
+
+The way back in for the superuser when the provider is unreachable or misconfigured, so
+it is named in the README. Grafana's equivalent is /login?disableAutoLogin.
+"""
 
 
 def login(request):
     """Redirect to the provider, or show the local form.
 
-    A visitor who still has a session with the provider is signed in without seeing a page
-    at all, which is the point of doing this instead of offering a button.
+    A visitor who still has a session with the provider is signed in without seeing a
+    page at all, which is the point of doing this instead of offering a button.
 
-    A POST is always the local form submitting itself: the form posts back to this URL
-    without the query string, so treating POST as local is what keeps the escape hatch
-    usable at all.
+    Args:
+        request: The HTTP request. A POST is always the local form submitting itself,
+            which posts back to this URL without the query string, so treating POST as
+            local is what keeps the escape hatch usable.
+
+    Returns:
+        The admin's login page, or a redirect to the provider.
     """
     local = request.method == "POST" or LOCAL_LOGIN_PARAM in request.GET
     if not settings.OIDC_ENABLED or local:
@@ -43,13 +49,16 @@ def login(request):
 def logout(request):
     """End the session here, then send the browser on to end the provider's.
 
-    Without the second half, signing out achieves nothing visible: the provider still holds
-    its session, and the redirect above hands it straight back on the next page view. The
-    person appears to be signed in again a moment after asking not to be.
+    Without the second half, signing out achieves nothing visible: the provider still
+    holds its session and ``login`` hands it straight back on the next page view.
 
-    Anything but a POST is left to the admin, which answers a GET here with "method not
-    allowed" -- signing someone out is a change, and Django stopped accepting it from a
-    link so that another site cannot trigger it.
+    Args:
+        request: The HTTP request. Anything but a POST is left to the admin, which
+            answers a GET with "method not allowed" so another site cannot sign someone
+            out from a link.
+
+    Returns:
+        A redirect to the provider's logout URL, or the admin's own logout response.
     """
     signs_out_at_provider = settings.OIDC_ENABLED and settings.OIDC_LOGOUT_URL
     if request.method != "POST" or not signs_out_at_provider:
@@ -62,13 +71,16 @@ def logout(request):
 def avatar(request):
     """Serve the profile picture the login downloaded, out of the session holding it.
 
-    Only for providers whose picture a browser cannot fetch for itself; see sso/avatars.py.
-    Nothing here is anyone else's to see: the answer is built from the requester's own
-    session, so a session without a picture in it has none to give, whoever asks.
+    Only for providers whose picture a browser cannot fetch for itself; see
+    :mod:`sso.avatars`. The answer is built from the requester's own session, so nothing
+    here is anyone else's to see. Cached privately so the browser asks once per session
+    and no shared cache keeps one person's face for the next.
 
-    Cached privately for the same reason the picture is served from an address at all
-    rather than written into every page: the browser should ask for it once, not on every
-    page view, and no shared cache should keep one person's face for the next.
+    Args:
+        request: The HTTP request, whose session carries the picture.
+
+    Returns:
+        The picture, or 404 when the session carries none.
     """
     picture = stored_picture(request.session)
     if not picture:

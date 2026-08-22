@@ -1,25 +1,21 @@
-# The pod groups all seven containers into a single shared network namespace, so they
-# reach each other on localhost (replacing the implicit shared network compose gave us).
-# The proxy, the database, the dropzones SFTP endpoint and the dropzones Arrow Flight
-# endpoint publish ports, and they do so here at the pod level. Which ports comes from the
-# operator's runtime.env, so moving one is an edit there and a restart rather than a
-# rebuild. Quadlet expands no variables of its own, but it copies these lines verbatim into
-# the generated unit's ExecStartPre, where systemd expands them against the EnvironmentFile
-# below -- which is why the pod needs one although it runs no container itself.
+# The pod groups all seven containers into one shared network namespace, so they reach
+# each other on localhost, and publishes their ports here at the pod level. Which ports
+# comes from the operator's runtime.env, so moving one is an edit there and a restart.
+# Quadlet expands no variables itself but copies these lines verbatim into the generated
+# unit, where systemd expands them against the EnvironmentFile — which is why the pod needs
+# one although it runs no container.
 #
-# The two web ports and the database port are the host side only; inside the pod nginx and
-# PostgreSQL keep 80, 443 and 5432. The dropzone endpoints publish the port they listen on,
-# so SFTP_PORT and FLIGHT_PORT are one setting each: the endpoints bind them, their
-# healthchecks probe them, and crudman advertises them on the dropzone pages.
+# The web and database ports are the host side only; inside the pod nginx and PostgreSQL
+# keep 80, 443 and 5432. The dropzone endpoints publish the port they listen on, so
+# SFTP_PORT and FLIGHT_PORT are one setting each: bound by the endpoint, probed by its
+# healthcheck and advertised by crudman on the dropzone pages.
 #
-# PostgreSQL is published so reporting tools and the engineering tools that write the
-# bronze schemas can reach it directly. Unlike the admin panel and Grafana it does not
-# go through the nginx proxy: the PostgreSQL wire protocol is not HTTP, so there is
-# nothing for the proxy to route. Access is guarded by the database's own passwords.
+# PostgreSQL is published for reporting and the engineering tools that write bronze. It
+# skips the proxy because its wire protocol is not HTTP, so there is nothing to route;
+# access is guarded by the database's own passwords.
 #
-# The file is named main.pod (so the generated unit is main-pod.service and the
-# containers link to it with Pod=main.pod), but PodName below sets the name podman
-# actually shows for the pod and its containers, images, etc. — ${APP_NAME}.
+# The file is named main.pod, so the generated unit is main-pod.service and containers
+# link to it with Pod=main.pod, while PodName below is the name podman shows.
 [Pod]
 PodName=${APP_NAME}
 PublishPort=${HTTP_PORT}:80
@@ -28,10 +24,9 @@ PublishPort=${PG_PORT}:5432
 PublishPort=${SFTP_PORT}:${SFTP_PORT}
 PublishPort=${FLIGHT_PORT}:${FLIGHT_PORT}
 
-# Read by systemd, not by podman: this unit only starts the pod, so unlike the container
-# units it passes nothing to --env-file. Without the "-" prefix a missing file fails the
-# unit, which is the honest outcome -- an unexpanded port would fail it a moment later
-# with a message about podman rather than about the file that is not there.
+# Read by systemd, not podman: this unit only starts the pod, so unlike the container units
+# it passes nothing to --env-file. A missing file fails the unit, which is the honest
+# outcome: an unexpanded port would fail it a moment later with a less useful message.
 [Service]
 EnvironmentFile=%h/.config/${APP_NAME}/runtime.env
 

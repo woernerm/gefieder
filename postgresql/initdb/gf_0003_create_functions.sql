@@ -227,15 +227,12 @@ BEGIN
     --------------------------------------------------------------------
     -- Remove everything the tenant role owns or was granted, then drop it.
     --
-    -- DROP ROLE refuses to run while any object still depends on the role:
-    -- create_tenant grants the role EXECUTE on use_duckdb() and several
-    -- privileges inside its bronze schema, and sqlmesh may have created tables
-    -- in that schema too. DROP OWNED BY clears all of those grants and drops the
-    -- objects the role owns — including the bronze schema it authorises — so the
-    -- DROP ROLE below can succeed. Without it the role drop aborts and, because
-    -- the function is atomic, the schema drop is rolled back as well, leaving the
-    -- tenant only half-deleted. Skipped when the role is already gone, since
-    -- DROP OWNED BY errors on an unknown role.
+    -- DROP ROLE refuses to run while any object still depends on the role, and
+    -- create_tenant leaves several grants behind. DROP OWNED BY clears those and
+    -- drops what the role owns, the bronze schema included, so the DROP ROLE
+    -- below can succeed; without it the role drop aborts and, the function being
+    -- atomic, takes the schema drop with it, leaving the tenant half-deleted.
+    -- Skipped when the role is already gone, since DROP OWNED BY errors then.
     --------------------------------------------------------------------
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = tenant_name) THEN
         EXECUTE format('DROP OWNED BY %I CASCADE', tenant_name);

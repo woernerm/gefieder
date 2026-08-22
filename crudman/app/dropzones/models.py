@@ -16,12 +16,11 @@ from . import examples
 class Dropzone(models.Model):
     """A named entry point for uploading one specific kind of source files.
 
-    A dropzone describes the purpose and expected format of a set of files, who may
-    upload them and what happens on upload: an optional checker function rejects bad
-    files, an optional converter function transforms them, and the result is stored in
-    a per-upload directory on the uploads volume, recorded by an :class:`Upload` row.
-    The unguessable token forms the upload URL, so a link can be handed out without
-    creating an account (``require_login`` off).
+    A dropzone describes the expected format of a set of files, who may upload them and
+    what happens on upload: an optional checker rejects bad files, an optional converter
+    transforms them, and the result is stored on the uploads volume as an
+    :class:`Upload`. The unguessable token forms the upload URL, so a link can be handed
+    out without creating an account (``require_login`` off).
     """
 
     class Method(models.TextChoices):
@@ -137,8 +136,12 @@ class Dropzone(models.Model):
     def _url(self, view):
         """The full URL of one of this dropzone's views, token and all.
 
-        The scheme follows DEBUG, exactly as the proxy's choice of template does, so the
-        address handed to an uploader is the one their client will reach.
+        Args:
+            view: Name of the view within the ``dropzones`` URL namespace.
+
+        Returns:
+            The URL, its scheme following DEBUG exactly as the proxy's choice of
+            template does, so an uploader gets the address their client will reach.
         """
         scheme = "http" if settings.DEBUG else "https"
         path = reverse(f"dropzones:{view}", kwargs={"token": self.token})
@@ -171,8 +174,9 @@ class Dropzone(models.Model):
     def upload_address(self):
         """The address an uploader connects to, whatever the method is.
 
-        The URL for the methods that have one, the SFTP or Arrow Flight address for
-        those that connect rather than fetch.
+        Returns:
+            The URL for the methods that have one, the SFTP or Arrow Flight address for
+            those that connect rather than fetch.
         """
         return {
             self.Method.API: self.api_upload_url,
@@ -184,10 +188,10 @@ class Dropzone(models.Model):
     def upload_example(self):
         """A ready-to-run example for this dropzone's upload method.
 
-        The template of the method (see :mod:`dropzones.examples`) with this dropzone's
-        real address, name, token and secret filled in, so an uploader can copy it and
-        run it as it stands. A dropzone without a secret yet shows a ``<secret>``
-        marker in its place, which is the one thing left to fill in.
+        Returns:
+            The method's template from :mod:`dropzones.examples` with this dropzone's
+            address, name and secret filled in, or "" for a method without a template.
+            A dropzone with no secret yet shows a ``<secret>`` marker in its place.
         """
         template = examples.TEMPLATES.get(self.upload_method)
         if template is None:
@@ -220,10 +224,14 @@ class Dropzone(models.Model):
         """Whether ``presented`` authorizes an API or webhook upload to this dropzone.
 
         Without a login requirement the URL token alone authorizes the upload, so an
-        empty ``secret`` accepts any client. With a login requirement a secret must be
-        configured and match; an empty ``secret`` then rejects every client rather
-        than silently opening the endpoint. Compared in constant time so the check does
-        not leak the secret through its timing.
+        empty secret accepts any client. With one, an empty secret rejects every client
+        rather than silently opening the endpoint.
+
+        Args:
+            presented: The secret the client sent.
+
+        Returns:
+            True if the client may upload. Compared in constant time.
         """
         if not self.require_login and not self.secret:
             return True
@@ -232,12 +240,16 @@ class Dropzone(models.Model):
         return secrets.compare_digest(self.secret, presented)
 
     def secret_matches(self, presented):
-        """Whether ``presented`` is this dropzone's password (the secret).
+        """Whether ``presented`` is this dropzone's password, for SFTP and Flight.
 
-        The check the SFTP and Arrow Flight logins use. Unlike the API endpoint neither
-        carries an unguessable URL token — the username is the dropzone's name — so an
-        empty ``secret`` rejects every login rather than opening the server. Compared in
-        constant time, like the API check.
+        Neither protocol carries an unguessable URL token, so an empty secret rejects
+        every login rather than opening the server.
+
+        Args:
+            presented: The password the client sent.
+
+        Returns:
+            True if the login is accepted. Compared in constant time.
         """
         if not self.secret or not presented:
             return False
@@ -249,9 +261,14 @@ class UploadQuerySet(models.QuerySet):
         """The uploads whose validity period covers ``timestamp``, newest first.
 
         An open bound (NULL) never excludes an upload, so "always valid" and "valid
-        until replacement" behave as their names promise. Where periods overlap (e.g.
-        a retroactive correction) the newest upload wins, hence the ordering; callers
-        wanting exactly one upload take ``.first()``.
+        until replacement" behave as their names promise.
+
+        Args:
+            timestamp: The point in time the uploads must be valid at.
+
+        Returns:
+            The matching uploads, newest first so that the newest wins where periods
+            overlap; callers wanting exactly one take ``.first()``.
         """
         covers_start = Q(valid_from__isnull=True) | Q(valid_from__lte=timestamp)
         covers_end = Q(valid_until__isnull=True) | Q(valid_until__gt=timestamp)
@@ -263,7 +280,7 @@ class Upload(models.Model):
 
     The stored files live in ``directory`` (relative to the uploads volume), one
     :class:`UploadFile` row each. Analytics code finds the file set valid at a given
-    timestamp with, mirroring ``UploadQuerySet.valid_at``::
+    timestamp with this query, mirroring ``UploadQuerySet.valid_at``::
 
         SELECT u.directory, f.file
         FROM crudman.dropzones_upload u
@@ -346,8 +363,9 @@ class UploadFile(models.Model):
 def remove_upload_directory(directory):
     """Delete an upload's directory from the uploads volume, if it still exists.
 
-    Guarded so that only a real subdirectory of MEDIA_ROOT can ever be removed, even
-    if ``directory`` is empty or malformed.
+    Args:
+        directory: The directory, relative to MEDIA_ROOT. Guarded so that only a real
+            subdirectory of MEDIA_ROOT can be removed, even if this is malformed.
     """
     if not directory:
         return

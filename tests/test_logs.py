@@ -1,11 +1,12 @@
-"""Persistent logging: every service logs to stdout/stderr and podman forwards the stream
-to journald, so the log survives a crash, a restart and the container being replaced.
+"""Persistent logging: every service logs to stdout/stderr.
+
+podman forwards the stream to journald, so the log survives a crash, a restart and the
+container being replaced.
 
 This is the behaviour docs/decisions.md requires: the services log to the journal, which persists
 and rotates them, rather than to a file on a data volume. Reading a service's log needs no
 `podman unshare`, because journalctl reads the journal rather than a file owned by a user
-inside the container's namespace.
-"""
+inside the container's namespace."""
 import re
 import subprocess
 import time
@@ -37,7 +38,7 @@ SYSLOG_HEADER = re.compile(r"^\S+ \S+?\[\d+\]: ")
 # test_postgresql_shall_not_add_its_own_timestamp guards the part that is ours.
 #
 # The zone flag is what the "must not contradict" rule turns on: a stamp naming its zone is
-# unambiguous however it is set, while one that does not is read as the host's -- true only
+# unambiguous however it is set, while one that does not is read as the host's — true only
 # when the container runs on the host's clock, hence Timezone=local on those quadlets.
 SELF_TIMESTAMPING = {
     # unit: (its own stamp names a zone, why it cannot be configured away)
@@ -72,7 +73,7 @@ OWN_TIMESTAMP_FORMATS = (
 def _own_timestamp(message, host_zone):
     """The timestamp a service put in its own record, or None if it wrote none.
 
-    A format naming no zone is read in host_zone -- the assumption `Timezone=local` exists
+    A format naming no zone is read in host_zone — the assumption `Timezone=local` exists
     to make true, since on UTC the same text means a different moment.
     """
     for pattern, names_zone in OWN_TIMESTAMP_FORMATS:
@@ -98,7 +99,7 @@ def _message_body(line):
     """What the service itself wrote: the line without journald's stamp and syslog header.
 
     None when the line does not start with journald's stamp, which means it is the
-    continuation of a multi-line entry -- journalctl prints those raw, so there is no
+    continuation of a multi-line entry — journalctl prints those raw, so there is no
     header to strip and no record of their own for a stamp to belong to.
     """
     stamp = JOURNAL_TIMESTAMP.match(line)
@@ -116,7 +117,7 @@ def _added_timestamp(body):
     libraries actually emit.
 
     Deliberately not "any date anywhere in the message": a log line may quote a timestamp
-    belonging to the data -- an upload's validity period, a file name carrying one -- and
+    belonging to the data — an upload's validity period, a file name carrying one — and
     that is content, not a second stamp on the record.
     """
     leading = TIMESTAMP.match(body.lstrip("["))
@@ -154,7 +155,7 @@ def _container_lines(unit):
     """
     # InactiveExitTimestamp is when the unit began starting, not ActiveEnterTimestamp,
     # which is when it finished: the units gate "active" on their healthcheck, so anything
-    # logged while coming up -- all of gunicorn's output, as it goes quiet once serving --
+    # logged while coming up — all of gunicorn's output, as it goes quiet once serving --
     # falls before that mark.
     started = subprocess.run(
         ["systemctl", "--user", "show", "-p", "InactiveExitTimestamp", "--value",
@@ -199,7 +200,7 @@ class TestPersistentLogs:
 
     def test_a_restart_shall_not_lose_the_persistent_log(self):
         # The journal belongs to the unit, not the container, so a restart appends to it
-        # rather than starting over -- the point of the whole arrangement: a crashed
+        # rather than starting over — the point of the whole arrangement: a crashed
         # container's output is still there afterwards to diagnose it from.
         before = len(_journal_lines("crudman"))
         subprocess.run(
@@ -222,13 +223,13 @@ class TestLogTimestamps:
     """One timestamp per message, at the beginning of it.
 
     journald records one per entry, which is why it is always first. A service that stamps
-    its own as well puts a second date on the line, which invites the two to disagree -- and
+    its own as well puts a second date on the line, which invites the two to disagree — and
     a disagreement is what misleads someone reading a log during an incident. The rule is
     enforced where a service can be configured out of it; SELF_TIMESTAMPING lists the rest.
 
     That journald's stamp comes *first* is not tested: "-o short-iso" prints it as a prefix
     on every line by construction, so the assertion would describe journalctl's formatter
-    rather than anything this repository controls -- and it would fail on a multi-line entry,
+    rather than anything this repository controls — and it would fail on a multi-line entry,
     whose continuation lines journalctl prints raw. What is ours is whether the service adds
     a stamp of its own, which is what the tests below check.
     """

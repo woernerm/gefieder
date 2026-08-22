@@ -1,20 +1,15 @@
 """The profile picture the provider publishes, shown beside the person's name.
 
-Unfold's sidebar renders `user.avatar_url` and falls back to the initial of the name when
-there is none, so the whole job here is finding that URL and putting it on the user.
-Django's user model has no field for it and this project does not swap the model for one
-of its own, so it is attached for the request rather than stored on the row.
+Unfold's sidebar renders ``user.avatar_url``, so the whole job here is finding that URL
+and attaching it to the user for the request; Django's user model has no field for it.
+The URL is the OpenID Connect ``picture`` claim, which arrives under the ``profile``
+scope. Providers publish two kinds of link there:
 
-The URL is the OpenID Connect `picture` claim, which arrives with the rest of the claims
-under the `profile` scope -- no second API call, and nothing specific to one directory.
-
-Providers differ in what they publish there, and the two cases are handled differently:
-
-  * A link a browser may follow, which is what Keycloak, Authentik, Okta and Google
-    publish. It is handed to Unfold as it stands and the browser fetches it.
-  * A link only the provider's own API will honour, which is what Entra ID publishes: a
-    Microsoft Graph address that answers 401 to a browser. That one is downloaded here,
-    during the login, because the access token it needs exists only then.
+  * One a browser may follow (Keycloak, Authentik, Okta, Google), handed to Unfold as it
+    stands.
+  * One only the provider's own API will honour (Entra ID's Microsoft Graph address,
+    which answers 401 to a browser). That one is downloaded during the login, because
+    the access token it needs exists only then.
 """
 from base64 import b64decode, b64encode
 from urllib.parse import urlparse
@@ -22,37 +17,39 @@ from urllib.parse import urlparse
 import requests
 from django.urls import reverse
 
-# Where the login leaves what the pages after it need. The URL is what the sidebar draws;
-# the picture is present only in the second case above, and is what avatar() serves. Both
-# live in the session, so both are gone the moment it ends.
 SESSION_KEY = "avatar_url"
+"""Session key holding the URL the sidebar draws; gone the moment the session ends."""
+
 SESSION_PICTURE_KEY = "avatar_picture"
+"""Session key holding a downloaded picture, which ``avatar()`` then serves."""
 
-# OpenID Connect Core 1.0, section 5.1: "URL of the End-User's profile picture. This URL
-# MUST refer to an image file (for example, a PNG, JPEG, or GIF image file)."
 PICTURE_CLAIM = "picture"
+"""The OpenID Connect claim naming the end user's profile picture (Core 1.0, 5.1)."""
 
-# Long enough for a picture host to answer, short enough not to hold up a login that has
-# otherwise already succeeded.
 PROBE_TIMEOUT = 5
+"""Seconds a picture host gets to answer, short enough not to hold up a login."""
 
-# A downloaded picture travels in the session row, which Django reads back on every single
-# request, so there is a limit to what is worth carrying for something drawn at 38 pixels.
-# Past it the initial is shown instead.
 MAX_PICTURE_BYTES = 256 * 1024
+"""Largest picture worth carrying in the session row, which Django reads on every
+request. Past it the initial is shown instead."""
 
-# How long the browser may keep a downloaded picture. It is replaced at the next login, and
-# the address it is served from does not change, so this is also how stale a face that was
-# changed at the provider can be.
 PICTURE_MAX_AGE = 3600
+"""Seconds the browser may keep a downloaded picture.
+
+Also how stale a face changed at the provider can be: the picture is replaced at the
+next login and the address it is served from does not change.
+"""
 
 
 def claimed_picture(extra_data):
     """The picture URL the provider sent, out of what allauth stored for the account.
 
-    Userinfo is read first, that being where the claim belongs and where a provider
-    sending it at all will have put it. The mirror image of claimed_roles, which reads the
-    ID token first for the reason given there.
+    Args:
+        extra_data: The account's stored provider data.
+
+    Returns:
+        The URL, or None. Userinfo is read first, that being where the claim belongs;
+        the mirror image of ``claimed_roles``.
     """
     data = extra_data or {}
     for source in (data.get("userinfo"), data.get("id_token"), data):
@@ -62,16 +59,19 @@ def claimed_picture(extra_data):
 
 
 def loadable_picture(url):
-    """`url` if the browser will be able to fetch it for itself, and None if it will not.
+    """The URL if a browser will be able to fetch it for itself, otherwise None.
 
-    The claim is a link, and not every link is one a browser may follow. Unfold sets the
-    URL as a CSS background, and a background that fails to load leaves an empty circle --
-    worse than the initial it replaced -- so a link that cannot be fetched without
-    credentials is not handed on. What happens to it instead is fetched_picture's subject.
+    Unfold sets the URL as a CSS background, and one that fails to load leaves an empty
+    circle, worse than the initial it replaced. Probing from the server is not quite the
+    same question, but it errs the right way: an unreachable host costs the picture,
+    never the sidebar.
 
-    Asking from here is not quite the question, the browser being the one that will fetch
-    it, but it is the closest thing to an answer available at login and it errs the right
-    way: an unreachable picture host costs the picture, never the sidebar.
+    Args:
+        url: The picture URL the provider claimed.
+
+    Returns:
+        The URL if it answers as an image, otherwise None; ``fetched_picture`` then
+        takes over.
     """
     if not url:
         return None
@@ -91,15 +91,19 @@ def loadable_picture(url):
 def fetched_picture(url, token, api_host):
     """The picture itself, downloaded with the token this login has just been given.
 
-    Entra ID publishes a picture only its own API will hand over, and the access token
-    that opens it is never stored (see SOCIALACCOUNT_STORE_TOKENS, and allauth holds it in
-    memory whether or not it is). The login is therefore the one moment the picture can be
-    had at all, which is why it is taken here rather than when a page comes to draw it.
+    The access token is never stored (see SOCIALACCOUNT_STORE_TOKENS), so the login is
+    the one moment the picture can be had at all.
 
-    The token goes to `api_host` and nowhere else. That is the host allauth has just sent
-    this very token to for the claims themselves, so nothing new is trusted with it, and a
-    claim naming somewhere else is left to the browser or dropped -- a tampered or
-    mistaken one cannot turn a login into a token handed to a stranger.
+    Args:
+        url: The claimed picture URL.
+        token: The access token this login was given.
+        api_host: The only host the token may go to. It is the host allauth just sent
+            this token to for the claims, so nothing new is trusted with it and a
+            tampered claim cannot turn a login into a token handed to a stranger.
+
+    Returns:
+        The picture as ``{"content_type", "data"}`` with the data base64-encoded, since
+        session data is stored as JSON; None if it cannot be had or is too large.
     """
     if not api_host or urlparse(url).netloc != api_host:
         return None
@@ -114,8 +118,8 @@ def fetched_picture(url, token, api_host):
             content_type = answer.headers.get("content-type", "")
             if not answer.ok or not content_type.startswith("image/"):
                 return None
-            # One byte past the limit, which is all it takes to know it was exceeded and
-            # keeps a picture of any size from being read into memory to be rejected.
+            # One byte past the limit is all it takes to know it was exceeded, and keeps
+            # a picture of any size from being read into memory only to be rejected.
             data = answer.raw.read(MAX_PICTURE_BYTES + 1, decode_content=True)
     except requests.RequestException:
         return None
@@ -123,17 +127,21 @@ def fetched_picture(url, token, api_host):
     if len(data) > MAX_PICTURE_BYTES:
         return None
 
-    # Base64 because session data is stored as JSON, which has no way to carry bytes.
     return {"content_type": content_type, "data": b64encode(data).decode()}
 
 
 def api_host(request, sociallogin):
     """The host the provider serves its API from, out of its discovery document.
 
-    Read rather than configured, and read from the document the provider publishes about
-    itself, so that the one host this project will send an access token to is the one the
-    provider named -- for Entra ID graph.microsoft.com, which is where its userinfo
-    endpoint lives and where it points the picture claim as well.
+    Read rather than configured, so the one host this project sends an access token to is
+    the one the provider named for its own userinfo endpoint.
+
+    Args:
+        request: The request the login is running on.
+        sociallogin: allauth's login object.
+
+    Returns:
+        The host name, or None if the document cannot be read.
     """
     try:
         provider = sociallogin.account.get_provider(request)
@@ -146,9 +154,12 @@ def api_host(request, sociallogin):
 def remember_picture(request, sociallogin=None, **kwargs):
     """Find the picture once per login, on allauth's user_logged_in signal.
 
-    A login that named no provider carries no sociallogin and so no picture. Writing the
-    two keys either way is deliberate: it clears a picture left behind by whoever held the
-    session before.
+    Args:
+        request: The request the login is running on.
+        sociallogin: allauth's login object, absent for a login that named no provider.
+            Both session keys are written either way, which clears a picture left behind
+            by whoever held the session before.
+        **kwargs: The remaining signal arguments, all unused.
     """
     url = claimed_picture(sociallogin.account.extra_data) if sociallogin else None
     picture = None
@@ -166,11 +177,16 @@ def remember_picture(request, sociallogin=None, **kwargs):
 
 
 def middleware(get_response):
-    """Hand Unfold the picture that the login found.
+    """Hand Unfold the picture that the login found, when there is one.
 
-    Only when there is one. Assigning to request.user resolves the lazy object Django
-    leaves there, which would mean a query for the user on every request, including the
-    many that never render a sidebar.
+    Assigning to ``request.user`` resolves the lazy object Django leaves there, which
+    would mean a query on every request, including the many that render no sidebar.
+
+    Args:
+        get_response: The next handler in the middleware chain.
+
+    Returns:
+        The middleware callable.
     """
     def attach_picture(request):
         if url := request.session.get(SESSION_KEY):

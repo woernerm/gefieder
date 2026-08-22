@@ -1,5 +1,7 @@
-"""Per-administrator database accounts: create_db_user / delete_db_user provision and
-lock a personal login role with the privileges its rank carries.
+"""Per-administrator database accounts.
+
+create_db_user and delete_db_user provision and lock a personal login role with the
+privileges its rank carries.
 
 An administrator who develops SQLMesh models gets a role of their own instead of sharing
 the sqlmesh secret. The role is created by the SECURITY DEFINER functions in
@@ -9,9 +11,8 @@ tests run against the live stack.
 
 What is worth guarding here is the boundary the functions draw. They run as their
 superuser owner, so an unprivileged caller reaching them could otherwise create a role of
-any rank -- the group_role argument is checked against a fixed list for exactly that
-reason, and the test below is what keeps the check honest.
-"""
+any rank — the group_role argument is checked against a fixed list for exactly that
+reason, and the test below is what keeps the check honest."""
 import psycopg2
 import pytest
 
@@ -32,7 +33,7 @@ EDITOR_ROLE = f"{DB_ROLE_PREFIX}editor"
 ADMIN_ROLE = f"{DB_ROLE_PREFIX}admin"
 
 # Throwaway account names, carrying the personal-account prefix crudman derives
-# (dbusers.utils) -- which is what drop_db_user checks before it drops anything.
+# (dbusers.utils) — which is what drop_db_user checks before it drops anything.
 VIEWER = f"{DB_ROLE_PREFIX}u_itest_viewer"
 EDITOR = f"{DB_ROLE_PREFIX}u_itest_editor"
 PASSWORD = "itest-password-long-enough"
@@ -172,8 +173,10 @@ def test_the_configured_superuser_is_recognised(admin_db):
 
 
 def test_provisioning_functions_are_not_public(connect, cleanup):
-    """Only crudman may provision. The functions run as their superuser owner, so a
-    default PUBLIC grant would let any role -- a tenant, grafana -- mint an admin account.
+    """Only crudman may provision.
+
+    The functions run as their superuser owner, so a default PUBLIC grant would let
+    any role — a tenant, grafana — mint an admin account.
     """
     grafana = connect(GRAFANA_DB_USER)
     with grafana.cursor() as cur:

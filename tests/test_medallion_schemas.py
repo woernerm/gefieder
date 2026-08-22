@@ -1,22 +1,16 @@
 """The SQLMesh example models sit in the schemas buildtime.env configures.
 
-The medallion schema names are configurable (BRONZE_SCHEMA_PREFIX, SILVER_SCHEMA and
-GOLD_SCHEMA in buildtime.env, plus the staging layer conftest derives from SILVER_SCHEMA);
-postgresql/render.sh bakes them into the init scripts that create and grant on them. The
-example models under sqlmesh/models/ cannot join in: a model name is parsed by SQLMesh,
-which never reads buildtime.env, so those names are written out in full.
+The medallion schema names are configurable and render.sh bakes them into the init
+scripts. The example models cannot join in: a model name is parsed by SQLMesh, which
+never reads buildtime.env, so those names are written out in full.
 
-That leaves one way for the two to drift. Rename a layer in buildtime.env and the database
-creates the new schema, grants on it and hands it to grafana -- while every shipped model
-still writes to the old name, which nothing granted and nothing reads. Nothing fails: the
-plan succeeds, the dashboards are simply empty.
+That leaves one way to drift. Rename a layer in buildtime.env and the database creates and
+grants the new schema while every shipped model still writes to the old name. Nothing
+fails: the plan succeeds and the dashboards are simply empty.
 
-So the agreement is asserted here instead. A failure means one of two edits is missing, not
-that anything is broken: either finish the rename in sqlmesh/models/, or put the schema name
-in buildtime.env back.
-
-Read from the repository rather than the running stack, so it reports the mismatch before
-the stack is built on it.
+A failure here therefore means one of two edits is missing — finish the rename in
+sqlmesh/models/, or put the schema name back. Read from the repository rather than the
+running stack, so it reports the mismatch before the stack is built on it.
 """
 import re
 from pathlib import Path

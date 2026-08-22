@@ -4,20 +4,16 @@ from django.db import models
 class Tenant(models.Model):
     """A tenant of the analytics platform.
 
-    The source of truth for tenants is PostgreSQL: each tenant is a role that owns a
-    ``bronze_<name>`` schema, created by the ``create_tenant`` database function. This
-    table is only a cache that the admin keeps in sync with those schemas (see
-    ``tenants.utils.get_tenants`` and ``TenantAdmin.get_queryset``) so the standard admin
-    changelist — with its searching, sorting and pagination — has a real queryset to work
-    with. Creating, editing and deleting a tenant goes through the database functions, not
-    ``save()`` / ``delete()``.
+    PostgreSQL is the source of truth: each tenant is a role owning a ``bronze_<name>``
+    schema, created by the ``create_tenant`` database function. This table is only a
+    cache the admin keeps in sync with those schemas, so the changelist has a real
+    queryset to search, sort and paginate. Creating, editing and deleting a tenant goes
+    through the database functions, not ``save()`` / ``delete()``.
     """
 
     # The role/schema name doubles as the primary key so the admin can build per-object
-    # URLs without a synthetic id column. It is a snake_case slug because it has to be a
-    # valid PostgreSQL identifier (the tenant's role and bronze_<name> schema); the human
-    # name the user typed is kept separately in display_name. The slug is derived from the
-    # display name on the add form (see TenantCreationForm), so the user never types it.
+    # URLs without a synthetic id column. TenantCreationForm derives it from the display
+    # name, so the user never has to know the slugging rules.
     name = models.CharField(
         "slug",
         max_length=50,
@@ -25,10 +21,8 @@ class Tenant(models.Model):
         help_text="Identifier used for the database role and bronze schema, e.g. project_a.",
     )
 
-    # The human-friendly name as entered in the admin, e.g. "Project A". It may contain
-    # spaces and capitals; only display_name is shown in the changelist. Tenants created
-    # outside crudman (e.g. the seeded example tenants) have no display name in the
-    # database, so sync_tenants falls back to the slug for those.
+    # Tenants created outside crudman, such as the seeded examples, carry no display name
+    # in the database, so sync_tenants falls back to the slug for those.
     display_name = models.CharField(
         "name",
         max_length=100,
@@ -36,13 +30,15 @@ class Tenant(models.Model):
         help_text="e.g. Project A",
     )
 
-    # The limit fields map to the arguments of the set_tenant_limits database function.
-    # Their defaults are PostgreSQL's "unlimited" sentinels, so a freshly opened add form
-    # is pre-filled with values that mean "no limit": -1 for the connection count and 0
-    # for the size/time limits. Leaving a field blank means the same (no limit); the
-    # utility functions map both the sentinel and an empty value to/from None.
     UNLIMITED_COUNT = -1
+    """PostgreSQL's "no limit" sentinel for the connection count."""
+
     UNLIMITED_SIZE = "0"
+    """PostgreSQL's "no limit" sentinel for the size and time limits.
+
+    The limit fields default to these sentinels, so a freshly opened add form already
+    means "no limit"; a blank field means the same.
+    """
 
     connection_limit = models.IntegerField(
         "connection limit",

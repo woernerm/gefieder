@@ -3,7 +3,7 @@
 The two yaml tests beside this file cover the macro through a model, one per branch. What
 they cannot do is hold the branches side by side: they run different tenants over different
 data, so "project_a is right and project_b is right" never becomes "both say the same
-thing". That is what this file is for -- it renders the macro twice over one fixture, once
+thing". That is what this file is for — it renders the macro twice over one fixture, once
 for each gateway, and compares the two results row for row.
 
 Both are executed on DuckDB, which can run either: the ASOF form because it is DuckDB's

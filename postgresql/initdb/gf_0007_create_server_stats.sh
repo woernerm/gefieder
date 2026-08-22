@@ -1,21 +1,19 @@
-# Create the server-statistics schema that holds the data used to size a future server
-# (CPU, RAM, temp/fast storage, disk space, disk IOPS and throughput, network egress) and
-# to find queries worth an index. The schema name comes from SERVER_STATS_SCHEMA, baked
-# into the image from buildtime.env; it is interpolated here because psql cannot template
-# an identifier inside a plain .sql file. All identifiers go through %I/quote_ident so the
-# configured name cannot inject SQL.
+# Create the server-statistics schema, which holds what is needed to size a future server
+# and to find queries worth an index. The schema name comes from SERVER_STATS_SCHEMA and is
+# interpolated here because psql cannot template an identifier inside a plain .sql file;
+# every identifier goes through %I/quote_ident so the configured name cannot inject SQL.
 #
-# Three raw sample tables are filled by the collector, one snapshot per tick:
-#   host_sample   -- one row of host/cgroup/network counters (the sizing inputs)
+# Three raw tables are filled by the collector, one snapshot per tick:
+#   host_sample   -- host/cgroup/network counters (the sizing inputs)
 #   query_sample  -- a pg_stat_statements snapshot (which queries cost the most)
 #   table_sample  -- a pg_stat_user_tables / pg_statio snapshot (which table needs an index)
-# The host/IO/network values are monotonic counters, stored raw so a rate is a delta
-# between two rows; this is restart-safe (a counter reset just shows up as a single
-# ignored negative delta) and lets the display pick any window.
+# The host, IO and network values are monotonic counters stored raw, so a rate is a delta
+# between two rows. That is restart-safe — a reset shows up as one ignored negative delta —
+# and lets the display pick any window.
 #
-# rollup_and_prune() aggregates the raw rows into hourly buckets kept long-term and drops
-# raw rows older than the retention window, so the raw tables stay small over months while
-# the hourly history remains for the long sizing horizon. The collector calls it each tick.
+# rollup_and_prune(), called each tick, aggregates the raw rows into hourly buckets and
+# drops raw rows past the retention window, so the raw tables stay small over months while
+# the hourly history remains for the long sizing horizon.
 set -e
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \

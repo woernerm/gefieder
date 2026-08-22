@@ -1,23 +1,17 @@
 #!/bin/sh
 set -e
 
-# This script and the engine log to stdout/stderr only; journald captures the stream and
-# is what survives a crash, a container replacement and a restart. It rotates and
-# size-caps the log on its own, which a file on the volume did not.
+# This script and the engine log to stdout/stderr only, so journald captures the stream
+# and rotates it, which a file on the volume did not.
 #
-# Every sqlmesh invocation below therefore passes --log-to-stdout, which adds the stdout
-# handler its own logger otherwise lacks: without it the engine's INFO/ERROR records (the
-# detail behind a failed plan or run) go only to its log files and never reach journald.
-# SQLMesh always writes those files as well -- the file handler cannot be turned off, only
-# pointed elsewhere -- so --log-file-dir sends them to a tmpfs-like path under /tmp that is
-# discarded with the container, rather than accumulating in the image's project directory.
+# Every sqlmesh invocation therefore passes --log-to-stdout, the stdout handler its logger
+# otherwise lacks: without it the engine's INFO/ERROR records go only to its log files.
+# SQLMesh writes those files regardless — the file handler can be pointed elsewhere but
+# not turned off — so --log-file-dir sends them under /tmp, discarded with the container.
 #
-# These lines carry SQLMesh's own timestamp in addition to journald's, which is the one
-# place the "a single timestamp per message" rule cannot be met: SQLMesh formats its
-# records with a hardcoded module constant that no setting or environment variable
-# overrides. The container therefore runs on the host's timezone (Timezone=local in
-# sqlmesh.container) so that the second stamp at least agrees with journald's instead of
-# reading hours apart from it.
+# These lines carry SQLMesh's own timestamp on top of journald's, the one place the single
+# timestamp rule cannot be met: the format is a hardcoded module constant. The container
+# runs on the host's timezone (Timezone=local) so the two stamps at least agree.
 SQLMESH_LOG_ARGS="--log-to-stdout --log-file-dir /tmp/sqlmesh-logs"
 
 # Expose the database password from the mounted secret for the connection check below.

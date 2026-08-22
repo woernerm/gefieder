@@ -228,8 +228,8 @@ class ApplyRolesTests(TestCase):
 class FakeSocialLogin:
     """Enough of allauth's SocialLogin for the adapter to work on.
 
-    The adapter reads two things off it -- the account's claims and whether the user
-    already exists -- so standing those in keeps these tests about the mapping rather than
+    The adapter reads two things off it — the account's claims and whether the user
+    already exists — so standing those in keeps these tests about the mapping rather than
     about allauth's own machinery. The exchange that produces the claims is covered end to
     end by the integration suite, against a real OpenID Connect server.
     """
@@ -320,7 +320,7 @@ class ProviderRoutesTests(TestCase):
         # The admin's URLs end in a catch-all under the same prefix, so whichever is
         # listed first wins. With the admin first, the callback would redirect anonymous
         # visitors to the login page, which redirects to the provider, which comes back
-        # here -- a loop that ends only when the browser gives up.
+        # here — a loop that ends only when the browser gives up.
         from django.urls import resolve
 
         match = resolve("/crudman/accounts/oidc/sso/login/callback/")
@@ -496,7 +496,7 @@ class SingleSignOnInlineTests(TestCase):
 
     def test_nothing_of_it_can_be_edited(self):
         # Read-only fields render as text, so a form input for one would mean the
-        # provider's data had become editable here -- and rewritten on its next login.
+        # provider's data had become editable here — and rewritten on its next login.
         self.assertNotContains(self.page, "socialaccount_set-0-uid")
 
     def test_no_account_can_be_added_by_hand(self):
@@ -508,8 +508,10 @@ class SingleSignOnInlineTests(TestCase):
 
 
 class LocalUserCreationTests(TestCase):
-    """Making a user by hand: the whole story with single sign-on off, and how the local
-    superuser goes on existing when it is on."""
+    """Making a user by hand.
+
+    The whole story with single sign-on off, and how the local superuser goes on
+    existing when it is on."""
 
     def setUp(self):
         self.client.force_login(User.objects.create_superuser("root"))
@@ -521,7 +523,7 @@ class LocalUserCreationTests(TestCase):
         self.assertContains(response, 'name="password1"')
 
     def test_the_add_page_says_nothing_about_the_provider(self):
-        # Someone created here has signed in nowhere yet, so the box would be empty -- and
+        # Someone created here has signed in nowhere yet, so the box would be empty — and
         # the page would refuse to save the new user without its formset coming back.
         response = self.client.get(reverse("admin:auth_user_add"))
 
@@ -626,7 +628,7 @@ class LoadablePictureTests(TestCase):
 
     def test_something_that_is_not_an_image_is_dropped(self):
         # A sign-in page, say, which is how some providers answer a request they will not
-        # serve -- with 200 and a page rather than an error.
+        # serve — with 200 and a page rather than an error.
         answer = fake_answer(content_type="text/html; charset=utf-8")
 
         with patch("sso.avatars.requests.get", return_value=answer):
@@ -797,7 +799,7 @@ class RememberPictureTests(TestCase):
         self.assertIsNone(self.request.session[SESSION_PICTURE_KEY])
 
     def test_nothing_is_downloaded_without_a_token(self):
-        # A login that never carried one -- there is nothing to ask the provider with.
+        # A login that never carried one — there is nothing to ask the provider with.
         login = FakeSocialLogin(User(username="kim"), {"picture": GRAPH_PICTURE})
         refused = fake_answer(status=401, content_type="application/json")
 
@@ -865,7 +867,7 @@ class ScopeTests(TestCase):
 
     A setting because of the picture: Entra ID hands that over only to a token holding
     "User.Read", while a provider that has never heard of the scope refuses the request
-    outright. What matters here is that allauth reads the setting at all -- put under the
+    outright. What matters here is that allauth reads the setting at all — put under the
     wrong key it would be ignored in silence, and the operator would be left adding a
     scope that never reached the provider.
     """
@@ -964,7 +966,7 @@ class AvatarMiddlewareTests(TestCase):
 
     def test_a_session_without_one_leaves_the_user_alone(self):
         # Assigning to request.user resolves the lazy object Django leaves there, which is
-        # a query for the user -- on every request, and most of them render no sidebar.
+        # a query for the user — on every request, and most of them render no sidebar.
         loaded = []
 
         def load_user():
@@ -996,6 +998,6 @@ class AvatarInTheSidebarTests(TestCase):
 
     def test_a_session_without_one_shows_the_initial(self):
         # Unfold's own fallback, which is the whole of the feature for a provider that
-        # publishes no picture -- and must stay reachable rather than being replaced by a
+        # publishes no picture — and must stay reachable rather than being replaced by a
         # blank circle.
         self.assertNotContains(self.client.get(reverse("admin:index")), "background-image")

@@ -2,7 +2,7 @@
 
 Two build steps template a tree with envsubst and an explicit allowlist: grafana/render.sh
 over grafana/provisioning/, and postgresql/render.sh over postgresql/initdb/. The allowlist
-is what keeps envsubst off the tokens that must survive verbatim -- nginx's $host, Grafana's
+is what keeps envsubst off the tokens that must survive verbatim — nginx's $host, Grafana's
 $__file{}, psql's shell variables, SQL's own $$ quoting.
 
 The failure it cannot notice is the opposite one: a ${TOKEN} the allowlist does not name is
@@ -20,15 +20,15 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 
-# Each render step: the script carrying the allowlist, what it renders -- a tree or a single
-# file -- what to skip inside it, and whether the source is ours.
+# Each render step: the script carrying the allowlist, what it renders — a tree or a single
+# file — what to skip inside it, and whether the source is ours.
 #
 # grafana/render.sh renders two sources: the provisioning tree, and custom.ini, which names
 # the podman secret Grafana reads the single sign-on client secret from. custom.ini is the
 # only one of the three that is not ours: it is Grafana's own sample.ini with our edits, and
 # it carries ${...} tokens Grafana expands itself (";instance_name = ${HOSTNAME}"). An
-# unlisted token there is therefore normal, so only the ones buildtime.env declares -- the
-# ones we put in -- have to be substituted.
+# unlisted token there is therefore normal, so only the ones buildtime.env declares — the
+# ones we put in — have to be substituted.
 RENDERERS = [
     ("grafana/render.sh", "grafana/provisioning", ("*.md",), True),
     ("grafana/render.sh", "grafana/custom.ini", (), False),
@@ -81,7 +81,7 @@ def test_every_substituted_token_shall_be_declared(script, tree, skip, ours):
 
 # The third render step, and the only one whose allowlist exists twice: run-tests.sh renders
 # the quadlets and the two serverstats units for the test stack, and publish.yml renders the
-# same files for the release. serverstats/collect.sh is not among them -- it ships verbatim,
+# same files for the release. serverstats/collect.sh is not among them — it ships verbatim,
 # and its own shell variables ($CG_ROOT, ...) must survive.
 #
 # A token here has one legitimate reason to be missing from the allowlist that the two trees

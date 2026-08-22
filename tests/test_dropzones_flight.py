@@ -175,8 +175,10 @@ class TestFlightUpload:
     def test_a_disconnect_without_commit_shall_store_nothing(
         self, flight_dropzones, crudman_db
     ):
-        """Nothing is stored until the commit, so a client that sends tables and then
-        disconnects must leave no upload row and no files on the volume."""
+        """Nothing is stored until the commit.
+
+        A client that sends tables and then disconnects must leave no upload row
+        and no files on the volume."""
         mountpoint = Path(volume_mountpoint("uploads_data"))
         dropzone_id = flight_dropzones["flight-suite-abandoned"]
         before = set(mountpoint.rglob("*"))

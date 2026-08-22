@@ -1,10 +1,8 @@
-"""What the SFTP and Arrow Flight endpoints have in common.
+"""Database work shared by the SFTP and Arrow Flight endpoints.
 
-Both run as their own long-lived server process outside the request cycle, authenticate an
-uploader against a dropzone rather than a Django session, collect files in a throwaway
-directory and hand the finished set to ``services.process_upload``. Only the protocol
-differs, so everything either one does with the database lives here and each endpoint is
-left with its own protocol handling.
+Both run as long-lived server processes outside the request cycle and authenticate an
+uploader against a dropzone rather than a Django session. Only the protocol differs, so
+everything either one does with the database lives here.
 """
 
 from django.core.files import File
@@ -18,14 +16,17 @@ from .services import process_upload
 def fresh(func, *args):
     """Run a database-facing function on a healthy connection, and leave none behind.
 
-    The servers run for weeks, so a connection the database dropped in the meantime
-    (restart, idle timeout) is discarded before the call instead of failing it.
+    The servers run for weeks, so a connection the database dropped in the meantime is
+    discarded before the call instead of failing it. Both endpoints answer on worker
+    threads, where nothing signals the end of a call the way a request does for a view,
+    so a connection opened there would be held until the process exits.
 
-    Both endpoints answer on worker threads -- asgiref's for SFTP, Flight's own pool -- and
-    a connection opened on one of those belongs to that thread forever: nothing signals the
-    end of the call the way a request does for a view, so it would be held until the process
-    exits. Closing afterwards keeps the endpoints down to the connections they are actually
-    using, which is also what lets the test database be dropped at the end of a test run.
+    Args:
+        func: The database-facing function to call.
+        *args: Positional arguments passed on to func.
+
+    Returns:
+        Whatever func returns.
     """
     close_old_connections()
     try:
@@ -66,9 +67,15 @@ def store_session(dropzone_id, paths):
 def stored_file_count(dropzone_id, paths):
     """store_session, reduced to the file count the caller reports.
 
-    The count is a query of its own, so it has to happen inside the same ``fresh`` call:
-    asking afterwards would open a second connection on the calling thread that nothing
-    closes again. None when the session wrote no files at all.
+    Counting is a query of its own and has to happen inside the same ``fresh`` call;
+    asking afterwards would open a second connection that nothing closes again.
+
+    Args:
+        dropzone_id: Primary key of the dropzone that was uploaded to.
+        paths: The files the session wrote.
+
+    Returns:
+        The number of files stored, or None if the session wrote no files.
     """
     if not paths:
         return None

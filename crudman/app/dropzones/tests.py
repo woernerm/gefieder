@@ -832,8 +832,10 @@ class UploadViewTests(TempMediaMixin, TestCase):
 
 
 class APIUploadTests(TempMediaMixin, TestCase):
-    """The POST endpoint an unattended client uses; feeds the same pipeline as the
-    browser upload but authenticates with a bearer token instead of a session."""
+    """The POST endpoint an unattended client uses.
+
+    Feeds the same pipeline as the browser upload but authenticates with a bearer
+    token instead of a session."""
 
     @classmethod
     def setUpTestData(cls):
@@ -1000,9 +1002,12 @@ class APIUploadTests(TempMediaMixin, TestCase):
 
 
 class WebhookUploadTests(TempMediaMixin, TestCase):
-    """The GET endpoint for devices that can only call a URL with values substituted
-    into it (e.g. a Shelly relay reporting a temperature): the query parameters are
-    stored as a one-row CSV through the same pipeline as every other method."""
+    """The GET endpoint for devices that can only call a URL.
+
+    Made for a device substituting values into it, e.g. a Shelly relay reporting a
+    temperature. The query parameters are stored as a one-row CSV through the same
+    pipeline as every other method.
+    """
 
     @classmethod
     def setUpTestData(cls):
@@ -1165,8 +1170,9 @@ class WebhookUploadTests(TempMediaMixin, TestCase):
 
 
 class DownloadTests(TempMediaMixin, TestCase):
-    """Stored files are downloaded through an authenticated view linked from the
-    admin; bare storage paths are never served."""
+    """Stored files are downloaded through an authenticated view linked from the admin.
+
+    Bare storage paths are never served."""
 
     @classmethod
     def setUpTestData(cls):
@@ -1226,8 +1232,10 @@ class DownloadTests(TempMediaMixin, TestCase):
 
 
 class SftpTests(TempMediaMixin, TestCase):
-    """The database-facing pieces of the SFTP endpoint. The SSH plumbing itself
-    (login, chroot, disconnect handling) is exercised by the integration suite."""
+    """The database-facing pieces of the SFTP endpoint.
+
+    The SSH plumbing itself (login, chroot, disconnect handling) is exercised by the
+    integration suite."""
 
     @classmethod
     def setUpTestData(cls):
@@ -1398,9 +1406,12 @@ class FlightTests(TempMediaMixin, TransactionTestCase):
         return sorted(str(f) for f in upload.files.all())
 
     def server_connections(self):
-        """The endpoint's own backends: every connection to the test database except
-        the one this test is asking through. Postgres is the only vantage point here —
-        the server's connections live in other threads' thread-locals."""
+        """The endpoint's own backends.
+
+        Every connection to the test database except the one this test asks through.
+        Postgres is the only vantage point here: the server's connections live in other
+        threads' thread-locals.
+        """
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT count(*) FROM pg_stat_activity "
@@ -1440,8 +1451,10 @@ class FlightTests(TempMediaMixin, TransactionTestCase):
         )
 
     def test_a_disconnect_without_commit_shall_store_nothing(self):
-        """The point of the explicit commit: an upload that was never committed is
-        incomplete, so no row, no directory and no file may survive it."""
+        """The point of the explicit commit.
+
+        An upload that was never committed is incomplete, so no row, no
+        directory and no file may survive it."""
         client, options = self.connect()
         self.send(client, options, "issues", self.table())
         self.send(client, options, "commits", self.table())
@@ -1490,8 +1503,10 @@ class FlightTests(TempMediaMixin, TransactionTestCase):
         self.assertEqual(Upload.objects.count(), 0)
 
     def test_a_truncated_table_shall_poison_the_commit(self):
-        """A client killed mid-table ends its stream without an error, so the
-        cancellation flag is the only thing that keeps the partial table out."""
+        """A client killed mid-table ends its stream without an error.
+
+        So the cancellation flag is the only thing that keeps the partial table
+        out."""
         client, options = self.connect()
         self.send(client, options, "issues", self.table())
         session = next(iter(flight._sessions.values()))
@@ -1592,9 +1607,11 @@ class FlightTests(TempMediaMixin, TransactionTestCase):
         )
 
     def test_a_whole_upload_shall_leave_no_connection_open_on_the_server(self):
-        """The commit reports a file count, which is a query of its own: asked after
-        _fresh has closed up, it would open a second connection on the gRPC thread that
-        nothing closes again. Counting the server's connections is what catches that."""
+        """The commit reports a file count, which is a query of its own.
+
+        Asked after _fresh has closed up, it would open a second connection on the gRPC
+        thread that nothing closes again. Counting the server's connections catches that.
+        """
         client, options = self.connect()
         self.send(client, options, "issues", self.table())
         self.commit(client, options)
@@ -1651,8 +1668,10 @@ class ConnectionHygieneTests(TransactionTestCase):
         self.assertFalse(left_open)
 
     def test_fresh_shall_close_the_connection_when_the_call_raises(self):
-        """The rejection path matters just as much: a checker refusing an upload is
-        routine, not exceptional, so it must not leak a connection per rejection."""
+        """The rejection path matters just as much.
+
+        A checker refusing an upload is routine, not exceptional, so it must not
+        leak a connection per rejection."""
 
         def boom():
             # Query first: a call that raises before touching the database opens no

@@ -1,9 +1,8 @@
 """The bridge between the DatabaseUser model and the PostgreSQL functions.
 
-The functions called here are SECURITY DEFINER (``create_db_user`` and ``delete_db_user``
-in ``postgresql/initdb/gf_0003_create_functions.sql``) because creating a role needs
-CREATEROLE, which crudman does not have and should not be given -- the same arrangement
-the tenants app uses, for the same reason.
+The functions called here are SECURITY DEFINER (``postgresql/initdb/gf_0003``) because
+creating a role needs CREATEROLE, which crudman does not have and should not be given —
+the same arrangement the tenants app uses.
 """
 import os
 import re
@@ -13,39 +12,42 @@ from sso.roles import GROUP_FOR_RANK, RANKS
 
 from .backends import get_backend
 
-# The prefix the database was initialised with: DB_ROLE_PREFIX in buildtime.env, which
-# postgresql/render.sh baked into the init scripts and crudman.container passes in here.
-# Both sides have to agree -- a role this module names is one gf_0008 created -- so the
-# fallback is the value buildtime.env ships, for a checkout run without the quadlet.
 DB_ROLE_PREFIX = os.environ.get("DB_ROLE_PREFIX", "gf_")
+"""The prefix the database was initialised with, from DB_ROLE_PREFIX in buildtime.env.
 
-# The single sign-on group a person is in decides the database rank they get. Both sides
-# are defined elsewhere -- the groups in sso/roles.py, the group roles in
-# postgresql/initdb/gf_0008_create_admin_roles.sql -- and this is the one place they meet.
-# Neither set is listed again here: they share the three rank names, and each side puts its
-# own prefix in front, so a rank added to sso.roles.RANKS reaches the database rank of the
-# same name without an edit here.
-#
-# Viewers are included so that read-only access is still a provisioned account rather than
-# a shared credential; what separates the ranks is write access to SQLMesh's schemas.
+Both sides have to agree: a role this module names is one gf_0008 created. The fallback
+is the value buildtime.env ships, for a checkout run without the quadlet.
+"""
+
 GROUP_TO_DB_ROLE = {
     GROUP_FOR_RANK[rank]: f"{DB_ROLE_PREFIX}{rank}" for rank in RANKS
 }
+"""The database group role each single sign-on group earns.
 
-# Prefix every provisioned role carries, one level below the group roles above. It keeps
-# these roles apart from the service roles (CRUDMAN_DB_USER and its two siblings in
-# buildtime.env) and the tenant roles, which share the same namespace, so a person called
-# "grafana" cannot collide with the service of that name.
+The one place the groups in sso/roles.py and the group roles in gf_0008 meet. Neither
+set is listed again: they share the three rank names behind their own prefixes, so a rank
+added to ``sso.roles.RANKS`` reaches the database rank of the same name. Viewers are
+included so read-only access is a provisioned account rather than a shared credential.
+"""
+
 ROLE_PREFIX = f"{DB_ROLE_PREFIX}u_"
+"""Prefix every provisioned role carries, one level below the group roles.
+
+It keeps these roles apart from the service and tenant roles sharing the namespace, so a
+person called "grafana" cannot collide with the service of that name.
+"""
 
 
 def role_name_for(username: str) -> str:
     """The PostgreSQL role name for a Django username.
 
-    Usernames from an identity provider are frequently email addresses, which are not
-    valid identifiers, so the same slugging rule as tenants applies: anything outside
-    ``[a-z0-9_]`` collapses to an underscore. The prefix guarantees the result never
-    starts with a digit, so unlike the tenant slug no leading-digit fixup is needed.
+    Args:
+        username: The Django username, frequently an email address from an identity
+            provider and so not a valid identifier.
+
+    Returns:
+        The prefixed slug, anything outside ``[a-z0-9_]`` collapsed to an underscore as
+        tenants does it. The prefix keeps it from starting with a digit.
     """
     slug = re.sub(r"[^a-z0-9]+", "_", username.strip().lower()).strip("_")
     # 63 is PostgreSQL's identifier limit; the database function caps the part it is given
@@ -54,14 +56,19 @@ def role_name_for(username: str) -> str:
 
 
 def db_role_for_user(user) -> str | None:
-    """The group role a Django user's groups earn them, or None if they have none.
+    """The group role a Django user's groups earn them.
 
-    Someone may hold several managed groups at once; the most privileged wins, matching how
-    sso.roles.highest_role resolves the same ambiguity.
+    Args:
+        user: The Django user.
+
+    Returns:
+        The database group role, or None if they hold none. Someone may hold several
+        managed groups at once; the most privileged wins, as ``sso.roles.highest_role``
+        resolves the same ambiguity.
     """
     names = set(user.groups.values_list("name", flat=True))
-    # RANKS runs from least to most privileged, so walking it backwards returns the highest
-    # the person holds -- the same resolution sso.roles.highest_role makes.
+    # RANKS runs from least to most privileged, so walking it backwards returns the
+    # highest the person holds.
     for rank in reversed(RANKS):
         group = GROUP_FOR_RANK[rank]
         if group in names:
@@ -70,17 +77,22 @@ def db_role_for_user(user) -> str | None:
 
 
 def enroll(user) -> "DatabaseUser":
-    """Create `user`'s database role without a credential, ready to be claimed.
+    """Create a user's database role without a credential, ready to be claimed.
 
-    This is the administrator's half of provisioning, and it deliberately produces no
-    password. An administrator decides *that* someone gets database access; the credential
-    itself is generated on that person's next sign-in and shown only to them (see
-    ``issue_credential``). Two things follow from splitting it this way: an administrator
-    never learns a password that is not theirs, and nothing has to be stored in the
-    meantime -- there is no window in which a readable secret sits in a table.
+    The administrator's half of provisioning: they decide *that* someone gets database
+    access, while ``issue_credential`` generates the password on that person's next
+    sign-in. So an administrator never learns a password that is not theirs, and no
+    readable secret ever sits in a table. Under scram-sha-256 a role carrying no password
+    cannot authenticate, so the early role grants nothing.
 
-    With scram-sha-256 a role that carries no password cannot authenticate at all, so the
-    role existing early grants nothing until the password is issued.
+    Args:
+        user: The Django user to enroll.
+
+    Returns:
+        The DatabaseUser row recording the role.
+
+    Raises:
+        ValueError: The user is in none of the roles that grant database access.
     """
     from .models import DatabaseUser
 
@@ -92,9 +104,8 @@ def enroll(user) -> "DatabaseUser":
 
     role_name = role_name_for(user.username)
 
-    # The database call and the row that records it move together: a role created without
-    # its DatabaseUser row would be invisible to the admin, and a row without its role
-    # would promise access that does not exist.
+    # A role created without its DatabaseUser row would be invisible to the admin, and a
+    # row without its role would promise access that does not exist.
     with transaction.atomic():
         with connection.cursor() as cursor:
             # A NULL password is what "not claimed yet" looks like in the database.
@@ -118,13 +129,17 @@ def enroll(user) -> "DatabaseUser":
 def issue_credential(user) -> str | None:
     """Generate and set the password for a role that is waiting for one.
 
-    Called from the login signal, so the person who owns the account is the one looking at
-    the screen when it appears. The secret is returned rather than stored: it is shown once
-    and is afterwards unrecoverable by design -- PostgreSQL keeps only a SCRAM verifier and
-    this app keeps nothing.
+    Called from the login signal, so the person who owns the account is the one looking
+    at the screen when it appears.
 
-    Returns None when there is nothing to issue: no account, one already claimed, or a
-    backend that needs no secret because the identity provider holds the credential.
+    Args:
+        user: The Django user signing in.
+
+    Returns:
+        The secret, shown once and afterwards unrecoverable — PostgreSQL keeps only a
+        SCRAM verifier and this app keeps nothing. None when there is nothing to issue:
+        no account, one already claimed, or a backend whose provider holds the
+        credential.
     """
     from .models import DatabaseUser
 
@@ -160,9 +175,14 @@ def issue_credential(user) -> str | None:
 def reset(user) -> None:
     """Put a role back into the waiting state so a new password is issued on next sign-in.
 
-    How a forgotten password is dealt with: the old one is cleared immediately, so an
-    account whose credential may have leaked stops working at once rather than when the
-    person next signs in.
+    How a forgotten password is dealt with. The old one is cleared immediately, so an
+    account whose credential may have leaked stops working at once.
+
+    Args:
+        user: The Django user whose credential is reset.
+
+    Raises:
+        ValueError: The user has no database account.
     """
     from .models import DatabaseUser
 
@@ -183,8 +203,11 @@ def reset(user) -> None:
 def disable(role_name: str) -> None:
     """Take away a role's ability to connect, keeping everything it owns.
 
-    Used when someone loses their role in the identity provider or their Django account is
-    removed. Deliberately not a DROP: see the comment on delete_db_user in gf_0003.
+    Used when someone loses their role in the identity provider or their Django account
+    is removed. Deliberately not a DROP; see ``delete_db_user`` in gf_0003.
+
+    Args:
+        role_name: The PostgreSQL role to disable.
     """
     from .models import DatabaseUser
 
@@ -198,11 +221,13 @@ def disable(role_name: str) -> None:
 def sync(user) -> None:
     """Bring a person's database role in line with the rank they now hold.
 
-    Called on every login, so a promotion or demotion in the identity provider reaches the
-    database on the person's next sign-in rather than waiting for an operator. Someone who
-    has lost every role is disabled; someone who never had a database user is left alone,
-    because provisioning issues a credential and that has to be a deliberate act by an
-    administrator, not a side effect of logging in.
+    Called on every login, so a promotion or demotion in the identity provider reaches
+    the database on the next sign-in. Someone who has lost every role is disabled;
+    someone who never had a database user is left alone, because provisioning has to be a
+    deliberate act by an administrator, not a side effect of logging in.
+
+    Args:
+        user: The Django user signing in.
     """
     from .models import DatabaseUser
 
@@ -220,9 +245,8 @@ def sync(user) -> None:
     if group_role == record.group_role and record.is_enabled:
         return
 
-    # A rank change re-runs provisioning without a new password: create_db_user takes a
-    # NULL password as "leave the credential alone", so the person keeps the one they have
-    # while their group membership is rewritten.
+    # create_db_user takes a NULL password as "leave the credential alone", so a rank
+    # change rewrites the group membership and the person keeps the password they have.
     with transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute(
@@ -238,11 +262,16 @@ def sync(user) -> None:
 def remove(user) -> None:
     """Drop a person's database role and forget the account entirely.
 
-    The destructive counterpart to ``disable``: it exists for an account created by
-    mistake, or a departure where nothing the person owned is worth keeping. Dropping a
-    role means dropping what it owns -- PostgreSQL refuses otherwise -- so any model or
-    table they created goes with it, along with the record of who made it. Disabling is
+    The destructive counterpart to ``disable``, for an account created by mistake or a
+    departure where nothing the person owned is worth keeping. PostgreSQL refuses to drop
+    a role that still owns objects, so any table they created goes with it. Disabling is
     the right choice in most departures; this is the exception.
+
+    Args:
+        user: The Django user whose database account is dropped.
+
+    Raises:
+        ValueError: The user has no database account.
     """
     from .models import DatabaseUser
 

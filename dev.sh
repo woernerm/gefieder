@@ -6,24 +6,15 @@
 #   ./dev.sh logs         follow the combined logs of all containers
 #   ./dev.sh serverstats  take one server-statistics sample now
 #
-# Run on a stack that is already up, `./dev.sh` refreshes it: podman's layer cache rebuilds
-# only the images whose inputs changed, then the pod is torn down and recreated from the
-# current images. Nothing to stop first; an unchanged run is quick.
+# Run on a stack that is already up, `./dev.sh` refreshes it: podman's layer cache
+# rebuilds only the images whose inputs changed, then the pod is recreated. It also starts
+# a background loop sampling server statistics every SERVER_STATS_INTERVAL seconds,
+# standing in for the deployment's systemd timer; `./dev.sh down` stops it.
 #
-# `./dev.sh` also starts a background loop that samples server statistics every
-# SERVER_STATS_INTERVAL seconds, standing in for the systemd timer the deployment uses so
-# the server_stats schema (and the Grafana monitoring dashboard) fills on its own. The loop
-# is stopped by `./dev.sh down` and replaced on each `./dev.sh` run.
-#
-# This is the local counterpart to build.sh + install.sh: build.sh/install.sh produce a
-# release and deploy it as systemd quadlets, whereas this script builds straight into
-# podman and runs the containers in a single pod, so it works on a plain WSL Ubuntu
-# without user-systemd or release artifacts. It always runs in DEBUG mode: the proxy
-# serves plain HTTP on port 8080, so no TLS certificate is needed.
-#
-# The container wiring (images, environment, secrets, volumes) is kept identical to the
-# quadlets in quadlets/ so dev and production behave the same; only DEBUG and the proxy
-# port differ.
+# The local counterpart to build.sh + install.sh, which produce a release and deploy it as
+# systemd quadlets. This builds straight into podman and runs one pod, so it works on a
+# plain WSL Ubuntu without user-systemd. Always DEBUG: plain HTTP on 8080, no certificate.
+# The wiring is kept identical to quadlets/ so dev and production behave the same.
 set -e
 
 cd "$(dirname "$0")"

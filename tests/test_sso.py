@@ -8,8 +8,8 @@ the provider described and the rights their role grants.
 
 The stand-in provider is a real OpenID Connect server, so the exchange under test is the
 real one: discovery, an authorization redirect, a code, a token and the claims inside it.
-What it does not reproduce is a directory's own behaviour -- consent screens, conditional
-access, an expired client secret -- so a first sign-in against a real provider still has to
+What it does not reproduce is a directory's own behaviour — consent screens, conditional
+access, an expired client secret — so a first sign-in against a real provider still has to
 be tried by hand.
 """
 import os
@@ -56,7 +56,7 @@ def _set_single_sign_on(enabled):
     """Rewrite OIDC_ENABLED in the runtime.env the services read, and restart them.
 
     The same edit an operator makes to switch single sign-on on, followed by the same
-    restart -- which is the only way the change takes, because a container reads its
+    restart — which is the only way the change takes, because a container reads its
     environment file once, when it starts.
     """
     path = os.path.join(APP_CONFIG_DIR, "runtime.env")
@@ -92,8 +92,8 @@ def _set_single_sign_on(enabled):
 def _derived_root_url(**env):
     """The public address the grafana image's entrypoint settles on for this environment.
 
-    Runs the real entrypoint in a throwaway container with only its last line -- the
-    handover to Grafana's own /run.sh -- replaced by a print, the way test_proxy_config.py
+    Runs the real entrypoint in a throwaway container with only its last line — the
+    handover to Grafana's own /run.sh — replaced by a print, the way test_proxy_config.py
     runs pieces of the proxy entrypoint. Reading the address off a started Grafana instead
     would cost a server startup per case and assert nothing more.
     """
@@ -164,7 +164,7 @@ class TestCallbackAddress:
     """The address Grafana asks the provider to send the visitor back to.
 
     Grafana builds it from root_url rather than from the request, and root_url's own
-    %(protocol)s is the protocol Grafana serves inside the pod -- http, because the proxy
+    %(protocol)s is the protocol Grafana serves inside the pod — http, because the proxy
     terminates TLS. Left at that, a production installation asks for an http callback its
     provider never registered, and refuses the sign-in.
     """
@@ -213,7 +213,7 @@ class TestSwitchedOff:
     def test_the_provider_routes_shall_be_absent(self, http):
         # crudman mounts allauth's URLs only when single sign-on is on. With it off the
         # address falls through to the admin's catch-all, which sends an anonymous visitor
-        # to the local login page -- so what tells the two apart is where the redirect
+        # to the local login page — so what tells the two apart is where the redirect
         # leads, not whether there is one. Were allauth live, this would leave for the
         # identity provider instead.
         resp = http.get(f"/{CRUDMAN_PATH}/accounts/oidc/sso/login/")
@@ -293,7 +293,7 @@ class TestSigningIn:
 
     def test_grafana_shall_ask_to_be_called_back_where_the_browser_is(self, single_sign_on):
         # A provider accepts only the callback registered for the client, which the README
-        # gives as the address Grafana is reached at -- so this one has to match it in
+        # gives as the address Grafana is reached at — so this one has to match it in
         # scheme, host and port alike.
         with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS, trust_env=False,
                           follow_redirects=False, timeout=10) as client:

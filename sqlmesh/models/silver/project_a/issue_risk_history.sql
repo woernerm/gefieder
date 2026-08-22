@@ -1,24 +1,21 @@
 -- Project A's second bronze -> silver transform, and the worked example for
--- @temporal_join (macros/temporal_join.py): the history of an issue combined with the
--- history of the component it belongs to.
+-- @temporal_join (macros/temporal_join.py): an issue's history combined with that of the
+-- component it belongs to.
 --
--- Both sides move on their own timeline. The issue is worked on; the component is
--- reclassified when the safety case changes. A plain ASOF join would follow only one of
--- them and silently miss every change of the other, so the macro builds the joined history
--- from the union of both timelines: a row here starts a period during which everything
--- this model reports stayed the same, which is what makes "how long did this issue sit on a
--- class D component" a question the data can answer.
+-- Both sides move on their own timeline — the issue is worked on, the component is
+-- reclassified when the safety case changes — so a plain ASOF join would follow one and
+-- miss every change of the other. The macro builds the joined history from the union of
+-- both, so a row starts a period during which everything this model reports stayed the
+-- same. That is what makes "how long did this issue sit on a class D component" answerable.
 --
 -- The macro judges "stayed the same" by the source columns, which is why the status
--- mapping below is one-to-one and why every source column is reported. A mapping that
--- folded two statuses onto one canonical state would let a source change through as a
--- second row that looks exactly like the first -- so would leaving owner_team out. Both
--- are caught by assert_every_row_is_a_change rather than left to be noticed downstream:
--- a tenant that starts using a fourth status will fail that audit until the mapping is
--- extended, which is the point at which to extend it.
+-- mapping is one-to-one and every source column is reported: folding two statuses onto one
+-- canonical state, or leaving owner_team out, would let a source change through as a
+-- second row identical to the first. assert_every_row_is_a_change catches both, so a
+-- tenant that starts using a fourth status fails the audit until the mapping is extended.
 --
--- The vocabulary is the "closed" that silver.issues already uses, with its open half split
--- into the two states a history has to tell apart.
+-- The vocabulary is the "closed" silver.issues uses, its open half split into the two
+-- states a history has to tell apart.
 MODEL (
   name silver_staging.issue_risk_history__project_a,
   kind FULL,

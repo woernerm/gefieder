@@ -13,10 +13,9 @@ class DbUsersConfig(AppConfig):
 
         from .signals import disable_on_user_delete, sync_on_login
 
-        # A rank granted or taken away in the identity provider reaches the database on the
-        # person's next sign-in. Bound to the login signal rather than to the single
-        # sign-on adapter so a local account, changed by hand in the admin, is reconciled
-        # the same way -- sso.roles.apply_roles has already run by this point either way.
+        # Bound to the login signal rather than to the single sign-on adapter so a local
+        # account changed by hand in the admin is reconciled the same way;
+        # sso.roles.apply_roles has already run by this point either way.
         user_logged_in.connect(sync_on_login, dispatch_uid="dbusers.sync_on_login")
 
         # pre_delete rather than post_delete: the role name is read from the row being

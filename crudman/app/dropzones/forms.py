@@ -67,8 +67,15 @@ class UploadForm(forms.Form):
                 self.fields["files"].widget.attrs["accept"] = ",".join(tokens)
 
     def clean(self):
-        """Map the validity selection onto the (valid_from, valid_until) pair the
-        Upload model stores; see the model for the NULL semantics."""
+        """Map the validity selection onto the (valid_from, valid_until) pair.
+
+        Returns:
+            The cleaned data, its date fields set as the Upload model stores them; see
+            that model for the NULL semantics.
+
+        Raises:
+            ValidationError: The period's end is not after its start.
+        """
         cleaned = super().clean()
         mode = cleaned.get("validity")
         if mode == self.ALWAYS:

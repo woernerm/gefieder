@@ -4,18 +4,15 @@
 #
 #   ./postgresql/render.sh <output-dir>
 #
-# Why a render step instead of letting the scripts read the values at runtime: the role
-# names appear inside plpgsql function bodies (the event triggers in gf_0005 and gf_0008,
-# the SECURITY DEFINER functions in gf_0003), and psql interpolates neither a variable nor
-# an environment value inside a dollar-quoted block. Baking them in here is the only place
-# every occurrence can be reached with one mechanism -- the same reason grafana/render.sh
-# exists for the dashboard JSON. The values come from buildtime.env, already sourced into
-# the environment by whichever build script called this.
+# A render step rather than runtime interpolation because the role names appear inside
+# plpgsql function bodies, and psql interpolates neither a variable nor an environment
+# value inside a dollar-quoted block. Baking them in is the only mechanism that reaches
+# every occurrence — the same reason grafana/render.sh exists. The values come from
+# buildtime.env, already sourced by whichever build script called this.
 #
-# The substitution itself is render_tree in build-lib.sh, shared with grafana/render.sh.
-# Only the names listed below are substituted; every other $-token is passed through
-# untouched -- the shell variables the .sh scripts use ($POSTGRES_USER, ${user}), psql's
-# :'var' references and SQL's own $$ ... $$ quoting all survive.
+# The substitution is render_tree in build-lib.sh, shared with grafana/render.sh. Only the
+# names listed below are substituted; every other $-token survives — the shell variables
+# the .sh scripts use, psql's :'var' references and SQL's own $$ ... $$ quoting.
 set -e
 
 out="${1:?usage: render.sh <output-dir>}"

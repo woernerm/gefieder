@@ -108,7 +108,6 @@ class DropzoneAdmin(ModelAdmin):
 
     @admin.display(description="secret upload link")
     def upload_link(self, obj):
-        # Just the address to connect to; how to use it is the example field below.
         # The browser link stays clickable, the others are addresses rather than pages.
         # The token exists only once the row is saved.
         if obj is None or not obj.pk:
@@ -119,8 +118,7 @@ class DropzoneAdmin(ModelAdmin):
 
     @admin.display(description="example")
     def example(self, obj):
-        # The ready-to-run client for the chosen method, filled in with this dropzone's
-        # address and credentials. white-space:pre keeps the indentation intact.
+        # white-space:pre keeps the example's indentation intact.
         if obj is None or not obj.pk:
             return "Available after saving."
         return format_html(
@@ -133,10 +131,9 @@ class UploadFileInline(TabularInline):
     model = UploadFile
     extra = 0
     can_delete = False
-    # A single column per file, linking to the authenticated download view rather than
-    # the raw FileField, whose default display would point at an unserved MEDIA URL.
-    # text-link is the class Unfold puts on its own readonly links (e.g. the uploaded_by
-    # user), so the link matches the admin's link styling.
+    # Link to the authenticated download view rather than the raw FileField, whose
+    # default display would point at an unserved MEDIA URL. text-link is the class
+    # Unfold puts on its own readonly links, so the styling matches.
     fields = ("file_link",)
     readonly_fields = ("file_link",)
 
@@ -155,8 +152,11 @@ class UploadFileInline(TabularInline):
 
 @admin.register(Upload)
 class UploadAdmin(ModelAdmin):
-    """Uploads are created by the upload pipeline, never by hand, so adding is off and
-    most fields are read-only. The validity dates stay editable for corrections."""
+    """Read-only view of the uploads the pipeline created.
+
+    Uploads are never made by hand, so adding is off and most fields are read-only. The
+    validity dates stay editable for corrections.
+    """
 
     list_display = (
         "dropzone",

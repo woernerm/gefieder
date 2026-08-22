@@ -1,9 +1,7 @@
-# Production configuration: everything is served over TLS, plain HTTP requests are
-# permanently redirected to HTTPS.
+# Production configuration: everything over TLS, plain HTTP permanently redirected.
 #
-# The request classification and the routing are shared with the development
-# configuration; only the listeners and the TLS setup differ, and that is what this file
-# states.
+# The classification and the routing are shared with the development configuration; only
+# the listeners and the TLS setup differ.
 include /etc/nginx/proxy/maps.conf;
 
 server {
@@ -21,11 +19,10 @@ server {
     # start over an address family it cannot bind.
     listen [::]:443 ssl;
 
-    # fullchain.pem is read from certs-effective, not from the host-mounted certs/
-    # directory: the entrypoint writes a copy there with the leaf certificate first,
-    # which nginx requires and the operator's file is not guaranteed to have. See
-    # reorder_fullchain() in entrypoint.sh. The key is never reordered, so it is read
-    # from the mount directly.
+    # Read from certs-effective rather than the host-mounted certs/: the entrypoint
+    # writes a copy there with the leaf certificate first, which nginx requires and the
+    # operator's file may not have. See reorder_fullchain() in entrypoint.sh. The key is
+    # never reordered, so it comes from the mount directly.
     ssl_certificate /etc/nginx/proxy/certs-effective/fullchain.pem;
     ssl_certificate_key /etc/nginx/proxy/certs/privkey.pem;
 

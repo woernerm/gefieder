@@ -1,5 +1,6 @@
-"""Tenant lifecycle in PostgreSQL: create_tenant / delete_tenant fully provision and
-fully tear down a tenant.
+"""Tenant lifecycle in PostgreSQL.
+
+create_tenant and delete_tenant fully provision and fully tear down a tenant.
 
 A tenant is a login role that owns a ``bronze_<name>`` schema, created and removed by
 the database functions in postgresql/initdb/gf_0003_create_functions.sql. These tests run
@@ -11,8 +12,7 @@ half-deleted: create_tenant grants the role EXECUTE on use_duckdb() and sqlmesh 
 tables in the bronze schema, so a plain DROP ROLE was refused for the lingering
 dependencies and — because delete_tenant is atomic — the bronze schema drop was rolled
 back with it. delete_tenant now clears the role's grants and owned objects first, so the
-whole tenant disappears.
-"""
+whole tenant disappears."""
 import pytest
 from conftest import BRONZE_SCHEMA_PREFIX
 

@@ -1,17 +1,13 @@
 """Enrolling a person for database access.
 
-Deliberately no password appears on these pages. An administrator decides *that* someone
-gets an account; the credential is generated on that person's next sign-in and shown to
-them alone (see signals.py). That split is what keeps an administrator from learning a
-password that is not theirs, and it means no secret has to be stored while it waits to be
-collected -- PostgreSQL holds a SCRAM verifier and this app holds nothing.
-
-A forgotten password is therefore not recovered but reissued: "Reset password" clears the
-old one at once and the next sign-in shows a new one.
+Deliberately no password appears on these pages: an administrator decides *that* someone
+gets an account, and the credential is generated on that person's next sign-in and shown
+to them alone (see signals.py). So a forgotten password is reissued rather than
+recovered — "Reset password" clears the old one at once.
 
 When the identity provider can authenticate database connections directly (see
-backends.py), the backend reports that it issues no secret and the waiting step disappears
-without any other change here.
+backends.py), the backend reports that it issues no secret and the waiting step
+disappears without any other change here.
 """
 from django.contrib import admin, messages
 from django.contrib.auth.models import User
@@ -26,9 +22,9 @@ from .utils import GROUP_TO_DB_ROLE, db_role_for_user, disable, enroll, remove, 
 class DatabaseUserAdmin(ModelAdmin):
     """Database accounts, listed by the person they belong to.
 
-    Rows are not added by hand: an account is provisioned for an existing administrator
-    through the action below, because the Django user is the source of truth for who
-    exists and what rank they hold.
+    Rows are not added by hand: an account is provisioned through
+    ``create_database_user`` below, because the Django user is the source of truth for
+    who exists and what rank they hold.
     """
 
     list_display = (
@@ -59,8 +55,8 @@ class DatabaseUserAdmin(ModelAdmin):
 
     def get_actions(self, request):
         # Django's built-in "delete selected" removes the row and leaves the PostgreSQL
-        # role behind, which would look like the account was deleted while its login still
-        # worked. delete_selected_accounts below is the one that removes both.
+        # role behind, so the account would look deleted while its login still worked.
+        # delete_selected_accounts below removes both.
         actions = super().get_actions(request)
         actions.pop("delete_selected", None)
         return actions
@@ -85,8 +81,12 @@ class DatabaseUserAdmin(ModelAdmin):
     def reset_password(self, request, queryset):
         """Clear the password so a new one is issued on the person's next sign-in.
 
-        The new password is not shown here: like the first one, it belongs to the account's
-        owner and appears on their screen, not on an administrator's.
+        The new password is not shown here: like the first one, it appears on the
+        account owner's screen, not on an administrator's.
+
+        Args:
+            request: The admin request, for the result message.
+            queryset: The selected database users.
         """
         backend = get_backend()
         if not backend.issues_secret:
@@ -112,15 +112,14 @@ class DatabaseUserAdmin(ModelAdmin):
     def delete_selected_accounts(self, request, queryset):
         """Drop the role outright, with whatever it owns.
 
-        Offered beside "Disable" rather than instead of it, because the two answer
-        different questions. Disabling is the right choice when someone leaves: the role
-        stays, so their models and tables keep an owner and remain readable. Dropping is
-        for an account created by mistake -- PostgreSQL will not remove a role while it
-        still owns anything, so deleting the account deletes that data too.
+        Offered beside "Disable" because the two answer different questions. Disabling
+        suits a departure: the role stays, so their tables keep an owner. Dropping is for
+        an account created by mistake — PostgreSQL will not remove a role while it still
+        owns anything, so deleting the account deletes that data too.
 
-        Django's own "delete selected" is not reused for this: it would remove the row
-        while leaving the PostgreSQL role behind, which is the one outcome that must not
-        happen.
+        Args:
+            request: The admin request, for the result message.
+            queryset: The selected database users.
         """
         names = [record.role_name for record in queryset]
 
@@ -140,12 +139,13 @@ def create_database_user(modeladmin, request, queryset):
     """Enroll the selected administrators for database access.
 
     Lives on the user admin rather than this app's, because that is where an operator is
-    already looking when they decide someone needs SQL access.
+    already looking when they decide someone needs SQL access. The role is created
+    without a password; the credential is generated on the person's next sign-in.
 
-    No password appears here. The role is created without one and the credential is
-    generated on the person's next sign-in, shown to them alone -- so an administrator
-    never has to relay a secret they should not have seen, and nothing is stored while it
-    waits to be collected.
+    Args:
+        modeladmin: The user admin the action is attached to, for its messages.
+        request: The admin request.
+        queryset: The selected Django users.
     """
     backend = get_backend()
 

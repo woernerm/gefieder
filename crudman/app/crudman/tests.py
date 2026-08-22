@@ -7,9 +7,11 @@ from .settings import _site_url
 
 
 class ReturnToSiteLinkTests(TestCase):
-    """Unfold's "Return to site" link points at UNFOLD["SITE_URL"]. We serve no site
-    root, so the link is hidden by returning None, but it must re-enable automatically
-    once a root URL exists (i.e. once "/" resolves)."""
+    """Unfold's "Return to site" link follows whether a site root exists.
+
+    No site root is served, so the link is hidden by returning None, but it must
+    re-enable itself once "/" resolves.
+    """
 
     def test_site_url_is_none_without_a_root_route(self):
         # The project has no "/" route, so the link target is None (link hidden).

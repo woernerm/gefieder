@@ -118,7 +118,7 @@ def unit_environment(unit):
     """The environment systemd resolved for a unit, as a dict.
 
     `systemctl show -p Environment` prints the assignments space-separated on one line,
-    quoting where needed -- exactly shlex's syntax.
+    quoting where needed — exactly shlex's syntax.
     """
     out = subprocess.run(
         ["systemctl", "--user", "show", "-p", "Environment", "--value", unit],
@@ -133,7 +133,7 @@ class TestCollectorUnit:
     The deployed superuser name comes from SUPERUSER_NAME and the schema is baked into the
     PostgreSQL image from SERVER_STATS_SCHEMA. A unit that passes neither leaves a
     deployment that changed either one connecting as a role that does not exist, or writing
-    to a schema never created -- silently, since a failed oneshot only reaches the journal.
+    to a schema never created — silently, since a failed oneshot only reaches the journal.
     """
 
     def test_the_unit_shall_pass_the_configured_user_and_schema(self):
@@ -233,7 +233,7 @@ class TestHostCollector:
     # from the cgroup CPU/memory files and the host network interface, all readable for a
     # rootless-podman pod. The disk IOPS/throughput columns (io_*) are deliberately excluded
     # because they need the cgroup io controller delegated to the user slice, which some
-    # kernels (e.g. WSL2) do not provide -- there those columns are legitimately NULL.
+    # kernels (e.g. WSL2) do not provide — there those columns are legitimately NULL.
     PER_SAMPLE_COLUMNS = [
         "cpu_usage_usec", "host_nproc",
         "mem_current_bytes", "mem_peak_bytes", "host_mem_total_bytes",

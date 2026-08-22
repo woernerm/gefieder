@@ -2,8 +2,8 @@
 
 crudman/urls.py mounts allauth's views only when single sign-on is switched on, and the
 suite runs with it off, so the name the redirect reverses does not exist there. Standing in
-a route of the same name lets the view's branching be tested for what it is -- a choice
-between the provider and the local form -- without reconfiguring the app registry.
+a route of the same name lets the view's branching be tested for what it is — a choice
+between the provider and the local form — without reconfiguring the app registry.
 
 That the real route is mounted when the setting is on is a wiring question, and is covered
 by the integration suite instead.

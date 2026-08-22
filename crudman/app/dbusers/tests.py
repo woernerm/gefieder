@@ -44,8 +44,10 @@ class RoleNameTests(TestCase):
         self.assertEqual(role_name_for("marcus"), MARCUS)
 
     def test_email_username_becomes_an_identifier(self):
-        """Providers commonly send an email address as the username, which is not a valid
-        PostgreSQL identifier."""
+        """An email-address username becomes a valid identifier.
+
+        Providers commonly send an email address as the username, which
+        PostgreSQL will not accept as one."""
         self.assertEqual(
             role_name_for("Marcus.Woerner@example.com"),
             f"{ROLE_PREFIX}marcus_woerner_example_com",
@@ -73,8 +75,10 @@ class RankTests(TestCase):
         self.assertEqual(db_role_for_user(self.user), EDITOR)
 
     def test_highest_rank_wins(self):
-        """Someone may hold several groups at once; the most privileged decides, matching
-        how sso.roles.highest_role resolves the same ambiguity."""
+        """The most privileged group decides the rank.
+
+        Someone may hold several groups at once, matching how
+        sso.roles.highest_role resolves the same ambiguity."""
         self.user.groups.add(Group.objects.get(name=VIEWER_GROUP))
         self.user.groups.add(Group.objects.get(name=ADMIN_GROUP))
         self.assertEqual(db_role_for_user(self.user), ADMIN)
@@ -94,8 +98,10 @@ class SyncTests(TestCase):
         )
 
     def test_person_without_an_account_is_left_alone(self):
-        """Logging in must not provision anyone: that issues a credential, which has to be
-        a deliberate act by an administrator."""
+        """Logging in must not provision anyone.
+
+        Provisioning issues a credential, which has to be a deliberate act by an
+        administrator."""
         other = User.objects.create(username="someone_else")
         with patch("dbusers.utils.connection") as conn:
             sync(other)
@@ -154,8 +160,10 @@ class BackendTests(TestCase):
         self.assertNotEqual(backend.make_secret(), backend.make_secret())
 
     def test_active_backend_is_password_based(self):
-        """Guards the swap point: when this changes, the admin's one-time password message
-        goes with it. See requirements.md."""
+        """Guards the swap point between authentication backends.
+
+        When this changes, the admin's one-time password message goes with it.
+        See requirements.md."""
         self.assertTrue(get_backend().issues_secret)
 
 

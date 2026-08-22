@@ -1,7 +1,7 @@
 # Development configuration: plain HTTP, no certificates required.
 #
-# The request classification and the routing are shared with the production
-# configuration; only the listener differs, and that is all this file states.
+# The classification and the routing are shared with the production configuration; only
+# the listener differs, and that is all this file states.
 include /etc/nginx/proxy/maps.conf;
 
 server {

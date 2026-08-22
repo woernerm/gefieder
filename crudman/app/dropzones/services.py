@@ -1,9 +1,9 @@
 """The upload pipeline, shared by every upload method.
 
-``process_upload`` deliberately takes no request object so that the browser view today
-and the API endpoint / SFTP watcher later all feed the same pipeline: spool the incoming
-files to a temporary directory, run the dropzone's checker and converter, then store the
-resulting files and the Upload row all-or-nothing.
+``process_upload`` takes no request object so that the browser view and the SFTP and
+Flight endpoints all feed the same pipeline: spool the incoming files to a temporary
+directory, run the dropzone's checker and converter, then store the resulting files and
+the Upload row all-or-nothing.
 """
 
 import hashlib
@@ -24,11 +24,21 @@ class UploadError(Exception):
 
 
 def process_upload(dropzone, files, valid_from=None, valid_until=None, user=None):
-    """Run the pipeline for one uploaded set of files and return the Upload.
+    """Run the pipeline for one uploaded set of files.
 
-    ``files`` is a list of Django ``File`` objects (e.g. the ``UploadedFile`` list of a
-    form). Raises :class:`UploadError` if the checker or converter rejects the files;
-    nothing is stored in that case.
+    Args:
+        dropzone: The dropzone that was uploaded to.
+        files: Django ``File`` objects, e.g. a form's ``UploadedFile`` list.
+        valid_from: Start of the upload's validity, or None for no lower bound.
+        valid_until: End of the upload's validity, or None for no upper bound.
+        user: The uploading user, if the upload came through an authenticated session.
+
+    Returns:
+        The stored Upload.
+
+    Raises:
+        UploadError: The files were empty, or the checker or converter rejected them;
+            nothing is stored in that case.
     """
     if not files:
         raise UploadError("The upload contains no files.")
@@ -47,8 +57,17 @@ def process_upload(dropzone, files, valid_from=None, valid_until=None, user=None
 
 
 def _spool(files, in_dir):
-    """Write the incoming file objects to disk, because the check and convert
-    functions work on real paths rather than streams."""
+    """Write the incoming file objects to disk.
+
+    The check and convert functions work on real paths rather than streams.
+
+    Args:
+        files: The incoming Django ``File`` objects.
+        in_dir: Directory to write them into.
+
+    Returns:
+        The written paths, in upload order.
+    """
     paths = []
     for file in files:
         # Strip any client-supplied directory parts; a name collision within one upload
@@ -67,8 +86,14 @@ def _spool(files, in_dir):
 
 
 def _combined_hash(paths):
-    """One hash covering all files: the sha256 of the sorted per-file sha256 digests,
-    so the result is independent of the upload order."""
+    """One hash covering all files, independent of the upload order.
+
+    Args:
+        paths: The files to hash.
+
+    Returns:
+        The sha256 of the sorted per-file sha256 digests.
+    """
     digests = []
     for path in paths:
         file_hash = hashlib.sha256()
@@ -142,10 +167,11 @@ def _store(dropzone, paths, digest, valid_from, valid_until, user):
 def _clip_replaced(upload):
     """Shorten previously open-ended uploads to end where the new upload starts.
 
-    Only "valid until replacement" uploads (concrete start, open end) that began before
-    the new upload are clipped. "Always valid" uploads (no start) stay untouched: they
-    act as an eternal fallback and are superseded by the newest-wins ordering of
-    ``UploadQuerySet.valid_at`` and the canonical SQL query instead.
+    "Always valid" uploads (no start) stay untouched: they act as a fallback and are
+    superseded by the newest-wins ordering of ``UploadQuerySet.valid_at`` instead.
+
+    Args:
+        upload: The newly stored upload.
     """
     if upload.valid_from is None:
         return

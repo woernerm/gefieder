@@ -199,8 +199,9 @@ class TenantFormTests(TestCase):
 
 
 class TenantAdminTests(TestCase):
-    """The admin drives PostgreSQL via the database functions; the cache row is only
-    written once the database side has succeeded."""
+    """The admin drives PostgreSQL via the database functions.
+
+    The cache row is only written once the database side has succeeded."""
 
     def setUp(self):
         from django.contrib import admin
@@ -273,8 +274,9 @@ class TenantAdminTests(TestCase):
 
 
 class TenantAdminLimitDisplayTests(TestCase):
-    """The changelist renders the "no limit" sentinels (-1 / "0") as "infinite", but
-    shows real limits unchanged."""
+    """The changelist renders the "no limit" sentinels as "infinite".
+
+    Real limits are shown unchanged."""
 
     def setUp(self):
         from django.contrib import admin
@@ -309,8 +311,9 @@ class TenantAdminLimitDisplayTests(TestCase):
 
 
 class TenantAdminViewTests(TestCase):
-    """End-to-end checks that the admin pages render and that the database functions,
-    not the ORM, drive create, edit and delete."""
+    """The admin pages render, end to end.
+
+    The database functions, not the ORM, drive create, edit and delete."""
 
     def setUp(self):
         admin_user = User.objects.create_superuser("admin", "a@example.com", "password")

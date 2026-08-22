@@ -12,10 +12,9 @@
 set -e
 
 # --- where the release lives ----------------------------------------------------------
-# REPO is the full URL of the repository the release lives in, baked in from buildtime.env
-# when the release is built, so this installer works against an enterprise GitHub instance
-# as well as github.com. There is no default: guessing would silently pull someone else's
-# release. Set REPO (and optionally TAG, to pin a version) when running from a checkout, e.g.
+# Baked in from buildtime.env when the release is built, so this works against an
+# enterprise GitHub instance as well as github.com. No default: guessing would silently
+# pull someone else's release. From a checkout, set it (and TAG, to pin a version):
 #   REPO=https://github.example.com/myorg/myrepo TAG=v1.2.0 ./install.sh
 REPO="${REPO}"
 if [ -z "$REPO" ]; then
@@ -37,11 +36,9 @@ fi
 QUADLET_DIR="$HOME/.config/containers/systemd"
 
 # --- scratch space --------------------------------------------------------------------
-# The image tarballs are downloaded here before being loaded, so this needs room for the
-# whole release. TEMPDIR is baked in from buildtime.env (like REPO above) because it is
-# needed before manifest.env is downloaded into it; empty means the system default. It
-# names the *parent*: the scratch directory below is one we created, so the trap only ever
-# deletes our own files, never the operator's directory.
+# Room for the whole release, since the image tarballs land here before being loaded.
+# Baked in like REPO, being needed before manifest.env is downloaded into it; empty means
+# the system default. It names the *parent*, so the trap only ever deletes what we made.
 TEMPDIR="${TEMPDIR}"
 if [ -n "$TEMPDIR" ]; then
   mkdir -p "$TEMPDIR" || { echo "TEMPDIR '$TEMPDIR' is not usable." >&2; exit 1; }
@@ -61,10 +58,9 @@ QUADLETS="main.pod postgresql.container crudman.container sftp.container \
   proxy_data.volume uploads_data.volume"
 
 # --- progress reporting ---------------------------------------------------------------
-# Long steps report progress with the tools' own facilities rather than a hand-rolled bar:
-# curl's -# draws the transfer bar, podman load draws its own layer progress. Both write to
-# the terminal, so they are only enabled when stderr is one -- piped into a log or run from
-# CI the bars would just be noise, and curl falls back to -s there.
+# The tools' own facilities rather than a hand-rolled bar. Both write to the terminal, so
+# they are enabled only when stderr is one; piped into a log or run from CI the bars would
+# be noise.
 if [ -t 2 ]; then
   CURL_PROGRESS="-#"       # transfer bar for the large image tarballs
   PODMAN_QUIET=""          # let podman load draw its layer progress
@@ -80,11 +76,10 @@ step() { echo; echo "==> $*"; }
 step "Checking prerequisites"
 command -v podman >/dev/null || { echo "podman is not installed." >&2; exit 1; }
 
-# Without a range of subordinate UIDs/GIDs, rootless podman falls back to single-UID
-# mapping: a trivial image may load, but any layer needing more than one UID fails later
-# with a confusing error. Rather than grep /etc/subuid (which misses realm-joined users
-# like name@domain, whose ranges come from SSSD/nss and are not listed there), ask podman
-# itself: `unshare` only succeeds when a real user namespace with the range can be set up.
+# Without a subordinate UID/GID range, rootless podman falls back to single-UID mapping
+# and any layer needing more than one UID fails later with a confusing error. Asking
+# podman itself beats grepping /etc/subuid, which misses realm-joined users (name@domain)
+# whose ranges come from SSSD/nss: `unshare` succeeds only if the namespace can be set up.
 if ! podman unshare sh -c 'true' >/dev/null 2>&1; then
   echo "Rootless podman cannot set up a user namespace for '$(id -un)'." >&2
   echo "This usually means no subuid/subgid range is mapped. Ask an admin to run:" >&2
@@ -94,14 +89,13 @@ if ! podman unshare sh -c 'true' >/dev/null 2>&1; then
 fi
 
 # --- preflight: the journal has to be persistent ---------------------------------------
-# The services log to stdout/stderr, and journald is the only place that history lives.
-# Without /var/log/journal it keeps everything in /run/log/journal, so the logs are gone
-# after a reboot. Ubuntu ships the directory, RHEL does not. Creating it needs root, so
-# this only reports it and carries on -- the stack runs fine either way.
+# journald is the only place the services' log history lives, and without /var/log/journal
+# it keeps everything in /run/log/journal, so a reboot loses it. Ubuntu ships the
+# directory, RHEL does not. Creating it needs root, so this only reports and carries on.
 #
-# tmpfiles applies the group and ACLs journalctl needs (mkdir alone leaves root:root 0755).
-# That suffices under the default Storage=auto ("persistent if the directory exists"); a
-# host pinned to Storage=volatile needs journald.conf edited too.
+# tmpfiles applies the group and ACLs journalctl needs; mkdir alone leaves root:root 0755.
+# That suffices under the default Storage=auto; a host pinned to Storage=volatile needs
+# journald.conf edited too.
 if [ ! -d /var/log/journal ]; then
   echo "  /var/log/journal does not exist, so the logs are lost on reboot. Ask an admin:" >&2
   echo "    sudo mkdir -p /var/log/journal" >&2
@@ -151,16 +145,13 @@ SERVER_NAME="$(printf '%s' "${SERVER_NAME:-}" | tr -d '[:space:]')"
 DEBUG="$(printf '%s' "${DEBUG:-}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
 
 # --- the server name ---------------------------------------------------------------
-# SERVER_NAME is the host name the system is reached under, fully qualified, e.g.
-# "abc123.mycompany.com" -- or "localhost" for a local development system. A bare host
-# name or an address with a scheme, a port or a path ("https://abc123", "abc123:8443")
-# is not the expected format.
+# The fully qualified host name the system is reached under, e.g. "abc123.mycompany.com",
+# or "localhost" for a local system. Not a scheme, a port or a path.
 #
-# It is used verbatim: the certificate is issued for it, Django accepts it
-# (ALLOWED_HOSTS, CSRF_TRUSTED_ORIGINS) and the dropzone pages hand it to uploaders. A
-# short name usually fails on a company network, where the browser gives it to the web
-# proxy instead of resolving it. Only a warning: whether that happens is a property of
-# the network, and a short name is correct where it does resolve.
+# Used verbatim: the certificate is issued for it, Django accepts it and the dropzone
+# pages hand it to uploaders. A short name usually fails on a company network, where the
+# browser gives it to the web proxy instead of resolving it. Only a warning, because a
+# short name is correct where it does resolve.
 case "${SERVER_NAME}" in
   *.*|localhost) : ;;
   *) echo "  ${SERVER_NAME} is not fully qualified; if browsers on your network cannot" >&2
@@ -168,10 +159,9 @@ case "${SERVER_NAME}" in
      echo "  ${SERVER_NAME}.mycompany.com) in ${APP_CONFIG_DIR}/runtime.env and restart" >&2 ;;
 esac
 
-# The address as seen from outside, not "localhost". DEBUG picks the scheme, as it does
-# for the proxy and the dropzone pages. Used by the check after startup and the cheat sheet.
-# The port is named only when it is not the one the scheme implies, which a browser adds by
-# itself: printing ":443" on a standard installation would read as something to configure.
+# The address as seen from outside, not "localhost", for the startup check and the cheat
+# sheet. DEBUG picks the scheme, as it does for the proxy. The port is named only when the
+# scheme does not imply it: printing ":443" would read as something to configure.
 if [ "${DEBUG}" = "true" ]; then
   SCHEME="http"; WEB_PORT="${HTTP_PORT}"; SCHEME_PORT=80
 else
@@ -184,13 +174,10 @@ else
 fi
 
 # --- preflight: the published ports must be bindable and reachable ---------------------
-# The ports the pod publishes, read from the runtime.env sourced above -- the same file
-# quadlets/main.pod expands its PublishPort lines from, so this checks what will actually
-# be bound rather than the defaults. Two things can stop a port working, and both are
-# silent until someone's browser times out, so they are checked here rather than left to be
-# discovered later. Neither aborts the install: the stack is still worth having with, say,
-# only the database port open, so this reports what is wrong and prints the exact command
-# that fixes it on *this* host.
+# Read from the runtime.env sourced above, the same file main.pod expands its PublishPort
+# lines from, so this checks what will actually be bound. Both failure modes below are
+# silent until someone's browser times out. Neither aborts the install — the stack is
+# worth having with only some ports open — so this reports the fix for *this* host.
 if systemctl --user is-active main-pod.service >/dev/null 2>&1; then
   echo "Stopping the currently running deployment before install"
   systemctl --user stop main-pod.service >/dev/null 2>&1 || true
@@ -199,11 +186,9 @@ step "Checking the published ports"
 PORTS="${HTTP_PORT} ${HTTPS_PORT} ${PG_PORT} ${SFTP_PORT} ${FLIGHT_PORT}"
 PORT_HINTS=""   # collected fixes, repeated in the cheat sheet at the end
 
-# 1. Rootless podman may not bind low ports. The kernel reserves everything below
-#    net.ipv4.ip_unprivileged_port_start (1024 by default) for root, so on a default
-#    installation 80 and 443 fail with "permission denied" while the rest are fine. Which
-#    ports those are depends on runtime.env, so they are worked out rather than named: an
-#    installation that moved the web ports above the floor needs no sysctl at all.
+# 1. Rootless podman may not bind low ports: the kernel reserves everything below
+#    net.ipv4.ip_unprivileged_port_start (1024 by default) for root. Which ports those
+#    are depends on runtime.env, so they are worked out rather than named.
 UNPRIV_START=$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo 1024)
 LOW_PORTS=""
 for p in $PORTS; do
@@ -227,12 +212,10 @@ for p in $PORTS; do
   fi
 done
 
-# 3. The host firewall. firewalld (RHEL) and ufw (Ubuntu) are the two that ship enabled on
-#    the supported distributions; if neither is installed, or it is installed but inactive,
-#    nothing is blocking and there is nothing to report. The fix commands below open a port
-#    to everyone -- for the database, SFTP and Flight ports an operator may well want to
-#    restrict the source to a VPN or a subnet instead, so the hint says so rather than
-#    pretending one command suits every deployment.
+# 3. The host firewall: firewalld (RHEL) and ufw (Ubuntu) are the two that ship enabled
+#    on the supported distributions. The fix commands open a port to everyone, and an
+#    operator may want to restrict the database, SFTP and Flight ports to a VPN or subnet
+#    instead, so the hint says so rather than pretending one command suits every case.
 blocked=""
 if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
   fw=firewalld
@@ -321,13 +304,11 @@ curl -fsSL "${BASE}/collect.sh" -o "${WORK}/collect.sh"
 install -m 0755 "${WORK}/collect.sh" "$APP_CONFIG_DIR/serverstats/collect.sh"
 
 # --- create the volumes up front so we own their directories --------------------------
-# Creating them here (rather than letting the first container start do it) means the
-# directories belong to the rootless user. The files inside do not always: postgresql and
-# grafana write as a container user that maps to a subuid, so reading those from the host
-# needs `podman unshare`, as the cheat sheet says. Owning them too would need
-# UserNS=keep-id, which the PostgreSQL image does not survive.
-# One data volume per service that keeps state, matching the VolumeName= in the *.volume
-# quadlets. Services that only log have none: their logs go to journald.
+# Creating them here rather than at first container start means the directories belong to
+# the rootless user. The files inside do not always: postgresql and grafana write as a
+# container user mapped to a subuid, so reading those from the host needs `podman
+# unshare`. Owning them too would need UserNS=keep-id, which the PostgreSQL image does not
+# survive. One volume per service that keeps state, matching the *.volume quadlets.
 step "Creating data volumes"
 VOLUMES="postgresql_data grafana_data sftp_data proxy_data uploads_data"
 for vol in $VOLUMES; do
@@ -336,11 +317,10 @@ done
 echo "  $(echo $VOLUMES | wc -w) data volumes ready"
 
 # --- machine secrets ------------------------------------------------------------------
-# One secret per non-human credential, generated locally with openssl. Human logins (the
-# superuser) are NOT created here: the superuser password is prompted once below so it
-# never lands in the shell history. Answering the prompt with an empty line falls back to
-# SUPERUSER_DEFAULT_PASSWORD from buildtime.env, which is the well-known value meant for
-# trying the system out. A secret that already exists is left as is.
+# One secret per non-human credential, generated locally with openssl. The superuser
+# password is prompted for instead, so it never lands in the shell history; an empty
+# answer falls back to the well-known SUPERUSER_DEFAULT_PASSWORD meant for trying the
+# system out. A secret that already exists is left as is.
 create_secret() {  # name, value-producing command
   podman secret exists "$1" 2>/dev/null || printf '%s' "$2" | podman secret create "$1" - >/dev/null
 }
@@ -396,10 +376,8 @@ fi
 
 # --- delegate the io cgroup controller so the collector can read disk IOPS/throughput --
 # systemd delegates cpu/memory/pids to a user slice by default but withholds io, so the
-# pod's io.stat (the source of the disk IOPS and read/write-speed figures) is absent
-# without this. The drop-in needs root; attempt it with sudo and carry on if unavailable
-# (the collector then records those two metrics as NULL, the others still work). A kernel
-# that does not expose per-cgroup io at all (some WSL2 builds) is unaffected by this.
+# pod's io.stat is absent without this. The drop-in needs root: attempt it with sudo and
+# carry on if unavailable, the collector then recording those two metrics as NULL.
 IO_DROPIN=/etc/systemd/system/user@.service.d/10-${APP_NAME}-delegate-io.conf
 if [ ! -f "$IO_DROPIN" ] && command -v sudo >/dev/null 2>&1; then
   if sudo -n true 2>/dev/null || [ -t 0 ]; then

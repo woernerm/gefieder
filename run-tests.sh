@@ -260,17 +260,13 @@ for f in quadlets/*; do
   envsubst "$VARS" < "$f" > "$QUADLET_DIR/$(basename "$f")"
 done
 
-# The rendered main.pod publishes whatever the runtime.env written below names, so the
-# isolated test ports arrive through the same path a deployment's do -- envsubst leaves the
-# ${*_PORT} tokens alone (they are not in VARS), quadlet copies them into the generated
-# unit, and systemd expands them from the EnvironmentFile. Editing the file here instead
-# would leave that chain untested.
+# The isolated test ports arrive through the same path a deployment's do: envsubst leaves
+# the ${*_PORT} tokens alone, quadlet copies them into the generated unit, and systemd
+# expands them from the EnvironmentFile. Editing the file here would leave that untested.
 #
-# One line is added: the stand-in identity provider runs inside the pod and is no part of a
-# deployment, so runtime.env does not name its port. Appended straight after the [Pod]
-# header rather than before a later section, so it stays in [Pod] however the rest of the
-# file is arranged -- a PublishPort under [Service] is silently ignored, and the provider
-# is then simply unreachable.
+# One line is added, for the stand-in identity provider that is no part of a deployment.
+# Appended straight after the [Pod] header so it stays in [Pod] however the rest is
+# arranged: a PublishPort under [Service] is silently ignored.
 sed -i "/^\[Pod\]/a PublishPort=${OIDC_PORT}:${OIDC_PORT}" "$QUADLET_DIR/main.pod"
 
 # Grafana builds its own absolute URLs from root_url rather than from the request, so on a
@@ -294,16 +290,14 @@ for u in serverstats/server-stats.service serverstats/server-stats.timer; do
   envsubst "$VARS" < "$u" > "$SYSTEMD_USER_DIR/$(basename "$u")"
 done
 install -m 0755 serverstats/collect.sh "$APP_CONFIG_DIR/serverstats/collect.sh"
-# The quadlets read SERVER_NAME and DEBUG from here (EnvironmentFile=), so write the
-# profile's values rather than copying the repository defaults, which would put the
-# production profile back into DEBUG mode. The published ports go the same way: main.pod
-# expands its PublishPort lines from this file, and the repository's 80/443 would both
-# collide with a running deployment and be unbindable for a rootless test run.
-# Everything else is copied over unchanged; the
-# "|| true" keeps a repository file without those keys from aborting the run under set -e.
-# The single sign-on settings point at the stand-in provider started below, but arrive
-# switched off: that is the state every installation runs in, and the state the rest of the
-# suite asserts. The sign-in tests turn OIDC_ENABLED on themselves and put it back after.
+# The quadlets read SERVER_NAME and DEBUG from here, so write the profile's values rather
+# than the repository defaults, which would put the production profile back into DEBUG.
+# The ports go the same way: the repository's 80/443 would collide with a running
+# deployment and be unbindable for a rootless run. Everything else is copied unchanged;
+# "|| true" keeps a file without those keys from aborting the run under set -e.
+#
+# The single sign-on settings point at the stand-in provider but arrive switched off, the
+# state every installation runs in. The sign-in tests turn OIDC_ENABLED on themselves.
 {
   echo "SERVER_NAME=${SERVER_NAME}"
   echo "DEBUG=${DEBUG}"
@@ -358,15 +352,14 @@ done
 # directory. It joins the pod rather than getting a network of its own, which is what puts
 # it on the same localhost the services already use; removing the pod takes it with it.
 #
-# interactiveLogin false is what makes it usable from a test: the authorization endpoint
-# answers with the redirect straight away instead of presenting a login form to fill in.
-# The claims below are what the services then map -- "roles" is the claim an Entra ID app
-# role arrives in, and Editor is the middle of the three so that both a granted permission
-# and a withheld one can be asserted.
+# interactiveLogin false makes it usable from a test: the authorization endpoint answers
+# with the redirect straight away instead of presenting a login form. Of the claims below,
+# "roles" is what an Entra ID app role arrives in, and Editor is the middle of the three so
+# both a granted and a withheld permission can be asserted.
 #
 # The mapping is keyed on grant_type because it is matched against the request for the
-# token, not the one for the code: a parameter that only appears on the authorization
-# request (scope, say) never matches, and the claims are then silently left out.
+# token, not the one for the code: a parameter appearing only on the authorization request
+# never matches, and the claims are then silently left out.
 printf '  %-12s ' "identity"
 podman run -d --pod "$APP_NAME" --name mock-oidc \
   -e SERVER_PORT="$OIDC_PORT" \
@@ -423,19 +416,14 @@ export TEST_SQLMESH_PASSWORD="$SQLMESH_PASSWORD"
 export TEST_SERVER_STATS_SCHEMA="${SERVER_STATS_SCHEMA:-server_stats}"
 export TEST_COLLECTOR="$APP_CONFIG_DIR/serverstats/collect.sh"
 
-# The crudman unit tests (crudman/app/*/tests.py) cover the application logic the
-# integration suite only sees from the outside: the upload pipeline, the check/convert
-# registry, the validity clipping and the SFTP session handling. They run first, in a
-# throwaway container from the crudman image, so a broken pipeline fails here rather
-# than as a puzzling HTTP result later.
+# The crudman unit tests cover the application logic the integration suite only sees from
+# outside. They run first, in a throwaway container from the crudman image, so a broken
+# pipeline fails here rather than as a puzzling HTTP result later, and from the image
+# rather than a host virtualenv so the dependencies are the ones the deployment ships.
 #
-# Run from the image rather than a host virtualenv so the dependencies are exactly the
-# ones the deployment ships (a stale host venv would test something nobody runs).
-# Django's test runner creates and drops its own test_<db> database, so it needs a role
-# with CREATEDB: the deployed crudman role deliberately has none, hence the connection
-# as the database superuser. Its password is mounted where settings.py reads the
-# database password from, the only way in (settings.py takes it from the secret file,
-# not from the environment).
+# Django's test runner creates and drops its own test_<db> database, so it needs CREATEDB,
+# which the deployed crudman role deliberately lacks — hence the superuser connection. Its
+# password is mounted where settings.py reads the database password from, the only way in.
 echo "Running the crudman unit tests ..."
 UNIT_SECRET_DIR="$(make_tempdir)"
 podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_SUPERUSER_PASSWORD" \

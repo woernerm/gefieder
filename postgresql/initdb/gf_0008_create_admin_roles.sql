@@ -43,18 +43,15 @@ GRANT ${DB_ROLE_PREFIX}editor TO ${DB_ROLE_PREFIX}admin;
 --------------------------------------------------------------------
 -- Write access for SQLMesh development.
 --
--- Editors and admins develop models, which means running `sqlmesh plan`. That needs more
--- than reading: SQLMesh writes its snapshots to the state schema and materialises models
--- into the physical schemas behind the virtual layer. Those schemas are owned by the
--- sqlmesh role and are created as models appear, so the grants are applied by the event
--- trigger below rather than listed here.
+-- Running `sqlmesh plan` needs more than reading: SQLMesh writes snapshots to the state
+-- schema and materialises models into the physical schemas behind the virtual layer.
+-- Those are owned by the sqlmesh role and created as models appear, so the event trigger
+-- below applies the grants rather than listing them here.
 --
--- This deliberately permits `sqlmesh plan prod` as well. Promoting to production is a
--- view swap in exactly the schemas a developer must be able to write to plan anything at
--- all, so PostgreSQL cannot separate the two without giving every developer their own
--- state and physical layer -- which costs a full backfill per person. The accepted
--- control is that production is normally deployed from CI on merge; see
--- sqlmesh/CLAUDE.md.
+-- This deliberately permits `sqlmesh plan prod` too. Promoting is a view swap in exactly
+-- the schemas a developer must write to in order to plan at all, so PostgreSQL cannot
+-- separate the two without a state and physical layer per person, costing a full backfill
+-- each. The accepted control is that production is deployed from CI on merge.
 --------------------------------------------------------------------
 GRANT CREATE ON DATABASE ${PG_DATABASE} TO ${DB_ROLE_PREFIX}editor;
 

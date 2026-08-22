@@ -1,22 +1,13 @@
 """The ready-to-run upload examples shown on a dropzone's admin page.
 
 One template per upload method, each a complete client an uploader can copy and run
-after replacing the example payload with their own. The placeholders are filled from
-the dropzone when the field is rendered (see ``Dropzone.upload_example``), so an
-example always carries that dropzone's real address, name and token.
+after replacing the example payload with their own. ``Dropzone.upload_example`` fills
+the placeholders, all of them optional per template: ``{url}``, ``{address}``,
+``{name}``, ``{secret}``, ``{port}`` and ``{host}``.
 
-Placeholders, all optional per template:
-
-``{url}``       the full upload URL (browser, API and webhook dropzones)
-``{address}``   the SFTP or Arrow Flight address
-``{name}``      the dropzone's name, which is the SFTP and Arrow Flight login
-``{secret}``    the dropzone's secret, or a ``<secret>`` marker while none is set
-``{port}``      the SFTP or Arrow Flight port
-``{host}``      the server name
-
-The examples are executed by the test suite against a live dropzone, so a template that
-stops matching its endpoint fails the build rather than misleading an uploader. Keep
-them runnable as they stand: no shell variables to fill in, no pseudo-code.
+The test suite runs the examples against a live dropzone, so a template that stops
+matching its endpoint fails the build rather than misleading an uploader. Keep them
+runnable as they stand: no shell variables to fill in, no pseudo-code.
 """
 
 # The browser upload has no client to write — the link is the whole interface — so the
@@ -78,9 +69,6 @@ for table_name, table in tables.items():
 # Nothing is stored until the commit: a client that dies before it stores nothing.
 client.do_action(fl.Action("commit", b""), options)"""
 
-# The template each upload method is shown with, keyed by Dropzone.Method values. Kept
-# as plain strings rather than a dict of callables so a template can be read, tested and
-# copied on its own.
 TEMPLATES = {
     "browser": BROWSER,
     "api": API,
@@ -88,3 +76,4 @@ TEMPLATES = {
     "sftp": SFTP,
     "flight": FLIGHT,
 }
+"""The example each upload method is shown with, keyed by Dropzone.Method values."""

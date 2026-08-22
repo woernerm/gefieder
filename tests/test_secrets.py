@@ -1,10 +1,11 @@
-"""Secrets hygiene docs/decisions.md implies: passwords and keys are podman secrets, so their
-values never appear in the rendered quadlet unit files or baked into the images.
+"""Secrets hygiene docs/decisions.md implies.
+
+Passwords and keys are podman secrets, so their values never appear in the rendered
+quadlet units or the images.
 
 The quadlets reference secrets by name (Secret=...) and the images receive them at
 runtime via /run/secrets, so neither the unit files nor the image config/history should
-contain any secret value.
-"""
+contain any secret value."""
 import json
 import os
 
@@ -73,8 +74,8 @@ class TestSecretsNotInQuadlets:
         for name, value in _leakable(SECRET_VALUES).items():
             assert value not in blob, f"{name} value is present in a rendered quadlet"
 
-    # oidc_client_secret carries no value worth scanning for -- the installer fills it with
-    # a placeholder until an operator sets the real one -- but it must exist all the same,
+    # oidc_client_secret carries no value worth scanning for — the installer fills it with
+    # a placeholder until an operator sets the real one — but it must exist all the same,
     # because the containers referencing it will not start otherwise.
     @pytest.mark.parametrize(
         "name", list(SECRET_VALUES) + [SECRETS["django_key"], SECRETS["oidc_client"]]

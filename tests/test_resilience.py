@@ -1,9 +1,10 @@
-"""Resilience behaviours docs/decisions.md describes: the system restarts itself after a failure,
-and data in the named volumes survives a container restart.
+"""Resilience behaviours docs/decisions.md describes.
+
+The system restarts itself after a failure, and data in the named volumes survives a
+container restart.
 
 These tests stop/kill containers, so they run after the read-only startup/http/db tests
-(pytest collects files alphabetically) and restore the stack as they go.
-"""
+(pytest collects files alphabetically) and restore the stack as they go."""
 import time
 
 from conftest import inspect_container, podman

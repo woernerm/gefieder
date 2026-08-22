@@ -1,23 +1,18 @@
 """The dropzones Arrow Flight endpoint (run by ``manage.py flightserver``).
 
-Arrow Flight sends tables, not files, so this endpoint writes every table it receives
-to one parquet file and hands the set to the same pipeline (``services.process_upload``)
-the browser, API and SFTP uploads use. A client names each table in the flight
-descriptor (``<dropzone>/<table>``), so ``issues`` arrives as ``issues.parquet``.
+Arrow Flight sends tables, not files, so every table is written to one parquet file and
+the set is handed to the same pipeline the other upload methods use. A client names each
+table in the flight descriptor (``<dropzone>/<table>``).
 
-One upload consists of several ``DoPut`` calls, so the endpoint has to know which of
-them belong together. The bearer token minted during authentication serves as that
-upload identity: it is unguessable, bound to the authenticated dropzone and stable for
-the life of the client's connection, so no separate session handshake is needed. The
-client closes the upload with a ``commit`` action, which is what turns the collected
-tables into one Upload — a client that dies beforehand stores nothing at all, like an
-aborted POST.
+One upload spans several ``DoPut`` calls, tied together by the bearer token minted
+during authentication: unguessable, bound to the authenticated dropzone and stable for
+the life of the connection, so no separate session handshake is needed. The client ends
+the upload with a ``commit`` action; a client that dies beforehand stores nothing.
 
 The commit is explicit rather than inferred from the disconnect because a client killed
-mid-transfer looks exactly like one that finished: the socket closes and the record
-batch stream simply ends. ``ServerCallContext.is_cancelled`` is what tells the two
-apart, so it guards every table; a session that saw a truncated table is poisoned and
-refuses to commit.
+mid-transfer looks exactly like one that finished: the socket closes and the batch
+stream simply ends. ``ServerCallContext.is_cancelled`` tells the two apart, so it guards
+every table, and a session that saw a truncated table refuses to commit.
 """
 
 import logging
@@ -46,15 +41,21 @@ _lock = threading.Lock()
 
 
 class Session:
-    """The tables collected for one upload, and the dropzone they belong to."""
+    """The tables collected for one upload, and the dropzone they belong to.
+
+    Attributes:
+        dropzone_id: Primary key of the dropzone being uploaded to.
+        name: The dropzone's name, for log messages.
+        directory: Throwaway directory holding the parquet files received so far.
+        touched: Monotonic timestamp of the last call, used by the sweeper.
+        truncated: Whether a table broke off mid-transfer, which blocks the commit.
+    """
 
     def __init__(self, dropzone_id, name):
         self.dropzone_id = dropzone_id
         self.name = name
         self.directory = Path(tempfile.mkdtemp(prefix="dropzone-flight-"))
         self.touched = time.monotonic()
-        # Set when a table broke off mid-transfer: the upload can no longer be complete,
-        # so the commit refuses rather than storing a truncated table.
         self.truncated = False
 
     def discard(self):
@@ -64,8 +65,11 @@ class Session:
 class AuthMiddleware(flight.ServerMiddleware):
     """Carries the session token of the call it belongs to.
 
-    ``sending_headers`` is what hands a freshly minted token back to the client, which
-    then presents it as a bearer token on the rest of the upload.
+    ``sending_headers`` hands a freshly minted token back to the client, which then
+    presents it as a bearer token on the rest of the upload.
+
+    Attributes:
+        token: The session token of this call's upload.
     """
 
     def __init__(self, token):
@@ -136,7 +140,17 @@ class FlightEndpoint(flight.FlightServerBase):
         return token, session
 
     def do_put(self, context, descriptor, reader, writer):
-        """Receive one table and write it to the session's directory as parquet."""
+        """Receive one table and write it to the session's directory as parquet.
+
+        Args:
+            context: The Flight call context.
+            descriptor: Flight descriptor whose last path element names the table.
+            reader: Record batch reader carrying the table.
+            writer: Unused; the endpoint sends nothing back on a put.
+
+        Raises:
+            FlightServerError: The table broke off mid-transfer.
+        """
         _, session = self._session(context)
         # The descriptor path is <dropzone>/<table>; only the table name matters here,
         # and its bare form keeps a client from writing outside the session directory.
@@ -157,7 +171,19 @@ class FlightEndpoint(flight.FlightServerBase):
         parquet.write_table(table, session.directory / f"{table_name}.parquet")
 
     def do_action(self, context, action):
-        """``commit`` stores the collected tables as one upload and ends the session."""
+        """``commit`` stores the collected tables as one upload and ends the session.
+
+        Args:
+            context: The Flight call context.
+            action: The requested action; only ``commit`` is supported.
+
+        Returns:
+            An iterator over one Result naming the number of files stored.
+
+        Raises:
+            FlightServerError: Unknown action, nothing to store, a truncated table, or
+                a rejection by the dropzone's checker or converter.
+        """
         token, session = self._session(context)
         if action.type != "commit":
             raise flight.FlightServerError(f"Unknown action '{action.type}'.")
@@ -197,9 +223,11 @@ class FlightEndpoint(flight.FlightServerBase):
 def _sweep(timeout):
     """Discard sessions whose client never committed.
 
-    Nothing is stored for them: an upload that was never committed is as incomplete as
-    an SFTP session that broke off mid-file, and committing it would turn a client
-    crash into a silently partial upload.
+    Nothing is stored for them: committing an abandoned upload would turn a client crash
+    into a silently partial upload.
+
+    Args:
+        timeout: Seconds of inactivity after which a session is abandoned.
     """
     with _lock:
         expired = [
@@ -217,7 +245,13 @@ def _sweep(timeout):
 
 
 def serve(port, timeout=None):
-    """Listen forever, sweeping abandoned upload sessions as we go."""
+    """Listen forever, sweeping abandoned upload sessions as we go.
+
+    Args:
+        port: TCP port to listen on.
+        timeout: Seconds of inactivity before a session is swept. Defaults to
+            ``settings.FLIGHT_SESSION_TIMEOUT``.
+    """
     timeout = settings.FLIGHT_SESSION_TIMEOUT if timeout is None else timeout
     server = FlightEndpoint(
         location=f"grpc://0.0.0.0:{port}",

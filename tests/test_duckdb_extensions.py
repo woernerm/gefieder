@@ -23,8 +23,10 @@ EXTENSION_DIR = "/opt/duckdb-extensions"
 
 
 def test_the_suite_shall_know_which_extensions_to_expect():
-    """An empty list would drop every parametrized test below and leave the suite green
-    without having checked anything, so assert the setting reached pytest at all."""
+    """The setting reached pytest at all.
+
+    An empty list would drop every parametrized test below and leave the suite green
+    without having checked anything."""
     assert EXTENSIONS, (
         "DUCKDB_EXTENSIONS is empty; run-tests.sh exports it from buildtime.env"
     )
@@ -39,7 +41,7 @@ def in_sqlmesh(*args):
 
 
 def in_sqlmesh_duckdb(sql):
-    """Run sql in the sqlmesh container's own DuckDB -- the one behind the duckdb gateway."""
+    """Run sql in the sqlmesh container's own DuckDB — the one behind the duckdb gateway."""
     return in_sqlmesh(
         "uv", "run", "--project", "/sqlmesh", "python", "-c",
         f"import duckdb; print(duckdb.connect().execute({sql!r}).fetchone()[0])",
@@ -136,7 +138,7 @@ class TestSqlmeshGatewayCarriesTheSameExtensions:
     """The duckdb gateway (sqlmesh/config.py) is the second DuckDB in the system.
 
     It runs inside the sqlmesh container, so it has its own copy of the extensions and its
-    own DuckDB version -- and a version-scoped extension tree makes the two inseparable:
+    own DuckDB version — and a version-scoped extension tree makes the two inseparable:
     a community extension is built per DuckDB release, so if the gateway's DuckDB ever
     drifts from pg_duckdb's, DUCKDB_EXTENSIONS stops being installable for both.
     """
@@ -209,7 +211,7 @@ class TestNoRuntimeDownload:
     def test_data_volume_shall_hold_no_downloaded_extensions(self):
         # A runtime download lands in the default directory under $PGDATA. Finding an
         # extension there means the server fetched it itself, so a machine without
-        # internet access would have failed here -- regardless of what the image ships.
+        # internet access would have failed here — regardless of what the image ships.
         downloaded = in_postgresql(
             "find", "/var/lib/postgresql/data/pg_duckdb", "-name", "*.duckdb_extension",
         )

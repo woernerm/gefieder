@@ -1,10 +1,6 @@
-"""
-ASGI config for crudman project.
+"""ASGI config for the crudman project.
 
-It exposes the ASGI callable as a module-level variable named ``application``.
-
-For more information on this file, see
-https://docs.djangoproject.com/en/6.0/howto/deployment/asgi/
+Exposes the ASGI callable as a module-level variable named ``application``.
 """
 
 import os

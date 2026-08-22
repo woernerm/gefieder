@@ -6,8 +6,8 @@ from one that is merely slow to come up, and the failure surfaces as a connectio
 rather than as a bad HTTP response.
 
 Both templates are rendered and loaded here exactly as the entrypoint does it, in a
-throwaway container built from the proxy image. The upstreams are stubs -- a plain nginx
-serving a known body on the app ports -- so the check needs no crudman, no grafana, no
+throwaway container built from the proxy image. The upstreams are stubs — a plain nginx
+serving a known body on the app ports — so the check needs no crudman, no grafana, no
 database and no network access beyond the container's own loopback. The failure it exists
 to catch is a `proxy_pass` naming a host that does not resolve inside the pod's shared
 network namespace, which aborts nginx at startup with "host not found in upstream".
@@ -47,7 +47,7 @@ CERT_MOUNT = "/etc/nginx/proxy/certs"
 REFUSAL = "TLS certificate missing"
 
 # podman copies the host's proxy variables into every container it starts. On a company
-# network they are set, and busybox wget honours them -- so the requests these tests make
+# network they are set, and busybox wget honours them — so the requests these tests make
 # to the proxy on the container's own loopback would be sent to the company proxy instead,
 # and every routing check would fail on a machine where the proxy itself is fine.
 NO_PROXY_ENV = "--http-proxy=false"
@@ -57,7 +57,7 @@ def _stub_upstreams():
     """An nginx config serving a distinct body on each application port.
 
     Stands in for crudman and grafana. Because every container of the stack shares one
-    network namespace, the real services are reachable on localhost -- so binding these
+    network namespace, the real services are reachable on localhost — so binding these
     stubs to localhost inside a single throwaway container reproduces the pod's network
     layout faithfully.
     """
@@ -101,7 +101,7 @@ def _run_entrypoint(debug, certs, hint=None, timeout=60):
     would assert nothing.
 
     Returns the CompletedProcess, or None when the entrypoint was still running at the
-    timeout -- which is the healthy outcome whenever the check lets nginx start, because
+    timeout — which is the healthy outcome whenever the check lets nginx start, because
     nginx then runs in the foreground forever. Tests that expect a refusal assert on the
     result; the one that expects a start asserts that there is none.
     """
@@ -138,7 +138,7 @@ def _run_proxy(script, debug, fixtures):
     and the quoting to one level.
 
     Production's ssl_certificate is read from certs-effective/, which only the
-    entrypoint's reorder_fullchain() populates (see entrypoint.sh) -- so this pulls that
+    entrypoint's reorder_fullchain() populates (see entrypoint.sh) — so this pulls that
     one function out of the real script and calls it here too, the same way the
     certificate-order checks in TestCertificateOrder exercise it via the entrypoint
     directly. Without this, every production-mode config here would fail to load with
@@ -207,8 +207,10 @@ cat /tmp/body 2>/dev/null || true
 
 
 def _fetch(path, args="", host="127.0.0.1"):
-    """The FETCH script for one request. `host` is the address nginx is asked on, which the
-    IPv6 test varies; the rest reach the proxy over IPv4 as every other test does."""
+    """The FETCH script for one request.
+
+    `host` is the address nginx is asked on, which the IPv6 test varies; the rest
+    reach the proxy over IPv4 as every other test does."""
     return FETCH.format(path=path, args=args, host=host)
 
 
@@ -233,7 +235,7 @@ class TestConfigLoads:
     def test_no_upstream_shall_be_addressed_by_container_name(self, debug, fixtures):
         # Asserted separately from the load check so a regression names its cause rather
         # than only reporting that the config did not load. Every container shares the
-        # pod's network namespace, in which container names do not resolve -- the services
+        # pod's network namespace, in which container names do not resolve — the services
         # are reachable on localhost.
         result = _run_proxy("nginx -t", debug, fixtures)
         assert "host not found in upstream" not in result.stderr, (
@@ -274,7 +276,7 @@ class TestMissingCertificate:
         )
         # Our own wording, not just the file name: nginx names fullchain.pem in its own
         # "cannot load certificate" error, so matching the name alone would pass even
-        # with the check gone -- which is the failure this test exists to prevent.
+        # with the check gone — which is the failure this test exists to prevent.
         assert REFUSAL in result.stderr, (
             f"the proxy failed without stating why; the operator is left with nginx's "
             f"error instead of a message naming {missing}:\n{result.stderr}"
@@ -367,7 +369,7 @@ class TestCertificateWiring:
 
 
 # What the probes below ask the running proxy. openssl runs inside the container itself --
-# the image ships one for the entrypoint's own use -- against nginx's loopback, so no client
+# the image ships one for the entrypoint's own use — against nginx's loopback, so no client
 # tooling on the test host is required.
 PROBE_SUBJECT = ("echo | openssl s_client -connect 127.0.0.1:443 2>/dev/null "
                  "| openssl x509 -noout -subject 2>/dev/null")
@@ -379,7 +381,7 @@ def _serve_certs(certs, probe):
 
     Returns (the probe's stdout stripped, or None if it never answered; the container's
     stderr log). Polls because nginx needs a moment to bind, and a certificate the proxy
-    refuses leaves it never answering at all -- which is the None the callers assert on.
+    refuses leaves it never answering at all — which is the None the callers assert on.
     """
     name = f"certorder-{uuid.uuid4().hex[:12]}"
     subprocess.run(
@@ -505,7 +507,7 @@ class TestConvertedBundles:
     `print >` reopens it after close(), so a splitter that keeps writing after
     END CERTIFICATE empties the certificate it just finished. Every certificate in the
     bundle is then unparseable, no leaf matches the key, and the entrypoint falls back to
-    passing the file through untouched -- the reordering silently does nothing on exactly
+    passing the file through untouched — the reordering silently does nothing on exactly
     the input it exists for. A bundle of plain concatenated certificates has no such lines
     and would never show it, hence this class.
     """
@@ -615,7 +617,7 @@ class TestConvertedBundles:
     def test_the_whole_chain_shall_be_served_from_a_converted_bundle(self, fmt, bundles):
         # Every certificate has to survive the split, not just the leaf: a chain that lost
         # its intermediate still starts nginx, and only clients that lack the intermediate
-        # fail -- exactly the breakage that is hardest to notice from the server.
+        # fail — exactly the breakage that is hardest to notice from the server.
         chain, logs = _serve_certs(bundles[fmt], PROBE_CHAIN)
         assert chain is not None, f"the proxy served no chain at all:\n{logs}"
         assert chain.count("BEGIN CERTIFICATE") == 3, (
@@ -661,7 +663,7 @@ class TestWebSockets:
 
     Grafana Live streams dashboard updates over one. Upgrade and Connection are hop-by-hop
     headers that nginx drops unless told otherwise, and its default HTTP/1.0 upstream cannot
-    carry an upgrade at all -- Grafana then answers the handshake with 400 while every
+    carry an upgrade at all — Grafana then answers the handshake with 400 while every
     ordinary page still loads, so nothing else in this suite would notice.
     """
 
@@ -689,8 +691,8 @@ class TestAddressFamilies:
     @pytest.mark.parametrize("debug", ["true", "false"])
     def test_the_proxy_shall_listen_on_ipv6(self, debug, fixtures):
         # The redirect at "/" is served by the proxy itself, so this needs no upstream. Both
-        # templates answer one on port 80 -- to the admin panel in development, to HTTPS in
-        # production -- so any 30x means the connection was accepted. --spider keeps wget
+        # templates answer one on port 80 — to the admin panel in development, to HTTPS in
+        # production — so any 30x means the connection was accepted. --spider keeps wget
         # from following it, which for production would need TLS.
         # --no-check-certificate so production's redirect into HTTPS resolves against the
         # throwaway certificate instead of retrying until the poll loop gives up.

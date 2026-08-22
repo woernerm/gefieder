@@ -7,11 +7,9 @@ from .utils import slugify_tenant_name
 class TenantCreationForm(forms.ModelForm):
     """Form for creating a tenant in the admin.
 
-    The user types a human name like "Project A"; the matching PostgreSQL-safe slug
-    (project_a) is derived from it and used as the role and bronze schema name. The slug
-    field itself is not shown on the add page -- it is filled in clean() from the name -- so
-    the user never has to know the slugging rules. A tenant role also needs a login
-    password, which is not stored on the model (it lives in PostgreSQL only).
+    The user types a human name like "Project A" and ``clean`` derives the slug used for
+    the role and bronze schema, so the slug field is not shown here. The password the
+    role needs is not stored on the model; it lives in PostgreSQL only.
     """
 
     password = forms.CharField(
@@ -35,8 +33,8 @@ class TenantCreationForm(forms.ModelForm):
         display_name = cleaned.get("display_name", "")
         slug = slugify_tenant_name(display_name)
         if not slug:
-            # Everything was stripped away (e.g. the name was only punctuation), so there
-            # is no valid identifier to use for the role and schema.
+            # Everything was stripped away, so there is no valid identifier left for the
+            # role and schema.
             self.add_error(
                 "display_name", "Could not derive a valid identifier from this name."
             )
@@ -54,8 +52,8 @@ class TenantCreationForm(forms.ModelForm):
 class TenantChangeForm(forms.ModelForm):
     """Form for editing an existing tenant.
 
-    The slug identifies the role and schema and cannot be changed, so it is shown
-    read-only. The human name and the resource limits are editable; the password is not.
+    The slug identifies the role and schema and cannot be changed, so it is read-only.
+    The human name and the resource limits are editable; the password is not.
     """
 
     class Meta:

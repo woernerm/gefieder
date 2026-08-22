@@ -107,7 +107,7 @@ GOLD_SCHEMA = os.environ["GOLD_SCHEMA"]
 # SILVER_SCHEMA. Not a build-time setting, because nothing in the deployment names it: the
 # init scripts grant on it through the SILVER_SCHEMA prefix match, and the only place it is
 # written out is the SQLMesh models. So it is derived here, where the two tests that care
-# about it live -- test_access_control asserts grafana cannot see it, and
+# about it live — test_access_control asserts grafana cannot see it, and
 # test_medallion_schemas asserts a shipped model still writes to it, which is what catches
 # the derivation going stale.
 SILVER_STAGING_SCHEMA = f"{SILVER_SCHEMA}_staging"

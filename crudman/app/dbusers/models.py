@@ -5,19 +5,16 @@ from django.db import models
 class DatabaseUser(models.Model):
     """A person's own PostgreSQL login role.
 
-    Unlike ``Tenant``, this is a real table rather than a cache over the catalog. The
-    catalog knows a role exists, but not which Django account it belongs to, and that link
-    is the whole point: it is what lets a rank change in the identity provider reach the
-    database, and what makes a query traceable back to a person.
+    Unlike ``Tenant``, a real table rather than a cache over the catalog: the catalog
+    knows a role exists but not which Django account it belongs to, and that link is what
+    lets a rank change reach the database and makes a query traceable back to a person.
 
-    The credential itself is deliberately absent. PostgreSQL stores only a SCRAM verifier
-    and crudman stores nothing, so a password that is lost is reset (re-provisioned), never
-    recovered -- see dbusers/backends.py.
+    The credential itself is deliberately absent, so a lost password is re-provisioned
+    rather than recovered; see :mod:`dbusers.backends`.
     """
 
-    # One database role per Django user. The Django account is the source of truth for who
-    # exists and what rank they hold; deleting it takes the row with it, and the signal in
-    # apps.py disables the role at the same time.
+    # The Django account is the source of truth for who exists and what rank they hold;
+    # deleting it takes the row with it, and the signal in apps.py disables the role.
     user = models.OneToOneField(
         User,
         on_delete=models.CASCADE,
@@ -25,9 +22,8 @@ class DatabaseUser(models.Model):
         verbose_name="administrator",
     )
 
-    # The PostgreSQL role name. Derived from the username rather than typed (see
-    # utils.role_name_for), but stored because the username may later change and the role
-    # it created must still be findable.
+    # Stored rather than derived on the fly (see utils.role_name_for) because the
+    # username may later change and the role it created must still be findable.
     role_name = models.CharField(
         "database role",
         max_length=63,
@@ -36,9 +32,8 @@ class DatabaseUser(models.Model):
         help_text="The PostgreSQL login role, derived from the username.",
     )
 
-    # Mirrors the gf_* group role the person is a member of. Kept here so the admin can
-    # show the rank without querying the catalog on every page load; the database remains
-    # authoritative, and re-provisioning rewrites both.
+    # Mirrored here so the admin can show the rank without querying the catalog on every
+    # page load; the database stays authoritative, and re-provisioning rewrites both.
     group_role = models.CharField(
         "rank",
         max_length=32,
@@ -46,9 +41,8 @@ class DatabaseUser(models.Model):
         help_text="The gf_* group role carrying this user's privileges.",
     )
 
-    # Whether the role may currently log in. Set to False by delete_db_user rather than
-    # dropping the role, so objects the person created keep their owner and the audit
-    # trail survives their departure.
+    # Set to False by delete_db_user rather than dropping the role, so objects the person
+    # created keep their owner and the audit trail survives their departure.
     is_enabled = models.BooleanField(
         "enabled",
         default=True,
@@ -56,12 +50,9 @@ class DatabaseUser(models.Model):
         help_text="Disabled roles keep everything they own but cannot connect.",
     )
 
-    # Whether the role is still waiting for its password.
-    #
     # An administrator enrolls someone, but the credential is generated on that person's
-    # next sign-in and shown to them alone -- so the administrator never learns a password
-    # that is not theirs, and nothing has to be stored in the meantime. Until then the role
-    # exists with no password and cannot connect.
+    # next sign-in and shown to them alone, so no administrator learns a password that is
+    # not theirs. Until then the role exists with no password and cannot connect.
     awaiting_credential = models.BooleanField(
         "awaiting credential",
         default=True,

@@ -1,16 +1,13 @@
 """The dropzones SFTP endpoint (run by ``manage.py sftpserver``).
 
 The application runs its own SFTP server instead of watching a directory, so an uploader
-needs no convention at all — no marker files, no manifest, no rename dance: connect
-with the dropzone's name and secret, ``put`` one or more files, disconnect. The
-server sees the transfer itself, so completeness needs no signalling: everything the
-client fully transferred in one SFTP (or scp) session becomes one upload through the
-same pipeline (``services.process_upload``) the browser and API uploads use. A
-session that breaks off in the middle of a file stores nothing, like an aborted POST.
+needs no convention at all: connect with the dropzone's name and secret, ``put`` one or
+more files, disconnect. The server sees the transfer itself, so completeness needs no
+signalling — everything fully transferred in one SFTP (or scp) session becomes one
+upload, and a session that breaks off mid-file stores nothing.
 
 Every session is chrooted into its own throwaway directory, so an uploader only ever
-sees the files of their own running session, never stored uploads or other dropzones'
-data.
+sees the files of their own running session.
 """
 
 import asyncio
@@ -42,8 +39,12 @@ _tasks = set()
 def _session_files(directory):
     """The files a finished session wrote, flattened.
 
-    The pipeline stores bare file names anyway, and how a client arranged its temporary
-    tree carries no meaning, so a subdirectory is not preserved.
+    Args:
+        directory: The session's chroot directory.
+
+    Returns:
+        Every file below it, sorted. Subdirectories are not preserved: the pipeline
+        stores bare file names, and a client's temporary tree carries no meaning.
     """
     return sorted(p for p in directory.rglob("*") if p.is_file())
 
@@ -83,8 +84,11 @@ async def _finish_session(name, dropzone_id, directory, peer):
 
 
 class SFTPEndpoint(asyncssh.SSHServer):
-    """One instance per SSH connection: authenticates a dropzone for the SFTP
-    sessions opened on the connection (see :class:`SessionSFTPServer`)."""
+    """One instance per SSH connection.
+
+    Authenticates a dropzone for the SFTP sessions opened on the connection, which
+    :class:`SessionSFTPServer` then serves.
+    """
 
     def connection_made(self, conn):
         self._conn = conn
@@ -113,16 +117,13 @@ class SFTPEndpoint(asyncssh.SSHServer):
 
 
 class SessionSFTPServer(asyncssh.SFTPServer):
-    """One SFTP (or scp) session: a chrooted throwaway directory that turns into one
-    upload when the session ends.
+    """One SFTP (or scp) session, stored as one upload when the session ends.
 
-    The commit decision is made here, at the session level, rather than at the SSH
-    connection level: well-behaved clients close every file and the SFTP channel but
-    not all of them disconnect cleanly afterwards (paramiko, for one, just drops the
-    socket), and an upload must not be lost to that. asyncssh force-closes the
-    handles a client never closed during its cleanup — while the channel reports
-    ``is_closing()`` — and then calls :meth:`exit` exactly once, so a forced close
-    marks the transfer as broken off mid-file, and everything else is complete.
+    The commit decision is made at the session level rather than at the SSH connection
+    level: not every client disconnects cleanly after closing its files (paramiko just
+    drops the socket), and an upload must not be lost to that. asyncssh force-closes
+    handles a client never closed while the channel reports ``is_closing()``, then calls
+    :meth:`exit` once, so a forced close marks the transfer as broken off mid-file.
     """
 
     def __init__(self, chan):
@@ -162,9 +163,9 @@ class SessionSFTPServer(asyncssh.SFTPServer):
 def _host_key():
     """The server's persistent host key, generated on first start.
 
-    Kept under SFTP_DIR (the sftp volume in the deployment) so the server identity
-    survives restarts and updates; a changed host key would make every SFTP client
-    refuse to reconnect.
+    Returns:
+        Path to the key under SFTP_DIR, so the server identity survives restarts and
+        updates; a changed host key would make every SFTP client refuse to reconnect.
     """
     path = Path(settings.SFTP_DIR) / "ssh_host_ed25519_key"
     if not path.exists():
@@ -177,8 +178,10 @@ def _host_key():
 async def serve(port):
     """Listen forever: one endpoint per connection, one chroot per session.
 
-    ``allow_scp`` accepts uploads from scp clients through the same chroot, so both
-    of the two commands everyone has installed just work.
+    ``allow_scp`` accepts uploads from scp clients through the same chroot.
+
+    Args:
+        port: TCP port to listen on.
     """
     server = await asyncssh.listen(
         host="",

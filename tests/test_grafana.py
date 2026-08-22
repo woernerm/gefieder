@@ -80,8 +80,10 @@ class TestPanelPlugins:
     """The panel plugins baked into the image are loaded by the running Grafana."""
 
     def test_the_suite_shall_know_which_plugins_to_expect(self):
-        """An empty list would drop the parametrized test below and leave the suite green
-        without having checked anything, so assert the setting reached pytest at all."""
+        """The setting reached pytest at all.
+
+        An empty list would drop the parametrized test below and leave the suite
+        green without having checked anything."""
         assert PLUGINS, (
             "GRAFANA_PLUGINS is empty; run-tests.sh exports it from buildtime.env"
         )

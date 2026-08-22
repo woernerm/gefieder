@@ -1,20 +1,17 @@
 """The published ports come from runtime.env, and every link in that chain holds.
 
-quadlets/main.pod names its host ports as ${TOKEN}s. Nothing expands them at build time on
-purpose: envsubst leaves a token its allowlist does not carry, quadlet copies the line into
-the generated unit verbatim, and systemd expands it from the EnvironmentFile when the pod
-starts. Three things can break that silently, and none of them fails the build:
+quadlets/main.pod names its host ports as ${TOKEN}s, deliberately left unexpanded at build
+time so systemd expands them from the EnvironmentFile when the pod starts. Three things
+break that silently, none of them failing the build:
 
   * a token runtime.env does not declare expands to nothing, so podman is handed
-    "--publish :5432" and the pod fails to start -- on the target machine, at first boot;
-  * a token added to an envsubst allowlist is frozen into the shipped unit instead, and the
-    operator's runtime.env is then ignored with no sign of it;
-  * a pod file without an EnvironmentFile leaves systemd nothing to expand from at all.
+    "--publish :5432" and the pod fails to start on the target machine, at first boot;
+  * a token added to an envsubst allowlist is frozen into the shipped unit instead, and
+    the operator's runtime.env is then ignored with no sign of it;
+  * a pod file without an EnvironmentFile leaves systemd nothing to expand from.
 
-That the ports then actually work is covered by the rest of the suite, which reaches the
-database, the SFTP endpoint and the Flight endpoint on the isolated ports run-tests.sh puts
-in the test runtime.env -- so these are the static checks that a *changed* port would not
-be quietly ignored.
+That the ports then work is covered by the rest of the suite; these are the static checks
+that a *changed* port would not be quietly ignored.
 """
 import re
 from pathlib import Path
@@ -86,7 +83,7 @@ def test_the_installer_shall_preflight_the_configured_ports():
 
 def test_the_dropzone_healthchecks_shall_follow_their_port():
     # These two publish the port they listen on, so a moved port has to reach the probe as
-    # well -- a literal one leaves the unit failing to start on a changed runtime.env.
+    # well — a literal one leaves the unit failing to start on a changed runtime.env.
     for svc, var in (("sftp", "SFTP_PORT"), ("flight", "FLIGHT_PORT")):
         text = (REPO / "quadlets" / f"{svc}.container").read_text()
         probes = [l for l in text.splitlines() if l.startswith(("HealthCmd=", "HealthStartupCmd="))]
