@@ -18,13 +18,14 @@ touch files in venv) and refactor the comments and docstrings so that
 only the most important information, paragraph structure, correct grammar and correct
 spelling is kept. The desired comment and docstrings lengths are:
 
-* *Module/file docstring:* 1 line brief. Description is optional, 15 lines or less.
-* *Function docstring*: 1 line brief. Description is optional, 10 lines or less. 
-  *Args:* section describing all parameters, each less than 5 lines, ideally 1 line. 
-  *Returns:* section is optional, at most 3 lines, ideally one line. *Examples:* section 
-  is optional, examples shall be distinct (treating totally different use cases only). 
-  At most 15 lines, ideally one line. *Raises* section if applicable, at most 5 lines,
-  ideally 1 line.
+* *Module/files:* 1 line brief. Description is optional, 15 lines or less.
+* *Functions*: 1 line brief. Mandatory for functions/methods that are longer than 
+  5 lines. Description is always optional, 10 lines or less. *Args:* section describing 
+  all parameters. Mandatory for functions that are longer than 5 lines. Optional 
+  otherwise, each less than 5 lines, ideally 1 line. *Returns:* section is optional, 
+  at most 3 lines, ideally one line. *Examples:* section is optional, examples shall be 
+  distinct (treating totally different use cases only). At most 15 lines, ideally one 
+  line. *Raises* section if applicable, at most 5 lines, ideally 1 line.
 * *Classes*: 1 line brief. Description is optional, 10 lines or less. *Attributes* 
   section is optional, less than 3 lines per attribute, ideally 1 line.
 * *Constants*: Use docstrings for global and class constants, comments otherwise. 
