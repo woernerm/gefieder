@@ -8,6 +8,7 @@
  */
 (() => {
   const instances = new Map();
+  const observers = new Map();
 
   const cssVar = (name, fallback) => {
     const value = getComputedStyle(document.documentElement)
@@ -84,6 +85,8 @@
     const existing = instances.get(element);
     if (existing) {
       existing.dispose();
+      observers.get(element)?.disconnect();
+      observers.delete(element);
     }
 
     let options;
@@ -97,6 +100,16 @@
     const chart = echarts.init(element, null, { renderer: "canvas" });
     chart.setOption(applyTheme(options));
     instances.set(element, chart);
+
+    // ECharts measures the container once, at init, and keeps drawing to that size. The
+    // sidebar toggles by changing classes rather than by resizing the window, so a chart
+    // laid out beside it would stay at its old width and sit off-centre. Observing the
+    // element itself catches every layout change, whatever caused it.
+    if (typeof ResizeObserver === "function") {
+      const observer = new ResizeObserver(() => chart.resize());
+      observer.observe(element);
+      observers.set(element, observer);
+    }
   };
 
   const renderAll = (root) => {

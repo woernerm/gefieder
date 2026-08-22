@@ -97,6 +97,19 @@ class InitScriptTests(SimpleTestCase):
                 "under the 'axis' key, which applyTheme copies onto declared axes only.",
             )
 
+    def test_each_chart_shall_be_told_when_its_own_box_changes_size(self):
+        """The sidebar toggles by changing classes, which fires no window resize event.
+
+        ECharts measures its container once, at init, so a chart beside a collapsing
+        sidebar keeps its old width and sits off-centre. Listening on the window alone
+        does not see it; the element itself has to be observed.
+        """
+        source = SCRIPT.read_text()
+        self.assertIn("ResizeObserver", source)
+        self.assertIn("observer.observe(element)", source)
+        # An observer left running after its chart is disposed keeps the element alive.
+        self.assertIn("disconnect()", source)
+
     def test_the_guard_shall_notice_the_mistake_it_exists_for(self):
         """The check is only worth having if it fails on the code that caused the bug."""
         regressed = (

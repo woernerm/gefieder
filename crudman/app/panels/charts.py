@@ -127,7 +127,17 @@ def build(panel, columns, rows):
             {
                 "tooltip": {"trigger": "item"},
                 "legend": {"bottom": 0},
-                "series": [{"type": "pie", "radius": ["40%", "70%"], "data": data}],
+                # The legend sits at the bottom and the pie would otherwise be centred
+                # on the whole canvas, leaving it looking low. Lifting the centre keeps it
+                # centred in the space the legend does not take.
+                "series": [
+                    {
+                        "type": "pie",
+                        "radius": ["40%", "70%"],
+                        "center": ["50%", "45%"],
+                        "data": data,
+                    }
+                ],
             },
             panel.options,
         )
@@ -145,7 +155,11 @@ def build(panel, columns, rows):
         {
             "tooltip": {"trigger": "axis"},
             "legend": {"bottom": 0, "show": len(series) > 1},
-            "grid": {"left": 8, "right": 8, "bottom": 32, "top": 16, "containLabel": True},
+            # containLabel adds the axis labels to the box rather than overlapping them,
+            # and the y-axis labels only exist on the left, so equal margins would leave
+            # the plot area pushed to the right. The left margin is the smaller of the two
+            # for that reason: the labels make up the difference.
+            "grid": {"left": 0, "right": 16, "bottom": 32, "top": 16, "containLabel": True},
             "xAxis": {"type": "category", "data": categories},
             "yAxis": {"type": "value"},
             "series": series,
