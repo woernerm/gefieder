@@ -26,10 +26,10 @@ spelling is kept. The desired comment and docstrings lengths are:
   ideally 1 line.
 * *Classes*: 1 line brief. Description is optional, 10 lines or less. *Attributes* 
   section is optional, less than 3 lines per attribute, ideally 1 line.
-* *Constants*: 1 line brief. Description is optional, use only if non-obvious, less than
-  5 lines, ideally 2 lines or less. *Examples:* section is optional, used to illustrate
-  the format of special strings. Keep examples as distinct as possible. Less than 5 
-  lines, ideally 2 lines.
+* *Constants*: Docstring is optional. Use only if non-obvious. 1 line brief. Description 
+  is optional, use only if non-obvious, less than 5 lines, ideally 2 lines or less. 
+  *Examples:* section is optional, used to illustrate the format of special strings. 
+  Keep examples as distinct as possible. Less than 5 lines, ideally 2 lines.
 
 For comments in non-python files use the same length guide but a style consistent
 with what is most common for the type of file.
