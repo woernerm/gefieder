@@ -1,12 +1,13 @@
 ---
 name: declutter
-description: Find and apply refactorings that remove code from this repository — survey for duplication, dead code and obsolete features, then implement fix by fix, measuring the lines each one actually saves and reverting the ones that do not pay. Use when asked to declutter, deduplicate, shrink or refactor the codebase for size, or to hunt dead code.
+description: Find and apply refactorings that remove code from this repository — survey for duplication, dead code and obsolete features, then implement fix by fix, measuring the lines each one actually saves and reverting the ones that do not pay. Use when asked to declutter, deduplicate, shrink or refactor the codebase for size, to hunt dead code, or to make comments more concise or to refactor comments.
 ---
 
 # Decluttering
 
-The goal is fewer code lines, not fewer files or shorter comments. A refactoring done 
-with this skill earns its place by removing more than it adds — measured, not estimated.
+The goal is fewer code lines (excluding comments and whitespace), not fewer files.
+A refactoring done with this skill earns its place by removing more than it adds — 
+measured, not estimated.
 
 ## Measuring
 
