@@ -16,8 +16,7 @@
     return value || fallback;
   };
 
-  const isDark = () =>
-    document.querySelector("html").classList.contains("dark");
+  const isDark = () => document.documentElement.classList.contains("dark");
 
   // Unfold's palette carries no categorical scale, so the series colours are a fixed
   // set chosen to stay legible on both backgrounds.
@@ -114,16 +113,29 @@
     }
   };
 
-  document.addEventListener("DOMContentLoaded", () => renderAll());
+  // Unfold emits UNFOLD["SCRIPTS"] into the head without defer, so this runs before
+  // there is a body to listen on. Everything touching the document therefore waits for
+  // DOMContentLoaded; reaching for document.body at head time would throw and take the
+  // whole script -- charts included -- down with it.
+  const wire = () => {
+    renderAll();
 
-  // Each panel swaps in on its own, so only the fragment just delivered is scanned.
-  document.body.addEventListener("htmx:afterSwap", (event) => renderAll(event.target));
+    // Each panel swaps in on its own, so only the fragment just delivered is scanned.
+    document.body.addEventListener("htmx:afterSwap", (event) => renderAll(event.target));
 
-  // Unfold toggles the theme by putting the class on <html>; there is no event for it.
-  new MutationObserver(retheme).observe(document.querySelector("html"), {
-    attributes: true,
-    attributeFilter: ["class"],
-  });
+    // Unfold toggles the theme by putting the class on <html>; there is no event for it.
+    new MutationObserver(retheme).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", wire);
+  } else {
+    // Already parsed: a deferred or late-injected script would never see the event.
+    wire();
+  }
 
   window.addEventListener("resize", () => {
     for (const chart of instances.values()) {
