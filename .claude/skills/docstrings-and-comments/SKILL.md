@@ -10,13 +10,15 @@ information is to be avoided, leaving less chance for comments and docstrings to
 Comments and docstrings should have the same stye, respectively.
 
 ## Process
-For python, comments and docstrings shall be [Google style](https://google.github.io/styleguide/pyguide.html#Comments) 
+1. Go through all files and find information in the comments and docstrings that is not 
+true. Correct that information or remove it if it is obsolete.
+
+2. For python, comments and docstrings shall be [Google style](https://google.github.io/styleguide/pyguide.html#Comments) 
 (fetch and read the resource).
 
-After this, go through all python files (do not touch third-party libraries, e.g. do not
-touch files in venv) and refactor the comments and docstrings so that
-only the most important information, paragraph structure, correct grammar and correct
-spelling is kept. The desired comment and docstrings lengths are:
+3. After this, go through all python files (do not touch third-party libraries, e.g. do 
+not touch files in venv) and refactor the comments and docstrings so that only the most important information, paragraph structure, correct grammar and correct spelling is 
+kept. The desired comment and docstrings lengths are:
 
 * *Module/files:* 1 line brief. Description is optional, 15 lines or less.
 * *Functions*: 1 line brief. Mandatory for functions/methods that are longer than 
@@ -35,5 +37,6 @@ spelling is kept. The desired comment and docstrings lengths are:
   *Examples:* section is optional, used to illustrate the format of special strings. 
   Keep examples as distinct as possible. Less than 5 lines, ideally 2 lines.
 
-For comments in non-python files use the same length guide but a style consistent
+4. For comments in non-python files use the same length guide but a style consistent
 with what is most common for the type of file.
+
