@@ -13,7 +13,8 @@ Comments and docstrings should have the same stye, respectively.
 For python, comments and docstrings shall be [Google style](https://google.github.io/styleguide/pyguide.html#Comments) 
 (fetch and read the resource).
 
-After this, go through all python files and refactor the comments and docstrings so that
+After this, go through all python files (do not touch third-party libraries, e.g. do not
+touch files in venv) and refactor the comments and docstrings so that
 only the most important information, paragraph structure, correct grammar and correct
 spelling is kept. The desired comment and docstrings lengths are:
 
