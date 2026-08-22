@@ -18,6 +18,8 @@ CRUDMAN_PATH = os.environ.get("CRUDMAN_PATH", "crudman")
 urlpatterns = [
     # Under CRUDMAN_PATH so the proxy needs no extra route.
     path(f"{CRUDMAN_PATH}/dropzones/", include("dropzones.urls")),
+    # The fragments each chart panel fetches for itself once the page is up.
+    path(f"{CRUDMAN_PATH}/panels/", include("panels.urls")),
     # The admin's own login address, claimed so an unauthenticated visitor is sent to the
     # identity provider instead of a form. Django keeps redirecting here by name, so the
     # interception needs no other change.

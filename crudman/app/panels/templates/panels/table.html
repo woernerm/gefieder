@@ -1,0 +1,29 @@
+{% comment %}
+The table chart type: the result as it came back, for panels whose value is the rows
+themselves rather than a plot of them.
+{% endcomment %}
+
+<div class="overflow-auto" style="max-height: {{ panel.height }}px" data-simplebar>
+    <table class="border-separate w-full text-sm">
+        <thead>
+            <tr>
+                {% for column in columns %}
+                    <th class="font-semibold pb-2 pr-3 text-left text-font-important-light dark:text-font-important-dark">
+                        {{ column }}
+                    </th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+                <tr>
+                    {% for value in row %}
+                        <td class="border-t border-base-200 pr-3 py-1.5 dark:border-base-800">
+                            {{ value }}
+                        </td>
+                    {% endfor %}
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

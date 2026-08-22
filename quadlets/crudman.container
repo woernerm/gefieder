@@ -51,9 +51,15 @@ Environment=SECRET_DJANGO_KEY=${SECRET_DJANGO_KEY}
 Environment=SECRET_CRUDMAN_PASSWORD=${SECRET_CRUDMAN_PASSWORD}
 Environment=SECRET_SUPERUSER_PASSWORD=${SECRET_SUPERUSER_PASSWORD}
 Environment=SECRET_OIDC_CLIENT=${SECRET_OIDC_CLIENT}
+# The analytics role's password, so the chart panels can query the medallion layers as
+# the very role Grafana uses and get the same answers. It is read-only on everything it
+# can reach, which is what makes a panel's stored SQL safe to run.
+Environment=SECRET_GRAFANA_PASSWORD=${SECRET_GRAFANA_PASSWORD}
+Environment=GRAFANA_DB_USER=${GRAFANA_DB_USER}
 Secret=${SECRET_DJANGO_KEY}
 Secret=${SECRET_CRUDMAN_PASSWORD}
 Secret=${SECRET_SUPERUSER_PASSWORD}
+Secret=${SECRET_GRAFANA_PASSWORD}
 # A placeholder while OIDC_ENABLED is false, but must exist: podman will not start a
 # container whose Secret= is missing.
 Secret=${SECRET_OIDC_CLIENT}

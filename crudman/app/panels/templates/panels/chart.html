@@ -1,0 +1,14 @@
+{% comment %}
+The fragment HTMX swaps in once the query has run. panels.init.js picks the div up by its
+class and hands the options to ECharts.
+{% endcomment %}
+
+{% if empty %}
+    <p class="py-8 text-center text-sm text-font-subtle-light dark:text-font-subtle-dark">
+        The query returned no rows.
+    </p>
+{% else %}
+    <div class="echarts-panel"
+         data-options="{{ options }}"
+         style="height: {{ panel.height }}px"></div>
+{% endif %}

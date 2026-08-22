@@ -1,0 +1,12 @@
+{% comment %}
+A panel that cannot be drawn reports why inside its own card: one broken panel must not
+take down the admin page that embeds it. The heading stays neutral because the reason is
+either a rejected query or a column the panel names but the query does not return.
+{% endcomment %}
+
+<div class="py-6 text-sm">
+    <p class="font-semibold text-red-600 dark:text-red-400">This panel could not be drawn.</p>
+    <p class="mt-1 font-mono text-xs break-words text-font-subtle-light dark:text-font-subtle-dark">
+        {{ error }}
+    </p>
+</div>

@@ -1,0 +1,33 @@
+{% load unfold %}
+
+{% comment %}
+Places one panel. The card is drawn at once and its body is fetched separately, so a page
+carrying several panels issues their queries in parallel instead of waiting for each in
+turn. Include it as:
+
+    {% component "panels/panel.html" with component_class="PanelComponent" panel="the-slug" %}{% endcomponent %}
+{% endcomment %}
+
+{% if panel %}
+    {% component "unfold/components/card.html" with title=panel.title %}
+        {% if panel.description %}
+            <p class="mb-4 text-sm text-font-subtle-light dark:text-font-subtle-dark">
+                {{ panel.description }}
+            </p>
+        {% endif %}
+
+        <div hx-get="{% url 'panels:data' panel.slug %}"
+             hx-trigger="load"
+             hx-swap="innerHTML"
+             style="min-height: {{ panel.height }}px">
+            <div class="animate-pulse bg-base-100 rounded-default dark:bg-base-800"
+                 style="height: {{ panel.height }}px"></div>
+        </div>
+    {% endcomponent %}
+{% else %}
+    {% component "unfold/components/card.html" with title="Unknown panel" %}
+        <p class="text-sm text-red-600 dark:text-red-400">
+            No panel is stored under this slug.
+        </p>
+    {% endcomponent %}
+{% endif %}

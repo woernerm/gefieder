@@ -11,6 +11,7 @@ import os
 import secrets
 from pathlib import Path
 
+from django.templatetags.static import static
 from django.urls import Resolver404, resolve
 
 from sso.scopes import scopes_for
@@ -100,6 +101,9 @@ INSTALLED_APPS = [
     'example.apps.ExampleConfig',
     'tenants.apps.TenantsConfig',
     'dropzones.apps.DropzonesConfig',
+    # Chart panels whose SQL is stored rather than written here, so they can be created
+    # at runtime. Their queries run on the analytics connection below, never this app's.
+    'panels.apps.PanelsConfig',
     # After sso, whose role groups decide the database rank a person is provisioned with.
     'dbusers.apps.DbUsersConfig',
     # Always installed, even with single sign-on off, so its post_migrate receiver keeps
@@ -123,7 +127,11 @@ ROOT_URLCONF = 'crudman.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        # Project templates win over every app's, which is the only way to override
+        # one Unfold ships: it has to stay first in INSTALLED_APPS, so an app template of
+        # the same name would never be reached. templates/admin/index.html is the
+        # dashboard carrying the chart panels.
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -162,6 +170,28 @@ DATABASES = {
         },
     }
 }
+
+# The connection the chart panels query the medallion layers on. It authenticates as the
+# analytics role -- the one Grafana uses -- for two reasons: the read grants on silver,
+# gold and the per-tenant bronze schemas already exist on it, and a query written here
+# therefore returns exactly what the same query returns in a Grafana dashboard. The role
+# holds no write grant on anything it can read, which is what makes a stored, editable
+# SQL statement safe to run; panels.query adds a read-only transaction on top.
+PANELS_PASSWORD_FILE = secret_path("SECRET_GRAFANA_PASSWORD", "grafana_password")
+
+if PANELS_PASSWORD_FILE.exists():
+    DATABASES['panels'] = {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('POSTGRES_DB', 'postgres'),
+        'USER': os.environ.get('GRAFANA_DB_USER', 'grafana'),
+        'PASSWORD': PANELS_PASSWORD_FILE.read_text().strip(),
+        'HOST': os.environ.get('POSTGRES_HOST', 'postgresql'),
+        'PORT': os.environ.get('POSTGRES_PORT', '5432'),
+    }
+
+# Nothing is ever migrated onto the panels connection, and no model reads or writes
+# through it; see panels/routers.py.
+DATABASE_ROUTERS = ['panels.routers.PanelsRouter']
 
 
 # Password validation
@@ -343,9 +373,20 @@ UNFOLD = {
     # Browser tab title
     "SITE_TITLE": f"{APP_NAME} Administration",
 
+    # ECharts and the code that turns a panel fragment into a chart. Vendored rather than
+    # loaded from a CDN: a target machine need not reach the internet. Unfold already
+    # loads HTMX itself, which is what fetches the fragments.
+    "SCRIPTS": [
+        lambda request: static("panels/echarts.min.js"),
+        lambda request: static("panels/panels.init.js"),
+    ],
+
     # Header text in the admin
     "SITE_HEADER": APP_NAME,
 
     # The "Return to site" link, hidden until there is a site root to return to.
     "SITE_URL": _site_url,
+
+    # Puts the panels flagged for the dashboard onto it; see panels/dashboard.py.
+    "DASHBOARD_CALLBACK": "panels.dashboard.dashboard_callback",
 }

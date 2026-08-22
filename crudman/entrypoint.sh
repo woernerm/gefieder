@@ -89,4 +89,11 @@ user.set_password(
 user.save()
 "
 
-exec uv run --project /crudman gunicorn -b 0.0.0.0:8000 crudman.wsgi:application
+# Threads, because gunicorn's default of a single sync worker serves one request at a
+# time: a page of chart panels fetches each of them separately and they would queue
+# behind one another, which is exactly what the separate fetches exist to avoid. The work
+# is waiting on the database rather than on the CPU, so threads suit it and the GIL costs
+# nothing here.
+exec uv run --project /crudman gunicorn -b 0.0.0.0:8000 \
+  --workers "${GUNICORN_WORKERS:-2}" --threads "${GUNICORN_THREADS:-8}" \
+  crudman.wsgi:application
