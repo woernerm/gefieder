@@ -78,6 +78,25 @@ class InitScriptTests(SimpleTestCase):
         # be checked rather than the listener simply registered.
         self.assertIn("document.readyState", source)
 
+    def test_the_theme_shall_not_hand_every_chart_a_pair_of_axes(self):
+        """A pie has no axes; ECharts draws empty default ones if the options mention them.
+
+        The theme is merged over what the server sends, so an xAxis/yAxis sitting in it
+        unconditionally reaches charts that never asked for one. They belong under a key
+        applyTheme copies onto the axes a chart actually declares.
+        """
+        source = SCRIPT.read_text()
+        theme = source[source.index("const themeOptions"):source.index("const merge")]
+
+        for axis in ("xAxis:", "yAxis:"):
+            self.assertNotIn(
+                axis,
+                theme,
+                f"themeOptions() must not define {axis.rstrip(':')}: every chart is "
+                "merged over it, so a pie would be given empty axes. Put the styling "
+                "under the 'axis' key, which applyTheme copies onto declared axes only.",
+            )
+
     def test_the_guard_shall_notice_the_mistake_it_exists_for(self):
         """The check is only worth having if it fails on the code that caused the bug."""
         regressed = (

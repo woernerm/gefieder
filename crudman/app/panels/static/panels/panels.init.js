@@ -34,12 +34,10 @@
       color: PALETTE,
       textStyle: { color: text, fontFamily: "inherit" },
       legend: { textStyle: { color: text } },
-      xAxis: {
-        axisLine: { lineStyle: { color: line } },
-        axisLabel: { color: text },
-        splitLine: { lineStyle: { color: line } },
-      },
-      yAxis: {
+      // Axis styling is deliberately not here: it is applied in applyTheme only to the
+      // axes a chart actually declares. Merged in unconditionally it would give a pie
+      // -- which has no axes at all -- an empty pair of default ones.
+      axis: {
         axisLine: { lineStyle: { color: line } },
         axisLabel: { color: text },
         splitLine: { lineStyle: { color: line } },
@@ -59,14 +57,17 @@
     return result;
   };
 
-  // The axis defaults have to reach each entry of an axis array too, which a plain merge
-  // of object over array would drop.
   const applyTheme = (options) => {
-    const theme = themeOptions();
+    const { axis, ...theme } = themeOptions();
     const merged = merge(theme, options);
-    for (const axis of ["xAxis", "yAxis"]) {
-      if (Array.isArray(options[axis])) {
-        merged[axis] = options[axis].map((entry) => merge(theme[axis], entry));
+
+    // Only the axes the chart brought itself are styled, and an axis given as an array
+    // is styled entry by entry -- a plain merge of object over array would drop it.
+    for (const name of ["xAxis", "yAxis"]) {
+      if (Array.isArray(options[name])) {
+        merged[name] = options[name].map((entry) => merge(axis, entry));
+      } else if (options[name]) {
+        merged[name] = merge(axis, options[name]);
       }
     }
     return merged;

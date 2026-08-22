@@ -32,20 +32,50 @@ def _plain(value):
 def merge(base, override):
     """Recursively merge one option object over another.
 
+    Lists are merged entry by entry rather than replaced, because the list that matters
+    is ``series``: an override naming one setting of a series has to refine it, not stand
+    in for it. Replacing outright would drop the ``type`` and the ``data`` the query
+    produced and leave an empty chart. A longer override still adds its extra entries.
+
     Args:
         base: The generated options.
         override: The panel's own options, which win.
 
     Returns:
-        A new dict; nested dicts are merged, every other value is replaced outright.
+        A new dict; dicts and lists are merged, every other value is replaced outright.
     """
     result = dict(base)
     for key, value in (override or {}).items():
-        if isinstance(value, dict) and isinstance(result.get(key), dict):
-            result[key] = merge(result[key], value)
+        current = result.get(key)
+        if isinstance(value, dict) and isinstance(current, dict):
+            result[key] = merge(current, value)
+        elif isinstance(value, list) and isinstance(current, list):
+            result[key] = _merge_lists(current, value)
         else:
             result[key] = value
     return result
+
+
+def _merge_lists(base, override):
+    """Merge two lists position by position.
+
+    Args:
+        base: The generated entries.
+        override: The panel's entries, which win.
+
+    Returns:
+        A list as long as the longer of the two; entries that are both dicts are merged,
+        anything else is taken from the override where it has one.
+    """
+    merged = []
+    for position in range(max(len(base), len(override))):
+        left = base[position] if position < len(base) else None
+        right = override[position] if position < len(override) else None
+        if isinstance(left, dict) and isinstance(right, dict):
+            merged.append(merge(left, right))
+        else:
+            merged.append(right if position < len(override) else left)
+    return merged
 
 
 def build(panel, columns, rows):
