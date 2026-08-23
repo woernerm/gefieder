@@ -73,7 +73,33 @@ choose what a stored statement runs with.
 
 ## Chart configuration
 
-`chart_type` picks the shape (bar, line, pie, scatter, table). The category axis is the
-first result column and every other column becomes a series, unless *category column* and
-*value columns* say otherwise. Anything else ECharts can do is reachable through
-*ECharts options*, a JSON object merged over the generated one.
+A panel stores a whole ECharts option object, the kind that can be pasted straight out of
+<https://echarts.apache.org/examples/>. There is no field for the chart type or the axes
+because the option object already says all of that.
+
+The one edit a pasted example needs is where its data comes from. The query result is
+injected as **dataset 0**, its column names becoming the dataset's dimensions, so a series
+names a column instead of carrying numbers:
+
+```js
+// The library's line-simple example ...
+series: [{data: [150, 230, 224], type: 'line'}]
+
+// ... reading the query instead.
+series: [{type: 'line', encode: {x: 'day', y: 'total'}}]
+```
+
+Grouping, filtering and sorting are ECharts' own `dataset.transform`, so they need no
+support here:
+
+```js
+dataset: [{transform: {type: 'sort', config: {dimension: 'effort', order: 'desc'}}}],
+series: [{type: 'bar', datasetIndex: 1, encode: {x: 'title', y: 'effort'}}]
+```
+
+A transform that names no source reads dataset 0, which is the query result -- so a
+transform can be pasted in as the library writes it. A panel that spells out
+`fromDatasetIndex` counts its own datasets from 1, the query result having taken 0.
+
+ECharts has no table, so the one shape it cannot draw is asked for by name: an option
+object of `{"table": true}` renders the rows themselves.

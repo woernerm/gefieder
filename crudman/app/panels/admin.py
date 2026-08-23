@@ -15,13 +15,13 @@ from .models import Panel
 
 @admin.register(Panel)
 class PanelAdmin(ModelAdmin):
-    list_display = ("title", "slug", "chart_type", "on_dashboard")
-    list_filter = ("chart_type", "on_dashboard")
+    list_display = ("title", "slug", "on_dashboard")
+    list_filter = ("on_dashboard",)
     search_fields = ("title", "slug", "sql")
     prepopulated_fields = {"slug": ("title",)}
 
     fieldsets = (
         (None, {"fields": ("title", "slug", "description", "on_dashboard")}),
         ("Query", {"fields": ("sql", "parameters")}),
-        ("Chart", {"fields": ("chart_type", "x_field", "y_fields", "height", "options")}),
+        ("Chart", {"fields": ("options", "height")}),
     )

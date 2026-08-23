@@ -50,7 +50,9 @@ def panel():
     crudman(
         "from panels.models import Panel;"
         f"Panel.objects.update_or_create(slug='{PANEL_SLUG}',"
-        f" defaults=dict(title='Test panel', sql=\"{PANEL_SQL}\", chart_type='bar'))"
+        f" defaults=dict(title='Test panel', sql=\"{PANEL_SQL}\","
+        " options={'series': [{'type': 'bar', 'encode': {'x': 'tenant_id',"
+        " 'y': 'open_issues'}}]}))"
     )
     yield PANEL_SLUG
     crudman(
@@ -150,10 +152,13 @@ class TestPanelEndpoint:
         import re
         raw = re.search(r'data-options="(.*?)"\s', resp.text, re.S).group(1)
         options = json.loads(raw.replace("&quot;", '"').replace("&#x27;", "'"))
-        assert [series["name"] for series in options["series"]] == [
-            "open_issues", "closed_issues"
+        # The query result reaches the browser as dataset 0; the series names its
+        # columns rather than carrying the numbers itself.
+        dataset = options["dataset"]
+        assert dataset["dimensions"] == ["tenant_id", "open_issues", "closed_issues"]
+        assert [row[0] for row in dataset["source"]] == [
+            "project_a", "project_b", "project_c"
         ]
-        assert options["xAxis"]["data"] == ["project_a", "project_b", "project_c"]
 
 
 class TestAssets:
@@ -164,3 +169,31 @@ class TestAssets:
         resp = http_follow.get(f"/{CRUDMAN_PATH}/static/panels/{asset}")
         assert resp.status_code == 200
         assert len(resp.content) > 1000
+
+
+class TestExamplePanels:
+    """The examples a fresh system starts with have to work against the real data."""
+
+    def test_every_example_shall_render_with_the_columns_it_names(self):
+        """An encode naming a column the query does not return draws an empty chart.
+
+        Only the database can say which columns a statement returns, which is why this
+        lives here rather than in the app's own tests.
+        """
+        script = (
+            "from panels.models import Panel\n"
+            "from panels.query import run\n"
+            "from panels import charts\n"
+            "import json, re\n"
+            "for p in Panel.objects.filter(slug__startswith='example-'):\n"
+            "    cols, rows = run(p.sql, p.parameters)\n"
+            "    option = charts.build(p, cols, rows)\n"
+            "    named = set(re.findall(r'\\'(?:x|y|value|itemName)\\': \\'([a-z_]+)\\'',"
+            " str(option)))\n"
+            "    missing = named - set(cols)\n"
+            "    print(p.slug, 'MISSING' if missing else 'ok', sorted(missing))\n"
+        )
+        output = crudman(script)
+
+        assert "MISSING" not in output, output
+        assert "example-" in output, "no example panels were found at all"

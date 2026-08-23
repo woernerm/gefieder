@@ -9,9 +9,16 @@ see ``panels.query``.
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from .encoders import PrettyJSONEncoder
+
 
 class Panel(models.Model):
-    """One chart: a SQL query against the medallion layers plus how to plot it.
+    """One chart: a SQL query against the medallion layers and an ECharts option object.
+
+    The option object is the chart, whole and unmodified -- there are no fields for chart
+    type or axes because the option object already says all of that, which is what lets an
+    example be pasted in from the ECharts library and work. The query result reaches it as
+    ``dataset`` 0; see panels.charts.
 
     The query is stored, not generated, so anything the analytics role may read is fair
     game. That makes authoring a panel an analyst-level right rather than an editorial
@@ -40,50 +47,20 @@ class Panel(models.Model):
         ),
     )
 
-    BAR = "bar"
-    LINE = "line"
-    PIE = "pie"
-    SCATTER = "scatter"
-    TABLE = "table"
-    CHART_TYPES = [
-        (BAR, "Bar"),
-        (LINE, "Line"),
-        (PIE, "Pie"),
-        (SCATTER, "Scatter"),
-        (TABLE, "Table"),
-    ]
-
-    chart_type = models.CharField(
-        "chart type",
-        max_length=20,
-        choices=CHART_TYPES,
-        default=BAR,
-    )
-
-    # Which columns of the result become the axes. Left blank, the first column is the
-    # category axis and every remaining numeric column becomes a series, which is what
-    # makes a plain "SELECT label, value FROM ..." work with no further configuration.
-    x_field = models.CharField(
-        "category column",
-        max_length=100,
-        blank=True,
-        help_text="Result column for the category axis. Blank: the first column.",
-    )
-    y_fields = models.CharField(
-        "value columns",
-        max_length=500,
-        blank=True,
-        help_text="Comma-separated result columns to plot. Blank: all remaining columns.",
-    )
-
-    # ECharts is configured by one nested option object, so an escape hatch that is
-    # merged over the generated one covers every setting this model does not name
-    # without growing a field per ECharts feature.
+    # ECharts is configured by one nested option object, so storing it whole is what
+    # lets an example from the library be pasted in and work unchanged.
     options = models.JSONField(
         "ECharts options",
         blank=True,
         default=dict,
-        help_text="Merged over the generated ECharts option object. Leave as {} for none.",
+        encoder=PrettyJSONEncoder,
+        help_text=(
+            "The ECharts option object, as pasted from echarts.apache.org/examples. "
+            "The query result is injected as dataset 0, so refer to its columns by name: "
+            'series: [{type: "line", encode: {x: "day", y: "total"}}]. Group and filter '
+            "with dataset.transform. A transform naming no source reads the query result; "
+            "one that spells out fromDatasetIndex counts your own datasets from 1."
+        ),
     )
 
     # Bound as query parameters, never interpolated, so a default is a value and not a
@@ -92,6 +69,7 @@ class Panel(models.Model):
         "parameters",
         blank=True,
         default=dict,
+        encoder=PrettyJSONEncoder,
         help_text='Default values for the %(name)s placeholders, e.g. {"tenant": "project_a"}.',
     )
 
@@ -134,29 +112,3 @@ class Panel(models.Model):
         # thing standing between a panel and a stray write.
         if self.sql and self.sql.strip().rstrip(";").count(";"):
             raise ValidationError({"sql": "Only a single statement is allowed."})
-
-    def value_columns(self, columns):
-        """The result columns to plot, given the columns the query returned.
-
-        Args:
-            columns: Column names of the result, in order.
-
-        Returns:
-            The names listed in ``y_fields``, or every column except the category one.
-        """
-        if self.y_fields.strip():
-            return [name.strip() for name in self.y_fields.split(",") if name.strip()]
-        return [name for name in columns if name != self.category_column(columns)]
-
-    def category_column(self, columns):
-        """The result column for the category axis.
-
-        Args:
-            columns: Column names of the result, in order.
-
-        Returns:
-            ``x_field`` when set, otherwise the first column; None for an empty result.
-        """
-        if self.x_field.strip():
-            return self.x_field.strip()
-        return columns[0] if columns else None

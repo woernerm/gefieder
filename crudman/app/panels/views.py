@@ -7,7 +7,6 @@ from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, render
 
 from . import charts
-from .charts import ColumnMissing
 from .models import Panel
 from .query import PanelQueryError, run
 
@@ -44,7 +43,8 @@ def panel_data(request, slug):
     try:
         columns, rows = run(panel.sql, panel.parameters)
 
-        if panel.chart_type == Panel.TABLE:
+        # ECharts has no table, so the one shape it cannot draw is asked for by name.
+        if panel.options.get(charts.TABLE_KEY):
             return render(
                 request,
                 "panels/table.html",
@@ -52,7 +52,7 @@ def panel_data(request, slug):
             )
 
         options = json.dumps(charts.build(panel, columns, rows))
-    except (PanelQueryError, ColumnMissing) as error:
+    except PanelQueryError as error:
         return render(request, "panels/error.html", {"panel": panel, "error": str(error)})
 
     return render(

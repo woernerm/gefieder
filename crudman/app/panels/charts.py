@@ -1,15 +1,36 @@
-"""Turning a query result into an ECharts option object.
+"""Handing a query result to ECharts as a dataset.
 
-The mapping is deliberately shallow: a category column, one series per value column, and
-whatever the panel's own ``options`` say merged over the top. Anything ECharts can do
-that this does not name is reachable through that merge rather than through a new field.
+A panel stores a whole ECharts option object, the kind that can be pasted straight out of
+the example library at https://echarts.apache.org/examples/. What this module does is
+replace the ``data`` those examples carry inline with the rows the panel's query
+returned, as an ECharts ``dataset``: the column names become its dimensions, so a series
+refers to a column by name rather than by position.
+
+    option = {
+      xAxis: {type: 'category'},
+      yAxis: {type: 'value'},
+      series: [{type: 'line', encode: {x: 'tenant_id', y: 'open_issues'}}]
+    }
+
+Nothing here decides what the chart looks like -- that is the stored option object's job,
+including grouping and filtering, which ECharts does declaratively through
+``dataset.transform``. Keeping the mapping in ECharts rather than in Python is what lets
+an example be pasted in and work.
 """
 
+from datetime import date, datetime
 from decimal import Decimal
 
+DATASET_KEY = "dataset"
+"""Where the query result is injected, and the name an option object refers to."""
 
-class ColumnMissing(Exception):
-    """A panel names a result column its query does not return."""
+TABLE_KEY = "table"
+"""Opt-in for the plain table, the one shape ECharts has no chart for.
+
+Not an ECharts option: a panel sets ``{"table": true}`` and the rows are rendered as a
+table instead of a chart. ECharts ignores keys it does not know, so it costs nothing to
+carry it in the same object.
+"""
 
 
 def _plain(value):
@@ -19,67 +40,25 @@ def _plain(value):
         value: A value as psycopg returned it.
 
     Returns:
-        The value itself when JSON can carry it, otherwise its string form. Decimals
-        become floats: ECharts plots numbers, and JSON has no decimal type.
+        The value itself when JSON can carry it. Decimals become floats because ECharts
+        plots numbers and JSON has no decimal type; dates become ISO strings, which its
+        time axis parses. Anything else is stringified rather than risking the render.
     """
     if isinstance(value, Decimal):
         return float(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
     if isinstance(value, (int, float, str, bool, type(None))):
         return value
     return str(value)
 
 
-def merge(base, override):
-    """Recursively merge one option object over another.
-
-    Lists are merged entry by entry rather than replaced, because the list that matters
-    is ``series``: an override naming one setting of a series has to refine it, not stand
-    in for it. Replacing outright would drop the ``type`` and the ``data`` the query
-    produced and leave an empty chart. A longer override still adds its extra entries.
-
-    Args:
-        base: The generated options.
-        override: The panel's own options, which win.
-
-    Returns:
-        A new dict; dicts and lists are merged, every other value is replaced outright.
-    """
-    result = dict(base)
-    for key, value in (override or {}).items():
-        current = result.get(key)
-        if isinstance(value, dict) and isinstance(current, dict):
-            result[key] = merge(current, value)
-        elif isinstance(value, list) and isinstance(current, list):
-            result[key] = _merge_lists(current, value)
-        else:
-            result[key] = value
-    return result
-
-
-def _merge_lists(base, override):
-    """Merge two lists position by position.
-
-    Args:
-        base: The generated entries.
-        override: The panel's entries, which win.
-
-    Returns:
-        A list as long as the longer of the two; entries that are both dicts are merged,
-        anything else is taken from the override where it has one.
-    """
-    merged = []
-    for position in range(max(len(base), len(override))):
-        left = base[position] if position < len(base) else None
-        right = override[position] if position < len(override) else None
-        if isinstance(left, dict) and isinstance(right, dict):
-            merged.append(merge(left, right))
-        else:
-            merged.append(right if position < len(override) else left)
-    return merged
-
-
 def build(panel, columns, rows):
-    """Build the ECharts option object for a panel's result.
+    """The panel's stored options with the query result injected as the dataset.
+
+    A panel that declares a dataset of its own keeps it, so an example pasted in
+    unchanged -- inline data and all -- still renders; the query result is then added
+    alongside it as a further dataset the option object can refer to by index.
 
     Args:
         panel: The Panel the result belongs to.
@@ -88,81 +67,24 @@ def build(panel, columns, rows):
 
     Returns:
         The option object to hand to echarts.setOption.
-
-    Raises:
-        ColumnMissing: The panel names a column its own query does not return.
     """
-    category = panel.category_column(columns)
-    # A column named in the panel but absent from the result is a typo in the panel, so
-    # it is reported in the card the way a failed query is rather than as a server error.
-    if category is not None and category not in columns:
-        raise ColumnMissing(
-            f"The category column {category!r} is not among the columns the query "
-            f"returned ({', '.join(columns) or 'none'})."
-        )
+    result = {
+        "dimensions": list(columns),
+        "source": [[_plain(value) for value in row] for row in rows],
+    }
 
-    named = panel.value_columns(columns)
-    missing = [name for name in named if name not in columns]
-    if missing:
-        raise ColumnMissing(
-            f"The value column{'s' if len(missing) > 1 else ''} "
-            f"{', '.join(repr(name) for name in missing)} "
-            f"{'are' if len(missing) > 1 else 'is'} not among the columns the query "
-            f"returned ({', '.join(columns) or 'none'})."
-        )
-    values = named
+    options = dict(panel.options or {})
+    declared = options.get(DATASET_KEY)
 
-    index = {name: position for position, name in enumerate(columns)}
+    if declared is None:
+        options[DATASET_KEY] = result
+    elif isinstance(declared, list):
+        # The query result goes first because a transform that names no source defaults
+        # to fromDatasetIndex 0: a transform pasted in as-is then consumes the query
+        # result, which is the whole point. The cost is that a panel spelling out
+        # fromDatasetIndex has to count from one, which the field's help text says.
+        options[DATASET_KEY] = [result, *declared]
+    else:
+        options[DATASET_KEY] = [result, declared]
 
-    categories = [_plain(row[index[category]]) for row in rows] if category else []
-
-    if panel.chart_type == panel.PIE:
-        # A pie has no axes: it takes name/value pairs from the first value column.
-        first = values[0] if values else None
-        data = [
-            {"name": _plain(row[index[category]]), "value": _plain(row[index[first]])}
-            for row in rows
-        ] if first and category else []
-        return merge(
-            {
-                "tooltip": {"trigger": "item"},
-                "legend": {"bottom": 0},
-                # The legend sits at the bottom and the pie would otherwise be centred
-                # on the whole canvas, leaving it looking low. Lifting the centre keeps it
-                # centred in the space the legend does not take.
-                "series": [
-                    {
-                        "type": "pie",
-                        "radius": ["40%", "70%"],
-                        "center": ["50%", "45%"],
-                        "data": data,
-                    }
-                ],
-            },
-            panel.options,
-        )
-
-    series = [
-        {
-            "name": name,
-            "type": panel.chart_type,
-            "data": [_plain(row[index[name]]) for row in rows],
-        }
-        for name in values
-    ]
-
-    return merge(
-        {
-            "tooltip": {"trigger": "axis"},
-            "legend": {"bottom": 0, "show": len(series) > 1},
-            # containLabel adds the axis labels to the box rather than overlapping them,
-            # and the y-axis labels only exist on the left, so equal margins would leave
-            # the plot area pushed to the right. The left margin is the smaller of the two
-            # for that reason: the labels make up the difference.
-            "grid": {"left": 0, "right": 16, "bottom": 32, "top": 16, "containLabel": True},
-            "xAxis": {"type": "category", "data": categories},
-            "yAxis": {"type": "value"},
-            "series": series,
-        },
-        panel.options,
-    )
+    return options
