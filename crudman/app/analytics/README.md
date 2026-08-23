@@ -1,4 +1,4 @@
-# panels
+# analytics
 
 Chart panels whose query and configuration are rows in the database rather than code, so
 a panel can be created at runtime -- shared between installations, or written by an
@@ -7,11 +7,11 @@ assistant -- without a deployment.
 ## How a panel reaches a page
 
 1. A template places a card and nothing more.
-2. HTMX (which Unfold already loads) fetches `panels/<slug>/data/` as soon as the card is
+2. HTMX (which Unfold already loads) fetches `analytics/<slug>/data/` as soon as the card is
    on the page.
 3. The view runs the panel's SQL and returns a `<div class="echarts-panel">` carrying the
    ECharts option object.
-4. `panels.init.js` turns that div into a chart, in the admin's own colours, and redraws
+4. `analytics.init.js` turns that div into a chart, in the admin's own colours, and redraws
    it when the theme changes.
 
 One request per panel, so a page carrying several issues their queries at the same time
@@ -23,7 +23,7 @@ Anywhere a template can load Unfold's component tag:
 
 ```django
 {% load unfold %}
-{% component "panels/panel.html" with component_class="PanelComponent" panel="open-issues" %}{% endcomponent %}
+{% component "analytics/panel.html" with component_class="PanelComponent" panel="open-issues" %}{% endcomponent %}
 ```
 
 On a change form, through the ModelAdmin hooks Unfold provides:
@@ -39,7 +39,7 @@ template. See `crudman/app/templates/admin/index.html`.
 
 ## Why the queries are safe to store
 
-The `panels` connection authenticates as the **analytics role**, the one Grafana uses.
+The `analytics` connection authenticates as the **analytics role**, the one Grafana uses.
 That is deliberate twice over: the read grants on silver, gold and the per-tenant bronze
 schemas already exist on it, and a query written here therefore returns exactly what the
 same query returns in a Grafana dashboard.
@@ -56,7 +56,7 @@ the grants alone would allow. `tests/test_panels.py` asserts both, from both dir
 
 Note what this does **not** provide: a panel author sees everything the analytics role
 sees, every tenant included. Authoring a panel is therefore an analyst-level right, which
-is why `panels` is absent from `sso.roles.MANAGED_APPS` -- the three provider ranks carry
+is why `analytics` is absent from `sso.roles.MANAGED_APPS` -- the three provider ranks carry
 no panel permission at all and someone has to be given it deliberately.
 
 ## Parameters

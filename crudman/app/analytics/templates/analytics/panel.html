@@ -5,7 +5,7 @@ Places one panel. The card is drawn at once and its body is fetched separately, 
 carrying several panels issues their queries in parallel instead of waiting for each in
 turn. Include it as:
 
-    {% component "panels/panel.html" with component_class="PanelComponent" panel="the-slug" %}{% endcomponent %}
+    {% component "analytics/panel.html" with component_class="PanelComponent" panel="the-slug" %}{% endcomponent %}
 {% endcomment %}
 
 {% if panel %}
@@ -16,7 +16,7 @@ turn. Include it as:
             </p>
         {% endif %}
 
-        <div hx-get="{% url 'panels:data' panel.slug %}"
+        <div hx-get="{% url 'analytics:data' panel.slug %}"
              hx-trigger="load"
              hx-swap="innerHTML"
              style="min-height: {{ panel.height }}px">

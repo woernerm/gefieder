@@ -47,16 +47,16 @@ def panel_data(request, slug):
         if panel.options.get(charts.TABLE_KEY):
             return render(
                 request,
-                "panels/table.html",
+                "analytics/table.html",
                 {"panel": panel, "columns": columns, "rows": rows},
             )
 
         options = json.dumps(charts.build(panel, columns, rows))
     except PanelQueryError as error:
-        return render(request, "panels/error.html", {"panel": panel, "error": str(error)})
+        return render(request, "analytics/error.html", {"panel": panel, "error": str(error)})
 
     return render(
         request,
-        "panels/chart.html",
+        "analytics/chart.html",
         {"panel": panel, "options": options, "empty": not rows},
     )

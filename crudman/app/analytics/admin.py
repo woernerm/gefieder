@@ -2,7 +2,7 @@
 
 Whoever may add or change a panel decides what SQL runs as the analytics role, which
 reads every medallion layer including every tenant's bronze schema. That is an
-analyst-level right rather than an editorial one, which is why "panels" is absent from
+analyst-level right rather than an editorial one, which is why "analytics" is absent from
 ``sso.roles.MANAGED_APPS``: the three provider ranks carry no panel permission at all,
 and someone has to be given it deliberately (a superuser holds it inherently).
 """

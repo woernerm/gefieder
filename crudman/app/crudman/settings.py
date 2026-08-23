@@ -103,7 +103,7 @@ INSTALLED_APPS = [
     'dropzones.apps.DropzonesConfig',
     # Chart panels whose SQL is stored rather than written here, so they can be created
     # at runtime. Their queries run on the analytics connection below, never this app's.
-    'panels.apps.PanelsConfig',
+    'analytics.apps.AnalyticsConfig',
     # After sso, whose role groups decide the database rank a person is provisioned with.
     'dbusers.apps.DbUsersConfig',
     # Always installed, even with single sign-on off, so its post_migrate receiver keeps
@@ -176,11 +176,11 @@ DATABASES = {
 # gold and the per-tenant bronze schemas already exist on it, and a query written here
 # therefore returns exactly what the same query returns in a Grafana dashboard. The role
 # holds no write grant on anything it can read, which is what makes a stored, editable
-# SQL statement safe to run; panels.query adds a read-only transaction on top.
+# SQL statement safe to run; analytics.query adds a read-only transaction on top.
 PANELS_PASSWORD_FILE = secret_path("SECRET_GRAFANA_PASSWORD", "grafana_password")
 
 if PANELS_PASSWORD_FILE.exists():
-    DATABASES['panels'] = {
+    DATABASES['analytics'] = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': os.environ.get('POSTGRES_DB', 'postgres'),
         'USER': os.environ.get('GRAFANA_DB_USER', 'grafana'),
@@ -189,9 +189,9 @@ if PANELS_PASSWORD_FILE.exists():
         'PORT': os.environ.get('POSTGRES_PORT', '5432'),
     }
 
-# Nothing is ever migrated onto the panels connection, and no model reads or writes
-# through it; see panels/routers.py.
-DATABASE_ROUTERS = ['panels.routers.PanelsRouter']
+# Nothing is ever migrated onto the analytics connection, and no model reads or writes
+# through it; see analytics/routers.py.
+DATABASE_ROUTERS = ['analytics.routers.AnalyticsRouter']
 
 
 # Password validation
@@ -377,8 +377,8 @@ UNFOLD = {
     # loaded from a CDN: a target machine need not reach the internet. Unfold already
     # loads HTMX itself, which is what fetches the fragments.
     "SCRIPTS": [
-        lambda request: static("panels/echarts.min.js"),
-        lambda request: static("panels/panels.init.js"),
+        lambda request: static("analytics/echarts.min.js"),
+        lambda request: static("analytics/analytics.init.js"),
     ],
 
     # Header text in the admin
@@ -387,6 +387,6 @@ UNFOLD = {
     # The "Return to site" link, hidden until there is a site root to return to.
     "SITE_URL": _site_url,
 
-    # Puts the panels flagged for the dashboard onto it; see panels/dashboard.py.
-    "DASHBOARD_CALLBACK": "panels.dashboard.dashboard_callback",
+    # Puts the panels flagged for the dashboard onto it; see analytics/dashboard.py.
+    "DASHBOARD_CALLBACK": "analytics.dashboard.dashboard_callback",
 }

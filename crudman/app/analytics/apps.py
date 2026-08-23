@@ -2,9 +2,9 @@ from django.apps import AppConfig
 from django.db.models.signals import post_migrate
 
 
-class PanelsConfig(AppConfig):
-    name = "panels"
-    verbose_name = "Panels"
+class AnalyticsConfig(AppConfig):
+    name = "analytics"
+    verbose_name = "Analytics"
     default_auto_field = "django.db.models.BigAutoField"
 
     def ready(self):

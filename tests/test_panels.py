@@ -48,7 +48,7 @@ def crudman(script):
 def panel():
     """A stored panel to query, removed again afterwards."""
     crudman(
-        "from panels.models import Panel;"
+        "from analytics.models import Panel;"
         f"Panel.objects.update_or_create(slug='{PANEL_SLUG}',"
         f" defaults=dict(title='Test panel', sql=\"{PANEL_SQL}\","
         " options={'series': [{'type': 'bar', 'encode': {'x': 'tenant_id',"
@@ -56,7 +56,7 @@ def panel():
     )
     yield PANEL_SLUG
     crudman(
-        "from panels.models import Panel;"
+        "from analytics.models import Panel;"
         f"Panel.objects.filter(slug='{PANEL_SLUG}').delete()"
     )
 
@@ -71,7 +71,7 @@ def run_sql(sql):
         "ok" followed by the rows, or "blocked" followed by the database's complaint.
     """
     script = (
-        "from panels.query import run, PanelQueryError\n"
+        "from analytics.query import run, PanelQueryError\n"
         "try:\n"
         f"    cols, rows = run({sql!r})\n"
         "    print('ok', rows)\n"
@@ -123,12 +123,12 @@ class TestPanelEndpoint:
     """The fragment each placeholder fetches for itself."""
 
     def test_the_endpoint_shall_require_a_session(self, http, panel):
-        resp = http.get(f"/{CRUDMAN_PATH}/panels/{panel}/data/")
+        resp = http.get(f"/{CRUDMAN_PATH}/analytics/{panel}/data/")
         assert resp.status_code == 302
         assert f"/{CRUDMAN_PATH}/login/" in resp.headers["location"]
 
     def test_the_endpoint_shall_render_the_chart_options(self, panel):
-        """A signed-in administrator gets the div panels.init.js turns into a chart."""
+        """A signed-in administrator gets the div analytics.init.js turns into a chart."""
         import httpx
 
         with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS, trust_env=False,
@@ -142,7 +142,7 @@ class TestPanelEndpoint:
                 "next": f"/{CRUDMAN_PATH}/",
             }, headers={"Referer": f"{BASE_URL}{login}"})
 
-            resp = client.get(f"/{CRUDMAN_PATH}/panels/{panel}/data/")
+            resp = client.get(f"/{CRUDMAN_PATH}/analytics/{panel}/data/")
 
         assert resp.status_code == 200
         assert "echarts-panel" in resp.text
@@ -164,9 +164,9 @@ class TestPanelEndpoint:
 class TestAssets:
     """ECharts is vendored, so a machine without internet access still draws charts."""
 
-    @pytest.mark.parametrize("asset", ["echarts.min.js", "panels.init.js"])
+    @pytest.mark.parametrize("asset", ["echarts.min.js", "analytics.init.js"])
     def test_the_chart_assets_shall_be_served(self, http_follow, asset):
-        resp = http_follow.get(f"/{CRUDMAN_PATH}/static/panels/{asset}")
+        resp = http_follow.get(f"/{CRUDMAN_PATH}/static/analytics/{asset}")
         assert resp.status_code == 200
         assert len(resp.content) > 1000
 
@@ -181,9 +181,9 @@ class TestExamplePanels:
         lives here rather than in the app's own tests.
         """
         script = (
-            "from panels.models import Panel\n"
-            "from panels.query import run\n"
-            "from panels import charts\n"
+            "from analytics.models import Panel\n"
+            "from analytics.query import run\n"
+            "from analytics import charts\n"
             "import json, re\n"
             "for p in Panel.objects.filter(slug__startswith='example-'):\n"
             "    cols, rows = run(p.sql, p.parameters)\n"

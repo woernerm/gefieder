@@ -7,7 +7,7 @@ back as a single unreadable line the moment the page reloads.
 
 Indentation cannot be stored: jsonb keeps the value, not its text. So the form indents the
 value on the way out instead, which makes the field readable however the row was written
--- pasted in, seeded by panels.examples, or inserted by something else entirely.
+-- pasted in, seeded by analytics.examples, or inserted by something else entirely.
 """
 
 import json

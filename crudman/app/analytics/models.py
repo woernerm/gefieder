@@ -2,8 +2,9 @@
 
 A panel is data rather than code so that it can be created at runtime -- shared between
 installations, or written by an assistant -- without a deployment. The query runs against
-the analytics role on the ``panels`` connection, never the one Django's own models use;
-see ``panels.query``.
+the analytics role on the ``analytics`` connection, never the one Django's own
+models use;
+see ``analytics.query``.
 """
 
 from django.core.exceptions import ValidationError
@@ -18,11 +19,11 @@ class Panel(models.Model):
     The option object is the chart, whole and unmodified -- there are no fields for chart
     type or axes because the option object already says all of that, which is what lets an
     example be pasted in from the ECharts library and work. The query result reaches it as
-    ``dataset`` 0; see panels.charts.
+    ``dataset`` 0; see analytics.charts.
 
     The query is stored, not generated, so anything the analytics role may read is fair
     game. That makes authoring a panel an analyst-level right rather than an editorial
-    one -- see the permission note in ``panels/admin.py``.
+    one -- see the permission note in ``analytics/admin.py``.
     """
 
     # The slug is what a template names to place the panel, so it is the identifier that

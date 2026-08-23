@@ -21,7 +21,7 @@ import os
 
 from django.db import connections
 
-PANELS_CONNECTION = "panels"
+ANALYTICS_CONNECTION = "analytics"
 """The DATABASES alias that authenticates as the analytics (grafana) role."""
 
 STATEMENT_TIMEOUT = os.environ.get("PANEL_STATEMENT_TIMEOUT", "30s")
@@ -45,7 +45,7 @@ def run(sql, parameters=None):
     Raises:
         PanelQueryError: The database rejected or cancelled the statement.
     """
-    connection = connections[PANELS_CONNECTION]
+    connection = connections[ANALYTICS_CONNECTION]
     try:
         with connection.cursor() as cursor:
             # Each SET LOCAL lasts only as long as the transaction, so neither setting

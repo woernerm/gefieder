@@ -1,4 +1,4 @@
-"""Guarding the one thing about panels.init.js that a Python test suite can still catch.
+"""Guarding the one thing about analytics.init.js that a Python test suite can still catch.
 
 Unfold emits UNFOLD["SCRIPTS"] into the <head> without ``defer``, so the script runs
 before the document has a body. Reaching for ``document.body`` -- or for
@@ -18,7 +18,7 @@ from pathlib import Path
 
 from django.test import SimpleTestCase
 
-SCRIPT = Path(__file__).resolve().parent / "static" / "panels" / "panels.init.js"
+SCRIPT = Path(__file__).resolve().parent / "static" / "analytics" / "analytics.init.js"
 
 # Every expression that needs a parsed document. documentElement is deliberately absent:
 # it exists as soon as the parser has seen <html>, so it is safe at head time and is what
@@ -65,7 +65,7 @@ class InitScriptTests(SimpleTestCase):
         self.assertEqual(
             offenders,
             [],
-            "panels.init.js runs in the <head>, where these do not exist yet. Move the "
+            "analytics.init.js runs in the <head>, where these do not exist yet. Move the "
             "call inside the DOMContentLoaded handler, or use document.documentElement:\n"
             + "\n".join(f"  line {n}: {expr} in {text}" for n, expr, text in offenders),
         )

@@ -3,7 +3,7 @@
 {% comment %}
 The dashboard, carrying every panel flagged for it.
 
-A project-level template rather than one inside the panels app: "unfold" has to come
+A project-level template rather than one inside the analytics app: "unfold" has to come
 first in INSTALLED_APPS, so an app template of this name would never be reached. Django's
 template loader resolves the name in the parent to the *next* template called
 admin/index.html rather than to this one, which is what makes extending Unfold's own
@@ -18,7 +18,7 @@ Each card fetches its own data, so the panels load side by side rather than in t
     {% if dashboard_panels %}
         <div class="grid grid-cols-1 gap-6 mb-8 lg:grid-cols-2">
             {% for slug in dashboard_panels %}
-                {% component "panels/panel.html" with component_class="PanelComponent" panel=slug %}{% endcomponent %}
+                {% component "analytics/panel.html" with component_class="PanelComponent" panel=slug %}{% endcomponent %}
             {% endfor %}
         </div>
     {% endif %}

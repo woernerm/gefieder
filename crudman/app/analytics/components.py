@@ -1,7 +1,7 @@
 """The Unfold component that places a panel on a page.
 
 The component renders a placeholder only; the data arrives afterwards over HTMX from
-``panels.views.panel_data``. That is what lets several panels on one page load at the
+``analytics.views.panel_data``. That is what lets several panels on one page load at the
 same time rather than one query after another, and it keeps a slow query from holding up
 the page it sits on.
 """

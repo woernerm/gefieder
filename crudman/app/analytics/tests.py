@@ -82,7 +82,7 @@ class DatasetTests(TestCase):
 
 
 class ExamplePanelTests(TestCase):
-    """The examples a fresh system starts with; see panels/examples.py."""
+    """The examples a fresh system starts with; see analytics/examples.py."""
 
     def test_the_examples_are_created(self):
         # post_migrate already ran for the test database, so they are in place.

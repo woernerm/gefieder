@@ -5,10 +5,10 @@ exists to run panel queries and nothing else, so every model operation -- reads 
 -- is steered to the default connection and no migration is ever applied to it.
 """
 
-from .query import PANELS_CONNECTION
+from .query import ANALYTICS_CONNECTION
 
 
-class PanelsRouter:
+class AnalyticsRouter:
     """Routes every model to the default connection and blocks migrating ``panels``."""
 
     def db_for_read(self, model, **hints):
@@ -33,4 +33,4 @@ class PanelsRouter:
             False for the panels connection, so ``migrate`` skips it; None elsewhere, to
             leave the decision to Django.
         """
-        return False if db == PANELS_CONNECTION else None
+        return False if db == ANALYTICS_CONNECTION else None
