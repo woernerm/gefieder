@@ -22,7 +22,8 @@ from conftest import (
 
 
 # The tables the collector fills and the rollup the schema must expose.
-SAMPLE_TABLES = ["host_sample", "query_sample", "table_sample", "host_hourly"]
+SAMPLE_TABLES = ["host_sample", "query_sample", "query_dim", "table_sample",
+                 "host_hourly"]
 
 
 def q(cur, sql, params=None):
@@ -194,6 +195,16 @@ def sized(admin_db):
     run_collector(SERVER_STATS_DISK_PROBE_SECONDS="0")
 
 
+@pytest.fixture(scope="module")
+def probed(admin_db):
+    """Run the collector once with the query/table snapshot forced on.
+
+    That snapshot runs on its own slow sub-cadence (SERVER_STATS_QUERY_PROBE_SECONDS), so a
+    plain run usually skips it; setting it to 0 makes this run take it.
+    """
+    run_collector(SERVER_STATS_QUERY_PROBE_SECONDS="0")
+
+
 class TestHostCollector:
     """A real collector run records the host resource counters used for sizing."""
 
@@ -221,7 +232,7 @@ class TestHostCollector:
                 f"ORDER BY sampled_at DESC LIMIT 1")[0]
         assert tx is not None and tx >= 0, "net_tx_bytes not recorded"
 
-    def test_a_run_shall_snapshot_query_and_table_statistics(self, admin_db, collected):
+    def test_a_run_shall_snapshot_query_and_table_statistics(self, admin_db, probed):
         # The same run also snapshots pg_stat_statements and pg_stat_user_tables; both
         # views are non-empty on a live stack, so each snapshot must have rows.
         with admin_db.cursor() as cur:
@@ -229,6 +240,34 @@ class TestHostCollector:
             tables = q(cur, f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.table_sample')[0]
         assert queries > 0, "no query statistics were snapshotted"
         assert tables > 0, "no table statistics were snapshotted"
+
+    def test_the_statement_text_shall_be_stored_once_per_query(self, admin_db, probed):
+        # The text lives in query_dim, keyed by queryid, so it is written once however
+        # many samples a statement accumulates -- the whole point of the split.
+        with admin_db.cursor() as cur:
+            texts = q(cur, f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.query_dim')[0]
+            orphans = q(cur,
+                f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.query_sample s '
+                f'LEFT JOIN {SERVER_STATS_SCHEMA}.query_dim d USING (queryid) '
+                f'WHERE d.queryid IS NULL')[0]
+        assert texts > 0, "no statement texts were recorded"
+        assert orphans == 0, "query_sample rows without a query_dim text"
+
+    def test_a_repeated_snapshot_shall_not_restore_unchanged_rows(self, admin_db, probed):
+        # Storing only what changed is what keeps the table small: an immediate second
+        # snapshot may add the few statements this test itself ran, but must not re-store
+        # the thousands whose counters stood still.
+        with admin_db.cursor() as cur:
+            before = q(cur, f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.query_sample')[0]
+        run_collector(SERVER_STATS_QUERY_PROBE_SECONDS="0")
+        with admin_db.cursor() as cur:
+            after = q(cur, f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.query_sample')[0]
+            distinct = q(cur,
+                f'SELECT count(DISTINCT queryid) FROM {SERVER_STATS_SCHEMA}.query_sample')[0]
+        assert after - before < distinct, (
+            f"second snapshot added {after - before} rows for {distinct} known statements; "
+            "unchanged rows are being stored again"
+        )
 
     # The counter columns that a collector run must fill on any supported host: they come
     # from the cgroup CPU/memory files and the host network interface, all readable for a

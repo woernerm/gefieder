@@ -3,12 +3,14 @@
 # interpolated here because psql cannot template an identifier inside a plain .sql file;
 # every identifier goes through %I/quote_ident so the configured name cannot inject SQL.
 #
-# Four raw tables are filled by the collector:
+# Five raw tables are filled by the collector:
 #   host_sample     -- host/cgroup/network counters (the sizing inputs)
 #   query_sample    -- a pg_stat_statements snapshot (which queries cost the most)
+#   query_dim       -- the statement text behind query_sample.queryid, stored once
 #   table_sample    -- a pg_stat_user_tables / pg_statio snapshot (which table needs an index)
 #   dashboard_visit -- the page visits drained from the proxy's visits.log
-# The first three are one snapshot per tick; dashboard_visit gets one row per visit.
+# host_sample is one row per tick; the two snapshot tables store only what changed since the
+# previous snapshot, and dashboard_visit gets one row per visit.
 # The host, IO and network values are monotonic counters stored raw, so a rate is a delta
 # between two rows. That is restart-safe — a reset shows up as one ignored negative delta —
 # and lets the display pick any window.
@@ -64,13 +66,27 @@ CREATE TABLE IF NOT EXISTS :"schema".host_sample (
 --------------------------------------------------------------------------------
 -- pg_stat_statements snapshot: which queries cost the most.
 --------------------------------------------------------------------------------
--- A snapshot per tick of the cumulative per-query counters. Compared across two rows it
--- shows which statements grew their time / temp / shared-block reads, i.e. where an index
--- or a rewrite pays off. queryid identifies the normalised statement across snapshots.
+-- The statement text, stored once per normalised statement instead of once per snapshot.
+-- It is by far the widest column and never changes for a given queryid, so repeating it in
+-- every sample was what let query_sample grow to gigabytes within days.
+CREATE TABLE IF NOT EXISTS :"schema".query_dim (
+    queryid    bigint PRIMARY KEY,
+    query      text,
+    first_seen timestamptz NOT NULL DEFAULT now()
+);
+
+-- A snapshot of the cumulative per-query counters; the text comes from query_dim by join.
+-- Compared across two rows it shows which statements grew their time / temp / shared-block
+-- reads, i.e. where an index or a rewrite pays off.
+--
+-- Only statements whose counters moved since the previous snapshot are stored:
+-- pg_stat_statements holds thousands of entries of which a handful run in any given tick,
+-- and a row identical to its predecessor contributes nothing to a delta. A query's history
+-- is therefore sparse -- consecutive rows for one queryid can be hours apart -- which is
+-- what the max()-min() aggregation over a window already expects.
 CREATE TABLE IF NOT EXISTS :"schema".query_sample (
     sampled_at      timestamptz NOT NULL DEFAULT now(),
     queryid         bigint,
-    query           text,
     calls           bigint,
     total_exec_time double precision,
     rows            bigint,
@@ -232,6 +248,11 @@ BEGIN
     DELETE FROM query_sample WHERE sampled_at < now() - raw_retention;
     DELETE FROM table_sample WHERE sampled_at < now() - raw_retention;
     DELETE FROM host_hourly  WHERE bucket     < now() - hourly_retention;
+
+    -- Statement texts outlive their samples only as dead weight, so drop the ones no
+    -- remaining sample refers to.
+    DELETE FROM query_dim d
+    WHERE NOT EXISTS (SELECT 1 FROM query_sample s WHERE s.queryid = d.queryid);
 
     -- Visits are the point of the usage stats, not a means to an end, so they are kept on
     -- the long horizon (like the hourly rollup) rather than the short raw window: the

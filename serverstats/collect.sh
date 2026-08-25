@@ -30,6 +30,12 @@ CONTAINER="${SERVER_STATS_CONTAINER:-postgresql}"
 # probes the size columns are written NULL and simply carry forward in the charts.
 DISK_PROBE_SECONDS="${SERVER_STATS_DISK_PROBE_SECONDS:-300}"
 
+# Snapshot pg_stat_statements / pg_stat_user_tables only every ~15 minutes. Both are
+# cumulative counters, so a coarser cadence loses no information -- a delta over any window
+# is still exact -- while a per-minute snapshot of a table with thousands of statements is
+# what filled the raw tables. The host counters keep the full timer cadence.
+QUERY_PROBE_SECONDS="${SERVER_STATS_QUERY_PROBE_SECONDS:-900}"
+
 # --- helpers --------------------------------------------------------------------------
 # Read a single whitespace-delimited field from a flat cgroup file like cpu.stat:
 #   field_in <file> <key>   ->  the value after "<key> " or empty if absent/unreadable.
@@ -50,6 +56,17 @@ io_sum() {
 
 # Emit NULL for an empty value so it lands in SQL as a real NULL, not an empty string.
 sql() { if [ -z "$1" ]; then printf NULL; else printf '%s' "$1"; fi; }
+
+# Sub-cadence gate: true when <name> was last run at least <seconds> ago, and then marks it
+# as run now. A marker file's mtime is the whole state, so a missed tick or a reboot simply
+# makes the next tick due. Callers must have created STATE_DIR.
+due() {
+    marker="$STATE_DIR/$1"
+    last=0
+    [ -f "$marker" ] && last="$(stat -c %Y "$marker" 2>/dev/null || echo 0)"
+    [ $(( $(date +%s) - last )) -ge "$2" ] || return 1
+    touch "$marker"
+}
 
 # Run psql inside the postgresql container as the superuser against the app database.
 # Required rather than defaulted: the superuser is created under SUPERUSER_NAME, so a
@@ -109,19 +126,14 @@ for dir in /sys/class/net/*; do
 done
 
 # --- sizes (slower sub-cadence) -------------------------------------------------------
-# Probe the database, temp-spill and volume sizes only every DISK_PROBE_SECONDS. A small
-# marker file's mtime tracks the last probe; between probes these columns stay NULL.
+# Probe the database, temp-spill and volume sizes only every DISK_PROBE_SECONDS; between
+# probes these columns stay NULL.
 DB_SIZE=""
 TEMP_SIZE=""
 VOLUME_SIZE=""
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/${APP_NAME}"
 mkdir -p "$STATE_DIR"
-MARKER="$STATE_DIR/serverstats-disk-probe"
-now_epoch="$(date +%s)"
-last_probe=0
-[ -f "$MARKER" ] && last_probe="$(stat -c %Y "$MARKER" 2>/dev/null || echo 0)"
-if [ $(( now_epoch - last_probe )) -ge "$DISK_PROBE_SECONDS" ]; then
-    touch "$MARKER"
+if due "serverstats-disk-probe" "$DISK_PROBE_SECONDS"; then
     # Database size and the temp spill (DuckDB/sort spill in base/pgsql_tmp) from within
     # the server; pg_database_size and a directory-size sum are both cheap server-side.
     DB_SIZE="$(psql_exec -c "SELECT pg_database_size(current_database())" 2>/dev/null || echo "")"
@@ -154,24 +166,58 @@ INSERT INTO "$SCHEMA".host_sample (
 );
 SQL
 
-# --- snapshot the query and table statistics (server-side) ----------------------------
+# --- snapshot the query and table statistics (slower sub-cadence, server-side) --------
 # These read views that only exist inside the database, so they are done in one psql call
-# entirely in SQL. The collector's job is just to trigger the snapshot at the cadence.
+# entirely in SQL. The collector's job is just to trigger the snapshot at the cadence -- a
+# coarse one (QUERY_PROBE_SECONDS), because both views hold cumulative counters whose
+# deltas stay exact no matter how far apart two snapshots sit.
+if due "serverstats-query-probe" "$QUERY_PROBE_SECONDS"; then
 psql_exec <<SQL
-INSERT INTO "$SCHEMA".query_sample (
-    sampled_at, queryid, query, calls, total_exec_time, rows,
-    shared_blks_hit, shared_blks_read, temp_blks_read, temp_blks_written
-)
+-- One transaction, so the staged snapshot below lives across the three statements that
+-- read it (ON COMMIT DROP) and all three see the same instant.
+BEGIN;
+
 -- pg_stat_statements reports the same queryid once per (userid, dbid, toplevel), so
 -- aggregate by queryid to a single row per normalised statement: the total cost of a
 -- query regardless of who ran it, which is what query optimisation cares about. This also
 -- keeps queryid unique within the snapshot so it fits the (sampled_at, queryid) key.
-SELECT now(), queryid, min(left(query, 2000)), sum(calls), sum(total_exec_time), sum(rows),
-       sum(shared_blks_hit), sum(shared_blks_read), sum(temp_blks_read), sum(temp_blks_written)
+CREATE TEMP TABLE _pgss ON COMMIT DROP AS
+SELECT queryid, min(left(query, 2000)) AS query, sum(calls) AS calls,
+       sum(total_exec_time) AS total_exec_time, sum(rows) AS rows,
+       sum(shared_blks_hit) AS shared_blks_hit, sum(shared_blks_read) AS shared_blks_read,
+       sum(temp_blks_read) AS temp_blks_read, sum(temp_blks_written) AS temp_blks_written
 FROM pg_stat_statements
 WHERE queryid IS NOT NULL
 GROUP BY queryid;
 
+-- The statement text goes in once per queryid and is then never written again.
+INSERT INTO "$SCHEMA".query_dim (queryid, query)
+SELECT queryid, query FROM _pgss
+ON CONFLICT (queryid) DO NOTHING;
+
+-- Store only the statements whose counters moved since their own last stored sample: an
+-- unchanged row would contribute nothing to any delta the dashboard computes, and the
+-- statements that ran in the last few minutes are a small fraction of the thousands
+-- pg_stat_statements holds. A queryid never sampled before (no prev row) is always
+-- stored, so every statement gets the baseline its later deltas are measured from.
+-- calls is the discriminator: it is monotonic per queryid and rises whenever any of the
+-- other counters can have. A pg_stat_statements reset makes it fall, and the row is then
+-- stored too, so the reset is visible as a drop rather than silently flattening a delta.
+INSERT INTO "$SCHEMA".query_sample (
+    sampled_at, queryid, calls, total_exec_time, rows,
+    shared_blks_hit, shared_blks_read, temp_blks_read, temp_blks_written
+)
+SELECT now(), c.queryid, c.calls, c.total_exec_time, c.rows,
+       c.shared_blks_hit, c.shared_blks_read, c.temp_blks_read, c.temp_blks_written
+FROM _pgss c
+LEFT JOIN LATERAL (
+    SELECT calls FROM "$SCHEMA".query_sample p
+    WHERE p.queryid = c.queryid ORDER BY p.sampled_at DESC LIMIT 1
+) prev ON true
+WHERE prev.calls IS DISTINCT FROM c.calls;
+
+-- Same for the per-table counters, with seq_scan + idx_scan as the discriminator: a table
+-- nobody read since the last snapshot cannot have changed any of the columns that matter.
 INSERT INTO "$SCHEMA".table_sample (
     sampled_at, schemaname, relname, seq_scan, seq_tup_read, idx_scan, idx_tup_fetch,
     n_live_tup, n_dead_tup, heap_blks_read, idx_blks_read
@@ -181,8 +227,18 @@ SELECT now(), t.schemaname, t.relname,
        t.n_live_tup, t.n_dead_tup,
        coalesce(io.heap_blks_read,0), coalesce(io.idx_blks_read,0)
 FROM pg_stat_user_tables t
-LEFT JOIN pg_statio_user_tables io ON io.relid = t.relid;
+LEFT JOIN pg_statio_user_tables io ON io.relid = t.relid
+LEFT JOIN LATERAL (
+    SELECT p.seq_scan, p.idx_scan FROM "$SCHEMA".table_sample p
+    WHERE p.schemaname = t.schemaname AND p.relname = t.relname
+    ORDER BY p.sampled_at DESC LIMIT 1
+) prev ON true
+WHERE (prev.seq_scan, prev.idx_scan)
+      IS DISTINCT FROM (t.seq_scan, coalesce(t.idx_scan, 0));
+
+COMMIT;
 SQL
+fi
 
 # --- drain the proxy's dashboard/page visit log ---------------------------------------
 # The proxy writes one JSON line per page navigation to visits.log (it already discards

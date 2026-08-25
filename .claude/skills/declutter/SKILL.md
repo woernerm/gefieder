@@ -22,7 +22,13 @@ Assume the repo has grown quite a bit and its time to declutter. Now, its time t
 both direct and well as indirect/architectural gains through refactoring. Your task is 
 to find refactoring opportunities and architectural tweaks that reduce the amount of code.
 
-Start by reading these pages and their subpages: 
+1. Read the code of this repository to find large sections with literal or 
+close-to-literal code duplication.
+
+2. Read the code of this repository to find repeated occurence of the same magic 
+string values.
+
+3. Read these pages and their subpages: 
 - https://refactoring.guru/refactoring/smells
 - https://refactoring.guru/refactoring/techniques
 - https://refactoring.guru/design-patterns/catalog
@@ -31,11 +37,15 @@ Start by reading these pages and their subpages:
 - https://refactoring.guru/refactoring/what-is-refactoring
 - https://refactoring.guru/refactoring/how-to
 
-Then read the code of this repository to find refactoring opportunities. Create a list 
-of the 10 refactoring opportunities ordered by number of code lines a fix likely 
-reduces. Include easy wins for other quality aspects if found, but the focus is reducing 
-code. Exclude anything that would be bad practice, bad design or very complex regardless 
-of how much it removes. Also consider removing features that may not be that useful or 
+
+4. Read the code of this repository to find refactoring opportunities based on the 
+resources above. 
+
+5. Based on the findings of the previous steps, create a list of the 10 refactoring 
+opportunities ordered by number of code lines a fix likely reduces. Include easy wins 
+for other quality aspects if found, but the focus is reducing code. Exclude anything 
+that would be bad practice, bad design or very complex regardless of how much it 
+removes. Also consider removing features that may not be that useful or 
 even obsolete, dead code and literal code duplication (closely matching code lines).
 
 Don't fix anything yet, just provide a sorted table — with the applicable 
