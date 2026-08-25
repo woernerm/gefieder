@@ -385,7 +385,7 @@ class Panel(models.Model):
 
     def propose_bindings(self):
         """What the admin offers for ``bindings`` before anyone edits them."""
-        return propose(self.chart.placeholders, self.available_columns, self.chart.options)
+        return propose(self.chart.placeholders, self.available_columns)
 
     def clean(self):
         if not isinstance(self.parameters, dict):

@@ -150,46 +150,47 @@ class BindingProposalTests(TestCase):
     def test_an_exact_name_wins(self):
         options = {"series": [{"encode": {"x": "${tenant_id}"}}]}
 
-        proposal = bindings.propose(parameters.placeholders(options), self.COLUMNS, options)
+        proposal = bindings.propose(parameters.placeholders(options), self.COLUMNS)
 
         self.assertEqual(proposal["tenant_id"], "tenant_id")
 
-    def test_a_list_placeholder_collects_every_column_of_its_kind(self):
+    def test_a_list_placeholder_collects_what_is_left_over(self):
         options = {"series": [{"encode": {"x": "${category}", "y": "${measures[]}"}}]}
 
-        proposal = bindings.propose(parameters.placeholders(options), self.COLUMNS, options)
+        proposal = bindings.propose(parameters.placeholders(options), self.COLUMNS)
 
         self.assertEqual(proposal["category"], "tenant_id")
         self.assertEqual(proposal["measures"], ["open_issues", "closed_issues"])
 
-    def test_a_matrix_series_wants_labels_on_both_axes(self):
-        """On a grid y is the measure; on a matrix it is a row header."""
-        options = {"series": [{"coordinateSystem": "matrix",
-                               "encode": {"x": "${c}", "y": "${r}", "value": "${v}"}}]}
-
-        self.assertEqual(
-            bindings.expected_kinds(options),
-            {"c": "category", "r": "category", "v": "number"},
-        )
-
-    def test_each_placeholder_gets_its_own_column_where_one_is_free(self):
-        options = {"series": [{"coordinateSystem": "matrix",
-                               "encode": {"x": "${c}", "y": "${r}", "value": "${v}"}}]}
+    def test_each_placeholder_gets_its_own_column(self):
+        """The pairing is one-to-one: two placeholders never propose the same column."""
+        options = {"series": [{"encode": {"x": "${state}", "y": "${issues}"}}]}
         columns = [
             {"name": "state", "kind": "category"},
             {"name": "tenant_id", "kind": "category"},
             {"name": "issues", "kind": "number"},
         ]
 
-        proposal = bindings.propose(parameters.placeholders(options), columns, options)
+        proposal = bindings.propose(parameters.placeholders(options), columns)
 
-        self.assertEqual(proposal["v"], "issues")
-        self.assertNotEqual(proposal["c"], proposal["r"])
+        self.assertEqual(proposal, {"state": "state", "issues": "issues"})
+
+    def test_a_placeholder_no_column_resembles_is_left_out(self):
+        """Names are all there is to go on, so ${v} against these columns is a blank.
+
+        Better an empty field the author fills in than a confident wrong pairing: the
+        proposal is a convenience, and a wrong one costs more to notice than to write.
+        """
+        options = {"series": [{"encode": {"x": "${c}", "y": "${v}"}}]}
+        columns = [{"name": "state", "kind": "category"},
+                   {"name": "issues", "kind": "number"}]
+
+        self.assertEqual(bindings.propose(parameters.placeholders(options), columns), {})
 
     def test_nothing_is_proposed_when_there_are_no_columns(self):
         options = {"series": [{"encode": {"x": "${a}"}}]}
 
-        self.assertEqual(bindings.propose(parameters.placeholders(options), [], options), {})
+        self.assertEqual(bindings.propose(parameters.placeholders(options), []), {})
 
 
 class DatasetTests(TestCase):

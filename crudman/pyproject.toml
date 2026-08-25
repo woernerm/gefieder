@@ -16,5 +16,9 @@ dependencies = [
     "polars",
     "pyarrow",
     "psycopg[binary]",
+    # Only for linear_sum_assignment: pairing a chart's placeholders with a query's
+    # columns is an assignment problem, and a solver of its own is more code than the
+    # dependency is worth. See analytics/bindings.py.
+    "scipy",
     "whitenoise",
 ]

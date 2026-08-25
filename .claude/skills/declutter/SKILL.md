@@ -28,7 +28,12 @@ close-to-literal code duplication.
 2. Read the code of this repository to find repeated occurence of the same magic 
 string values.
 
-3. Read these pages and their subpages: 
+3. Read the code of this repository and find collections of files, functions and classes
+dedicated to a task for which there is a much simpler solution if a minor inconvenience
+is accepted (e.g. a much simpler but less accurate matching algorithm for a match that 
+is typically inspected by a human being anyway).
+
+4. Read these pages and their subpages: 
 - https://refactoring.guru/refactoring/smells
 - https://refactoring.guru/refactoring/techniques
 - https://refactoring.guru/design-patterns/catalog
@@ -38,10 +43,10 @@ string values.
 - https://refactoring.guru/refactoring/how-to
 
 
-4. Read the code of this repository to find refactoring opportunities based on the 
+5. Read the code of this repository to find refactoring opportunities based on the 
 resources above. 
 
-5. Based on the findings of the previous steps, create a list of the 10 refactoring 
+6. Based on the findings of the previous steps, create a list of the 10 refactoring 
 opportunities ordered by number of code lines a fix likely reduces. Include easy wins 
 for other quality aspects if found, but the focus is reducing code. Exclude anything 
 that would be bad practice, bad design or very complex regardless of how much it 
