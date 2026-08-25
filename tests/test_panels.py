@@ -44,20 +44,50 @@ def crudman(script):
     ).stdout
 
 
+def crudman_manage(*command):
+    """Run a management command inside the crudman container and return its output.
+
+    Args:
+        *command: The command and its arguments, e.g. ``"check_queries"``.
+
+    Returns:
+        The command's standard output and standard error together, since a failing check
+        writes to the latter.
+    """
+    import subprocess
+
+    result = subprocess.run(
+        ["podman", "exec", "crudman", "uv", "run", "--project", "/crudman",
+         "python", "manage.py", *command],
+        capture_output=True, text=True,
+    )
+    return result.stdout + result.stderr
+
+
 @pytest.fixture(scope="module")
 def panel():
-    """A stored panel to query, removed again afterwards."""
+    """A stored query, chart and panel to fetch, removed again afterwards.
+
+    The chart names ``${slot}`` tokens rather than columns and the panel binds them,
+    which is the arrangement the endpoint has to resolve.
+    """
     crudman(
-        "from analytics.models import Panel;"
+        "from analytics.models import Chart, Panel, Query\n"
+        f"q, _ = Query.objects.update_or_create(slug='{PANEL_SLUG}-query',"
+        f" defaults=dict(title='Test query', sql=\"{PANEL_SQL}\"))\n"
+        f"c, _ = Chart.objects.update_or_create(slug='{PANEL_SLUG}-chart',"
+        " defaults=dict(title='Test chart', options={'series': [{'type': 'bar',"
+        " 'encode': {'x': '${category}', 'y': '${measure}'}}]}))\n"
         f"Panel.objects.update_or_create(slug='{PANEL_SLUG}',"
-        f" defaults=dict(title='Test panel', sql=\"{PANEL_SQL}\","
-        " options={'series': [{'type': 'bar', 'encode': {'x': 'tenant_id',"
-        " 'y': 'open_issues'}}]}))"
+        " defaults=dict(title='Test panel', query=q, chart=c,"
+        " bindings={'category': 'tenant_id', 'measure': 'open_issues'}))\n"
     )
     yield PANEL_SLUG
     crudman(
-        "from analytics.models import Panel;"
-        f"Panel.objects.filter(slug='{PANEL_SLUG}').delete()"
+        "from analytics.models import Chart, Panel, Query\n"
+        f"Panel.objects.filter(slug='{PANEL_SLUG}').delete()\n"
+        f"Query.objects.filter(slug='{PANEL_SLUG}-query').delete()\n"
+        f"Chart.objects.filter(slug='{PANEL_SLUG}-chart').delete()\n"
     )
 
 
@@ -73,7 +103,7 @@ def run_sql(sql):
     script = (
         "from analytics.query import run, PanelQueryError\n"
         "try:\n"
-        f"    cols, rows = run({sql!r})\n"
+        f"    cols, rows = run({sql!r}, {{}})\n"
         "    print('ok', rows)\n"
         "except PanelQueryError as error:\n"
         "    print('blocked', error)\n"
@@ -152,19 +182,29 @@ class TestPanelEndpoint:
         import re
         raw = re.search(r'data-options="(.*?)"\s', resp.text, re.S).group(1)
         options = json.loads(raw.replace("&quot;", '"').replace("&#x27;", "'"))
-        # The query result reaches the browser as dataset 0; the series names its
-        # columns rather than carrying the numbers itself.
-        dataset = options["dataset"]
-        assert dataset["dimensions"] == ["tenant_id", "open_issues", "closed_issues"]
-        assert [row[0] for row in dataset["source"]] == [
+        # The result reaches the browser as the "query" stage of the dataset chain, and
+        # the series reads a stage by id rather than counting indices.
+        stages = {stage["id"]: stage for stage in options["dataset"]}
+        assert stages["query"]["dimensions"] == [
+            "tenant_id", "open_issues", "closed_issues"
+        ]
+        assert [row[0] for row in stages["query"]["source"]] == [
             "project_a", "project_b", "project_c"
         ]
+
+        # The chart stored ${category} and ${measure}; the panel's bindings are what
+        # turned them into columns.
+        assert options["series"][0]["encode"] == {
+            "x": "tenant_id", "y": "open_issues"
+        }
+        assert options["series"][0]["datasetId"] in stages
 
 
 class TestAssets:
     """ECharts is vendored, so a machine without internet access still draws charts."""
 
-    @pytest.mark.parametrize("asset", ["echarts.min.js", "analytics.init.js"])
+    @pytest.mark.parametrize("asset", ["echarts.min.js", "ecSimpleTransform.js",
+                                       "analytics.init.js"])
     def test_the_chart_assets_shall_be_served(self, http_follow, asset):
         resp = http_follow.get(f"/{CRUDMAN_PATH}/static/analytics/{asset}")
         assert resp.status_code == 200
@@ -174,8 +214,8 @@ class TestAssets:
 class TestExamplePanels:
     """The examples a fresh system starts with have to work against the real data."""
 
-    def test_every_example_shall_render_with_the_columns_it_names(self):
-        """An encode naming a column the query does not return draws an empty chart.
+    def test_every_example_shall_render_with_the_columns_it_binds(self):
+        """A binding naming a column the query does not return draws an empty chart.
 
         Only the database can say which columns a statement returns, which is why this
         lives here rather than in the app's own tests.
@@ -183,17 +223,79 @@ class TestExamplePanels:
         script = (
             "from analytics.models import Panel\n"
             "from analytics.query import run\n"
-            "from analytics import charts\n"
-            "import json, re\n"
+            "from analytics.transforms import columns_after\n"
             "for p in Panel.objects.filter(slug__startswith='example-'):\n"
-            "    cols, rows = run(p.sql, p.parameters)\n"
-            "    option = charts.build(p, cols, rows)\n"
-            "    named = set(re.findall(r'\\'(?:x|y|value|itemName)\\': \\'([a-z_]+)\\'',"
-            " str(option)))\n"
-            "    missing = named - set(cols)\n"
+            "    cols, rows = run(p.query.sql, p.resolved_parameters)\n"
+            "    available = set(columns_after(p.transforms, cols))\n"
+            "    bound = set()\n"
+            "    for value in (p.bindings or {}).values():\n"
+            "        bound.update(value if isinstance(value, list) else [value])\n"
+            "    missing = bound - available\n"
             "    print(p.slug, 'MISSING' if missing else 'ok', sorted(missing))\n"
         )
         output = crudman(script)
 
         assert "MISSING" not in output, output
         assert "example-" in output, "no example panels were found at all"
+
+    def test_every_example_query_shall_pass_its_own_checks(self):
+        """The command a pipeline runs: a renamed gold column has to fail here."""
+        output = crudman_manage("check_queries")
+
+        assert "FAIL" not in output, output
+
+    def test_every_signature_shall_match_what_the_query_returns(self):
+        """The signature drives the binding dropdown, so a wrong one misleads an author.
+
+        Reading ``columns`` rather than ``signature`` is the point: the examples are
+        written at post_migrate, before SQLMesh has built silver and gold, so their first
+        probe cannot succeed. Asking for the columns is what establishes them.
+        """
+        script = (
+            "from analytics.models import Query\n"
+            "from analytics.query import run\n"
+            "for q in Query.objects.all():\n"
+            "    cols, _ = run(q.sql, q.parameter_defaults or {})\n"
+            "    print(q.slug, 'ok' if q.columns == list(cols) else 'WRONG')\n"
+        )
+        output = crudman(script)
+
+        assert "WRONG" not in output, output
+
+    def test_a_query_two_panels_share_shall_run_once(self):
+        """The reuse the split exists for has to cost one execution, not two.
+
+        Both example panels read example-issues-by-state, so drawing the dashboard must
+        reach the database once for it. Counted from the statement log the analytics role
+        leaves behind rather than from the cache, which would only prove itself.
+        """
+        script = (
+            "from analytics.models import Panel\n"
+            "from analytics.query import run_shared, RESULT_CACHE\n"
+            "from django.core.cache import caches\n"
+            "caches[RESULT_CACHE].clear()\n"
+            "calls = []\n"
+            "import analytics.query as q\n"
+            "real = q.run\n"
+            "q.run = lambda s, v: calls.append(s) or real(s, v)\n"
+            "panels = Panel.objects.filter(query__slug='example-issues-by-state')\n"
+            "for p in panels:\n"
+            "    run_shared(p.query.sql, p.resolved_parameters)\n"
+            "q.run = real\n"
+            "print('panels', panels.count(), 'executions', len(calls))\n"
+        )
+        output = crudman(script)
+
+        assert "panels 2 executions 1" in output, output
+
+    def test_a_healed_signature_shall_be_written_back(self):
+        """Healing once is the point; every panel form after it reads the stored row."""
+        script = (
+            "from analytics.models import Query\n"
+            "q = Query.objects.filter(slug__startswith='example-').first()\n"
+            "q.columns\n"
+            "print(q.slug, 'stored' if Query.objects.get(pk=q.pk).signature else 'EMPTY')\n"
+        )
+        output = crudman(script)
+
+        assert "EMPTY" not in output, output

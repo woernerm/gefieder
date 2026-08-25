@@ -9,7 +9,7 @@ turn. Include it as:
 {% endcomment %}
 
 {% if panel %}
-    {% component "unfold/components/card.html" with title=panel.title %}
+    {% component "unfold/components/card.html" with title=panel.heading %}
         {% if panel.description %}
             <p class="mb-4 text-sm text-font-subtle-light dark:text-font-subtle-dark">
                 {{ panel.description }}

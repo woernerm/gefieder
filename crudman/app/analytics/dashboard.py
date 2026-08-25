@@ -4,24 +4,27 @@ Unfold hands the dashboard template whatever this adds to the context; it is nam
 UNFOLD["DASHBOARD_CALLBACK"] in settings.py.
 """
 
-from .models import Panel
+HOME_SLUG = "home"
+"""The dashboard placed on the admin index.
+
+A slug rather than a flag on the model: the admin index is one page, so "which dashboard
+is it" has exactly one answer, and a reserved name says that without a field that has to
+be kept unique.
+"""
 
 
 def dashboard_callback(request, context):
-    """Add the slugs of the panels the dashboard should carry.
+    """Name the dashboard the admin index should carry.
 
     Args:
-        request: The dashboard request; panels are listed only for a user who may see
-            them, so the placeholders are not even rendered for anyone else.
+        request: The dashboard request; the dashboard is named only for a user who may
+            see panels, so the placeholders are not even rendered for anyone else.
         context: The template context to extend.
 
     Returns:
-        The context, with the panel slugs added.
+        The context, with the dashboard slug added.
     """
-    slugs = []
-    if request.user.has_perm("panels.view_panel"):
-        slugs = list(
-            Panel.objects.filter(on_dashboard=True).values_list("slug", flat=True)
-        )
-    context["dashboard_panels"] = slugs
+    context["dashboard_slug"] = (
+        HOME_SLUG if request.user.has_perm("analytics.view_panel") else None
+    )
     return context

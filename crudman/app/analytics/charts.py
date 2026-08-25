@@ -1,36 +1,37 @@
-"""Handing a query result to ECharts as a dataset.
+"""Building one ECharts option object from a panel's query result, chart and bindings.
 
-A panel stores a whole ECharts option object, the kind that can be pasted straight out of
-the example library at https://echarts.apache.org/examples/. What this module does is
-replace the ``data`` those examples carry inline with the rows the panel's query
-returned, as an ECharts ``dataset``: the column names become its dimensions, so a series
-refers to a column by name rather than by position.
+The result reaches the chart as a chain of ECharts datasets, each addressed by **id**
+rather than by index:
 
-    option = {
-      xAxis: {type: 'category'},
-      yAxis: {type: 'value'},
-      series: [{type: 'line', encode: {x: 'tenant_id', y: 'open_issues'}}]
-    }
+    query  -- the rows as they came back, dimensions named after the columns
+    shaped -- the panel's transforms: which rows, grouped how
+    chart  -- the chart's own transforms: sorting, trimming
 
-Nothing here decides what the chart looks like -- that is the stored option object's job,
-including grouping and filtering, which ECharts does declaratively through
-``dataset.transform``. Keeping the mapping in ECharts rather than in Python is what lets
-an example be pasted in and work.
+Ids rather than indices because a chart used to have to know how many datasets came
+before its own and count from there; with ``fromDatasetId`` nothing counts anything, and
+a stage that does not exist for a given panel simply is not in the chain. A series reads
+the last stage unless it names a ``datasetId`` itself.
+
+Nothing here decides what the chart looks like -- that is the stored option object's job.
+What this module does is fill in the two things the option object deliberately does not
+know: where its data comes from, and which column each ``${slot}`` meant.
 """
 
+from copy import deepcopy
 from datetime import date, datetime
 from decimal import Decimal
 
-DATASET_KEY = "dataset"
-"""Where the query result is injected, and the name an option object refers to."""
+from . import parameters
 
-TABLE_KEY = "table"
-"""Opt-in for the plain table, the one shape ECharts has no chart for.
 
-Not an ECharts option: a panel sets ``{"table": true}`` and the rows are rendered as a
-table instead of a chart. ECharts ignores keys it does not know, so it costs nothing to
-carry it in the same object.
-"""
+class ChartBuildError(Exception):
+    """A chart's stored options could not be assembled, with a message fit to show."""
+
+
+QUERY_ID = "query"
+SHAPED_ID = "shaped"
+CHART_ID = "chart"
+"""The three dataset stages, in the order they chain."""
 
 
 def _plain(value):
@@ -53,38 +54,134 @@ def _plain(value):
     return str(value)
 
 
-def build(panel, columns, rows):
-    """The panel's stored options with the query result injected as the dataset.
+def _expand(series, slots, bound):
+    """Repeat a series once per column for the one slot written as a list.
 
-    A panel that declares a dataset of its own keeps it, so an example pasted in
-    unchanged -- inline data and all -- still renders; the query result is then added
-    alongside it as a further dataset the option object can refer to by index.
+    A stacked bar over three measures is three series that differ only in the column
+    they read, so the chart declares one carrying ``${measures[]}`` and it is repeated
+    here. Each copy is named after its column, which is what the legend shows.
 
     Args:
-        panel: The Panel the result belongs to.
-        columns: Column names of the result, in order.
-        rows: The result rows.
+        series: The series list from the chart's options, before slot resolution.
+        slots: Slot name to whether it takes a list.
+        bound: The panel's bindings, read only for the list slot's own columns.
 
     Returns:
-        The option object to hand to echarts.setOption.
+        The series list with every list slot expanded.
     """
-    result = {
+    expanded = []
+    for entry in series:
+        listed = [
+            name for name, is_list in slots.items()
+            if is_list and f"${{{name}[]}}" in _strings(entry)
+        ]
+        if not listed:
+            expanded.append(entry)
+            continue
+
+        # One list slot per series: a second would make the count of series a product of
+        # two bindings, which is a chart nobody asked for.
+        name = listed[0]
+        columns = bound.get(name) or []
+        columns = columns if isinstance(columns, list) else [columns]
+
+        # Nothing bound leaves the series as written, token and all. Dropping it would
+        # render an empty chart and report nothing, where every other unbound slot is
+        # left in place precisely so the mistake is visible.
+        if not columns:
+            expanded.append(entry)
+            continue
+
+        for column in columns:
+            copy = _replace(entry, f"${{{name}[]}}", column)
+            if isinstance(copy, dict):
+                copy.setdefault("name", column)
+            expanded.append(copy)
+
+    return expanded
+
+
+def _strings(node):
+    """Every string anywhere inside a structure, so a token can be looked for."""
+    if isinstance(node, dict):
+        return [text for value in node.values() for text in _strings(value)]
+    if isinstance(node, list):
+        return [text for value in node for text in _strings(value)]
+    return [node] if isinstance(node, str) else []
+
+
+def _replace(node, token, value):
+    """Replace a whole-string token wherever it appears in a structure."""
+    if isinstance(node, dict):
+        return {key: _replace(item, token, value) for key, item in node.items()}
+    if isinstance(node, list):
+        return [_replace(item, token, value) for item in node]
+    return value if node == token else node
+
+
+def build(panel, columns, rows):
+    """The option object to hand to echarts.setOption.
+
+    Args:
+        panel: The Panel being drawn; its chart, transforms and bindings are read.
+        columns: Column names of the query result, in order.
+        rows: The query result rows.
+
+    Returns:
+        The chart's stored options with the dataset chain added, every bound slot
+        replaced by its column, and any list slot expanded into one series per column.
+        An unbound slot is left as written, so it fails where it can be seen rather than
+        quietly plotting nothing.
+
+    Raises:
+        ChartBuildError: The stored options are not shaped like an option object. They
+            are author-written JSON that no validation can fully vet, so the panel says
+            so on its own card rather than taking the page down with a server error.
+    """
+    chart = panel.chart
+    bound = panel.bindings or {}
+
+    datasets = [{
+        "id": QUERY_ID,
         "dimensions": list(columns),
         "source": [[_plain(value) for value in row] for row in rows],
-    }
+    }]
+    source = QUERY_ID
 
-    options = dict(panel.options or {})
-    declared = options.get(DATASET_KEY)
+    # The panel's transforms name real columns: it is the one place that knows both the
+    # query and what is wanted from it, so there is nothing to resolve.
+    if panel.transforms:
+        datasets.append({
+            "id": SHAPED_ID,
+            "fromDatasetId": source,
+            "transform": panel.transforms,
+        })
+        source = SHAPED_ID
 
-    if declared is None:
-        options[DATASET_KEY] = result
-    elif isinstance(declared, list):
-        # The query result goes first because a transform that names no source defaults
-        # to fromDatasetIndex 0: a transform pasted in as-is then consumes the query
-        # result, which is the whole point. The cost is that a panel spelling out
-        # fromDatasetIndex has to count from one, which the field's help text says.
-        options[DATASET_KEY] = [result, *declared]
-    else:
-        options[DATASET_KEY] = [result, declared]
+    # The chart's do not, having been written without a query in mind.
+    if chart.transforms:
+        datasets.append({
+            "id": CHART_ID,
+            "fromDatasetId": source,
+            "transform": parameters.resolve(chart.transforms, bound),
+        })
+        source = CHART_ID
+
+    options = deepcopy(chart.options or {})
+    declared = options.pop("series", None) or []
+    if not isinstance(declared, list):
+        raise ChartBuildError("The chart's series must be a list.")
+
+    # Expanded before resolution so a list slot's own token is gone by the time the
+    # remaining slots are replaced, and every series is resolved the same way.
+    series = _expand(declared, chart.slots, bound)
+    if not all(isinstance(entry, dict) for entry in series):
+        raise ChartBuildError("Every entry in the chart's series must be an object.")
+
+    options = parameters.resolve(options, bound)
+    options["dataset"] = datasets
+    options["series"] = [
+        {"datasetId": source, **parameters.resolve(entry, bound)} for entry in series
+    ]
 
     return options

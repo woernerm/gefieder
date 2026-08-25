@@ -193,6 +193,24 @@ if PANELS_PASSWORD_FILE.exists():
 # through it; see analytics/routers.py.
 DATABASE_ROUTERS = ['analytics.routers.AnalyticsRouter']
 
+# Where a panel result is shared for the few seconds a dashboard takes to draw. Each panel
+# fetches its own fragment, so two panels built on one query would otherwise run it twice
+# within the same second; see analytics.query.run_shared.
+#
+# Deliberately its own alias rather than "default": what belongs here is short-lived and
+# disposable, and nothing else should have to share a policy with it. In-memory because it
+# needs no infrastructure and losing it costs one repeated query -- with more than one
+# gunicorn worker that means some panels still fetch their own copy, which a deployment
+# that minds can fix by pointing this alias at a shared backend.
+CACHES = {
+    'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'},
+    'analytics': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'analytics-results',
+        'TIMEOUT': 15,
+    },
+}
+
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
@@ -378,6 +396,9 @@ UNFOLD = {
     # loads HTMX itself, which is what fetches the fragments.
     "SCRIPTS": [
         lambda request: static("analytics/echarts.min.js"),
+        # ECharts has no aggregate transform of its own, so the grouping a panel does
+        # comes from here; it has to load before init.js registers it.
+        lambda request: static("analytics/ecSimpleTransform.js"),
         lambda request: static("analytics/analytics.init.js"),
     ],
 

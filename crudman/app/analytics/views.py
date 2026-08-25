@@ -7,8 +7,10 @@ from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, render
 
 from . import charts
+from .charts import ChartBuildError
 from .models import Panel
-from .query import PanelQueryError, run
+from .parameters import ParameterError
+from .query import PanelQueryError, run_shared
 
 
 @staff_member_required
@@ -16,7 +18,8 @@ def panel_data(request, slug):
     """Run one panel's query and render it as a chart fragment.
 
     One request per panel, so a page holding several of them fetches all at once and a
-    slow query delays only its own card.
+    slow query delays only its own card. Two panels built on the same query with the same
+    values share one execution between them; see ``analytics.query.run_shared``.
 
     Args:
         request: The admin request; the user needs the panel view permission.
@@ -28,32 +31,28 @@ def panel_data(request, slug):
     Raises:
         PermissionDenied: The signed-in user may not view panels.
     """
-    if not request.user.has_perm("panels.view_panel"):
+    if not request.user.has_perm("analytics.view_panel"):
         raise PermissionDenied
 
-    panel = get_object_or_404(Panel, slug=slug)
+    panel = get_object_or_404(
+        Panel.objects.select_related("query", "chart"), slug=slug
+    )
 
-    # Only the panel's own declared defaults are bound. Reading them from the query
-    # string instead would let anyone who can follow a link choose what a stored
-    # statement is executed with.
+    # Only the panel's own stored values are used. Reading them from the query string
+    # instead would let anyone who can follow a link choose what a stored statement is
+    # executed with -- which matters more now that a ${name:format} placeholder puts its
+    # value into the statement text rather than beside it.
     #
-    # A failed query and a mistyped column name both belong in the card rather than in a
-    # server error: HTMX swaps the fragment in, so one broken panel leaves the page
-    # around it intact.
+    # A failed query, a missing parameter and options that are not shaped like an option
+    # object all belong in the card rather than in a server error: HTMX swaps the fragment
+    # in, so one broken panel leaves the page around it intact.
     try:
-        columns, rows = run(panel.sql, panel.parameters)
-
-        # ECharts has no table, so the one shape it cannot draw is asked for by name.
-        if panel.options.get(charts.TABLE_KEY):
-            return render(
-                request,
-                "analytics/table.html",
-                {"panel": panel, "columns": columns, "rows": rows},
-            )
-
+        columns, rows = run_shared(panel.query.sql, panel.resolved_parameters)
         options = json.dumps(charts.build(panel, columns, rows))
-    except PanelQueryError as error:
-        return render(request, "analytics/error.html", {"panel": panel, "error": str(error)})
+    except (PanelQueryError, ParameterError, ChartBuildError) as error:
+        return render(
+            request, "analytics/error.html", {"panel": panel, "error": str(error)}
+        )
 
     return render(
         request,

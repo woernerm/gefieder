@@ -1,0 +1,47 @@
+{% load unfold %}
+
+{% comment %}
+Lays a dashboard's panels out across its grid. Include it as:
+
+    {% component "analytics/dashboard.html" with component_class="DashboardComponent" dashboard="home" %}{% endcomponent %}
+
+The layout is a style block rather than Tailwind classes or style attributes, for two
+reasons. A class name built from a stored span is not in Unfold's compiled stylesheet, so
+it would silently do nothing. And a style attribute cannot carry a media query, while
+without one the grid is wrong on a narrow screen twice over: an inline
+grid-template-columns beats the responsive class that was meant to collapse it, and a
+"span 6" against a single column asks for five columns that do not exist, which the
+browser supplies as implicit ones and the row then overflows.
+
+Below the breakpoint every panel is therefore full width, and the spans apply only above
+it, where there are columns for them to span.
+{% endcomment %}
+
+{% if panels %}
+    <style>
+        #{{ grid_id }} {
+            display: grid;
+            gap: 1.5rem;
+            grid-template-columns: minmax(0, 1fr);
+            margin-bottom: 2rem;
+        }
+        #{{ grid_id }} > * { grid-column: 1 / -1; }
+
+        @media (min-width: 1024px) {
+            #{{ grid_id }} {
+                grid-template-columns: repeat({{ dashboard.columns }}, minmax(0, 1fr));
+            }
+            {% for span in spans %}
+            #{{ grid_id }} > .gf-span-{{ span }} { grid-column: span {{ span }} / span {{ span }}; }
+            {% endfor %}
+        }
+    </style>
+
+    <div id="{{ grid_id }}">
+        {% for panel in panels %}
+            <div class="gf-span-{{ panel.span }}">
+                {% component "analytics/panel.html" with component_class="PanelComponent" panel=panel.slug %}{% endcomponent %}
+            </div>
+        {% endfor %}
+    </div>
+{% endif %}

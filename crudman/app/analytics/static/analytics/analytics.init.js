@@ -10,6 +10,14 @@
   const instances = new Map();
   const observers = new Map();
 
+  // ECharts ships filter, sort and boxplot only, so the grouping a panel's shaping pipe
+  // asks for comes from the vendored ecSimpleTransform. Registered once, here, because a
+  // transform referenced by an option object must already be known when setOption runs.
+  if (typeof ecSimpleTransform !== "undefined") {
+    echarts.registerTransform(ecSimpleTransform.aggregate);
+    echarts.registerTransform(ecSimpleTransform.id);
+  }
+
   const cssVar = (name, fallback) => {
     const value = getComputedStyle(document.documentElement)
       .getPropertyValue(name)
