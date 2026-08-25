@@ -19,7 +19,7 @@ import pytest
 
 from conftest import BASE_URL, CRUDMAN_PATH, SUPERUSER_NAME, SUPERUSER_PASSWORD, VERIFY_TLS
 
-PANEL_SLUG = "test-open-issues"
+PANEL_TITLE = "Test panel"
 PANEL_SQL = (
     "SELECT tenant_id, open_issues, closed_issues "
     "FROM gold.issue_metrics ORDER BY tenant_id"
@@ -68,26 +68,31 @@ def crudman_manage(*command):
 def panel():
     """A stored query, chart and panel to fetch, removed again afterwards.
 
-    The chart names ``${slot}`` tokens rather than columns and the panel binds them,
-    which is the arrangement the endpoint has to resolve.
+    The chart names ``${placeholder}`` tokens rather than columns and the panel binds
+    them, which is the arrangement the endpoint has to resolve. The panel is yielded by
+    primary key, which is what the endpoint takes.
     """
-    crudman(
+    output = crudman(
         "from analytics.models import Chart, Panel, Query\n"
-        f"q, _ = Query.objects.update_or_create(slug='{PANEL_SLUG}-query',"
-        f" defaults=dict(title='Test query', sql=\"{PANEL_SQL}\"))\n"
-        f"c, _ = Chart.objects.update_or_create(slug='{PANEL_SLUG}-chart',"
-        " defaults=dict(title='Test chart', options={'series': [{'type': 'bar',"
+        "q, _ = Query.objects.update_or_create(title='Test query',"
+        f" defaults=dict(sql=\"{PANEL_SQL}\"))\n"
+        "c, _ = Chart.objects.update_or_create(title='Test chart',"
+        " defaults=dict(options={'series': [{'type': 'bar',"
         " 'encode': {'x': '${category}', 'y': '${measure}'}}]}))\n"
-        f"Panel.objects.update_or_create(slug='{PANEL_SLUG}',"
-        " defaults=dict(title='Test panel', query=q, chart=c,"
+        f"p, _ = Panel.objects.update_or_create(title='{PANEL_TITLE}',"
+        " defaults=dict(query=q, chart=c,"
         " bindings={'category': 'tenant_id', 'measure': 'open_issues'}))\n"
+        "print('PANEL_PK', p.pk)\n"
     )
-    yield PANEL_SLUG
+    pk = next(
+        line.split()[1] for line in output.splitlines() if line.startswith("PANEL_PK ")
+    )
+    yield pk
     crudman(
         "from analytics.models import Chart, Panel, Query\n"
-        f"Panel.objects.filter(slug='{PANEL_SLUG}').delete()\n"
-        f"Query.objects.filter(slug='{PANEL_SLUG}-query').delete()\n"
-        f"Chart.objects.filter(slug='{PANEL_SLUG}-chart').delete()\n"
+        f"Panel.objects.filter(title='{PANEL_TITLE}').delete()\n"
+        "Query.objects.filter(title='Test query').delete()\n"
+        "Chart.objects.filter(title='Test chart').delete()\n"
     )
 
 
@@ -224,19 +229,19 @@ class TestExamplePanels:
             "from analytics.models import Panel\n"
             "from analytics.query import run\n"
             "from analytics.transforms import columns_after\n"
-            "for p in Panel.objects.filter(slug__startswith='example-'):\n"
+            "for p in Panel.objects.filter(dashboard__name='home'):\n"
             "    cols, rows = run(p.query.sql, p.resolved_parameters)\n"
             "    available = set(columns_after(p.transforms, cols))\n"
             "    bound = set()\n"
             "    for value in (p.bindings or {}).values():\n"
             "        bound.update(value if isinstance(value, list) else [value])\n"
             "    missing = bound - available\n"
-            "    print(p.slug, 'MISSING' if missing else 'ok', sorted(missing))\n"
+            "    print(p.title, 'MISSING' if missing else 'ok', sorted(missing))\n"
         )
         output = crudman(script)
 
         assert "MISSING" not in output, output
-        assert "example-" in output, "no example panels were found at all"
+        assert "ok" in output, "no example panels were found at all"
 
     def test_every_example_query_shall_pass_its_own_checks(self):
         """The command a pipeline runs: a renamed gold column has to fail here."""
@@ -256,7 +261,7 @@ class TestExamplePanels:
             "from analytics.query import run\n"
             "for q in Query.objects.all():\n"
             "    cols, _ = run(q.sql, q.parameter_defaults or {})\n"
-            "    print(q.slug, 'ok' if q.columns == list(cols) else 'WRONG')\n"
+            "    print(q.title, 'ok' if q.columns == list(cols) else 'WRONG')\n"
         )
         output = crudman(script)
 
@@ -278,7 +283,8 @@ class TestExamplePanels:
             "import analytics.query as q\n"
             "real = q.run\n"
             "q.run = lambda s, v: calls.append(s) or real(s, v)\n"
-            "panels = Panel.objects.filter(query__slug='example-issues-by-state')\n"
+            "panels = Panel.objects.filter("
+            "query__title='Issues by tenant and state')\n"
             "for p in panels:\n"
             "    run_shared(p.query.sql, p.resolved_parameters)\n"
             "q.run = real\n"
@@ -292,9 +298,9 @@ class TestExamplePanels:
         """Healing once is the point; every panel form after it reads the stored row."""
         script = (
             "from analytics.models import Query\n"
-            "q = Query.objects.filter(slug__startswith='example-').first()\n"
+            "q = Query.objects.first()\n"
             "q.columns\n"
-            "print(q.slug, 'stored' if Query.objects.get(pk=q.pk).signature else 'EMPTY')\n"
+            "print(q.title, 'stored' if Query.objects.get(pk=q.pk).signature else 'EMPTY')\n"
         )
         output = crudman(script)
 

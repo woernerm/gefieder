@@ -1,7 +1,7 @@
 {% extends "admin/index.html" %}
 
 {% comment %}
-The admin index, carrying the dashboard whose slug is "home".
+The admin index, carrying the dashboard whose name is "home".
 
 A project-level template rather than one inside the analytics app: "unfold" has to come
 first in INSTALLED_APPS, so an app template of this name would never be reached. Django's
@@ -15,8 +15,8 @@ Each card fetches its own data, so the panels load side by side rather than in t
 {% load unfold %}
 
 {% block content %}
-    {% if dashboard_slug %}
-        {% component "analytics/dashboard.html" with component_class="DashboardComponent" dashboard=dashboard_slug %}{% endcomponent %}
+    {% if dashboard_name %}
+        {% component "analytics/dashboard.html" with component_class="DashboardComponent" dashboard=dashboard_name %}{% endcomponent %}
     {% endif %}
 
     {{ block.super }}

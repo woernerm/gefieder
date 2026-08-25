@@ -11,8 +11,8 @@ A metric is split so that each piece can be authored once and reused:
 | model | holds | knows nothing about |
 |---|---|---|
 | **Query** | one SQL statement and its `${name}` placeholders | what will be drawn from it |
-| **Chart** | one ECharts option object, naming `${slot}` tokens | which query fills them |
-| **Panel** | which query, which chart, the parameter values, the shaping transforms, which column each slot reads, and where it sits on the grid | — |
+| **Chart** | one ECharts option object, naming `${placeholder}` tokens | which query fills them |
+| **Panel** | which query, which chart, the parameter values, the shaping transforms, which column each placeholder reads, and where it sits on the grid | — |
 | **Dashboard** | an ordered set of panels and the width of its grid | — |
 
 The rule that makes it hold together: **a query and a chart never mention each other.**
@@ -26,7 +26,7 @@ rolled up as a bar chart and pivoted as a table.
 ## How a panel reaches a page
 
 1. A template places a card and nothing more.
-2. HTMX (which Unfold already loads) fetches `analytics/<slug>/data/` as soon as the card
+2. HTMX (which Unfold already loads) fetches `analytics/<id>/data/` as soon as the card
    is on the page.
 3. The view runs the panel's query and returns a `<div class="echarts-panel">` carrying
    the ECharts option object.
@@ -55,13 +55,13 @@ On a dashboard, by pointing the panel at one and giving it a span:
 {% component "analytics/dashboard.html" with component_class="DashboardComponent" dashboard="home" %}{% endcomponent %}
 ```
 
-The dashboard whose slug is `home` is the admin index; see
+The dashboard whose name is `home` is the admin index; see
 `crudman/app/templates/admin/index.html`.
 
-Anywhere else, by slug -- which is how a panel gets onto a change form:
+Anywhere else, by id -- which is how a panel gets onto a change form:
 
 ```django
-{% component "analytics/panel.html" with component_class="PanelComponent" panel="open-issues" %}{% endcomponent %}
+{% component "analytics/panel.html" with component_class="PanelComponent" panel=7 %}{% endcomponent %}
 ```
 
 ```python
@@ -144,30 +144,30 @@ A chart stores a whole ECharts option object, the kind that can be pasted straig
 because the option object already says all of that.
 
 The one edit a pasted example needs is its data. Where it named a column or carried
-inline numbers, it names a slot:
+inline numbers, it names a placeholder:
 
 ```js
 // The library's line-simple example ...
 series: [{data: [150, 230, 224], type: 'line'}]
 
-// ... naming a slot instead, which a panel binds to a column.
+// ... naming a placeholder instead, which a panel binds to a column.
 series: [{type: 'line', encode: {x: '${day}', y: '${total}'}}]
 ```
 
-`${slot[]}` is a **list slot**: the series is repeated once per column bound to it, each
+`${placeholder[]}` is a **list placeholder**: the series is repeated once per column bound to it, each
 copy named after its column, which is what the legend shows. That is how one stacked-bar
 chart serves any number of measures.
 
-Only a string that is *entirely* a slot is replaced, so a `formatter` mentioning `${...}`
-survives as written. An unbound slot is left in place -- a list slot included, whose series
+Only a string that is *entirely* a placeholder is replaced, so a `formatter` mentioning `${...}`
+survives as written. An unbound placeholder is left in place -- a list placeholder included, whose series
 is kept rather than dropped -- so it fails where it can be seen rather than quietly
 plotting nothing.
 
 ### Bindings
 
 The panel form offers a dropdown of the query's columns and **arrives already filled in**,
-proposed from the name and the kind: a slot under `encode.y` on a grid wants a number, one
-under `encode.x` wants a label, and on a matrix both axes want labels. Every slot stays
+proposed from the name and the kind: a placeholder under `encode.y` on a grid wants a number, one
+under `encode.x` wants a label, and on a matrix both axes want labels. Every placeholder stays
 editable, because a proposal is a guess. See `analytics/bindings.py`.
 
 ### Transforms
@@ -181,7 +181,7 @@ chart  -- the chart's transforms:  sorting, trimming
 ```
 
 A panel's transforms name **real columns** -- it is the one place that knows both the
-query and what is wanted from it. A chart's name **slots**, having been written without a
+query and what is wanted from it. A chart's name **placeholders**, having been written without a
 query in mind. A stage that a panel does not need is simply absent from the chain, and a
 series reads the last one unless it names a `datasetId` itself.
 
@@ -210,7 +210,7 @@ Because a query is a row that runs on its own, it can be checked on its own:
 ```
 
 ```console
-./manage.py check_queries [slug ...] [--refresh-signature]
+./manage.py check_queries [title ...] [--refresh-signature]
 ```
 
 The command runs every query with its own defaults and fails on a result that no longer

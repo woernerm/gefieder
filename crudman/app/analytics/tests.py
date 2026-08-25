@@ -9,10 +9,13 @@ from datetime import date
 from decimal import Decimal
 from unittest import mock
 
+from django.contrib.admin.sites import site
+from django.contrib.admin.widgets import RelatedFieldWidgetWrapper
+from django.contrib.auth.models import User
 from django.core.cache import caches
 from django.core.exceptions import ValidationError
 from django.template.loader import render_to_string
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 
 from . import bindings, parameters, transforms
 from .charts import ChartBuildError, build
@@ -89,8 +92,8 @@ class ParameterSyntaxTests(TestCase):
         self.assertEqual(parameters.statement_count("SELECT 'a'; SELECT 'b'"), 2)
         self.assertEqual(parameters.statement_count("SELECT 1;"), 1)
 
-    def test_a_slot_is_only_recognised_as_a_whole_string(self):
-        """A formatter mentioning a slot must survive resolution as the author wrote it."""
+    def test_a_placeholder_is_only_recognised_as_a_whole_string(self):
+        """A formatter mentioning a placeholder must survive resolution as the author wrote it."""
         resolved = parameters.resolve(
             {"encode": {"x": "${cat}"}, "label": {"formatter": "total ${cat}"}},
             {"cat": "team"},
@@ -99,9 +102,9 @@ class ParameterSyntaxTests(TestCase):
         self.assertEqual(resolved["encode"]["x"], "team")
         self.assertEqual(resolved["label"]["formatter"], "total ${cat}")
 
-    def test_a_list_slot_is_reported_as_one(self):
+    def test_a_list_placeholder_is_reported_as_one(self):
         self.assertEqual(
-            parameters.slots({"encode": {"x": "${a}", "y": "${b[]}"}}),
+            parameters.placeholders({"encode": {"x": "${a}", "y": "${b[]}"}}),
             {"a": False, "b": True},
         )
 
@@ -147,14 +150,14 @@ class BindingProposalTests(TestCase):
     def test_an_exact_name_wins(self):
         options = {"series": [{"encode": {"x": "${tenant_id}"}}]}
 
-        proposal = bindings.propose(parameters.slots(options), self.COLUMNS, options)
+        proposal = bindings.propose(parameters.placeholders(options), self.COLUMNS, options)
 
         self.assertEqual(proposal["tenant_id"], "tenant_id")
 
-    def test_a_list_slot_collects_every_column_of_its_kind(self):
+    def test_a_list_placeholder_collects_every_column_of_its_kind(self):
         options = {"series": [{"encode": {"x": "${category}", "y": "${measures[]}"}}]}
 
-        proposal = bindings.propose(parameters.slots(options), self.COLUMNS, options)
+        proposal = bindings.propose(parameters.placeholders(options), self.COLUMNS, options)
 
         self.assertEqual(proposal["category"], "tenant_id")
         self.assertEqual(proposal["measures"], ["open_issues", "closed_issues"])
@@ -169,7 +172,7 @@ class BindingProposalTests(TestCase):
             {"c": "category", "r": "category", "v": "number"},
         )
 
-    def test_each_slot_gets_its_own_column_where_one_is_free(self):
+    def test_each_placeholder_gets_its_own_column_where_one_is_free(self):
         options = {"series": [{"coordinateSystem": "matrix",
                                "encode": {"x": "${c}", "y": "${r}", "value": "${v}"}}]}
         columns = [
@@ -178,7 +181,7 @@ class BindingProposalTests(TestCase):
             {"name": "issues", "kind": "number"},
         ]
 
-        proposal = bindings.propose(parameters.slots(options), columns, options)
+        proposal = bindings.propose(parameters.placeholders(options), columns, options)
 
         self.assertEqual(proposal["v"], "issues")
         self.assertNotEqual(proposal["c"], proposal["r"])
@@ -186,19 +189,19 @@ class BindingProposalTests(TestCase):
     def test_nothing_is_proposed_when_there_are_no_columns(self):
         options = {"series": [{"encode": {"x": "${a}"}}]}
 
-        self.assertEqual(bindings.propose(parameters.slots(options), [], options), {})
+        self.assertEqual(bindings.propose(parameters.placeholders(options), [], options), {})
 
 
 class DatasetTests(TestCase):
     """What build() assembles; the option object itself is ECharts' business, not ours."""
 
     def setUp(self):
-        self.query = Query(slug="q", title="Q", sql="SELECT 1")
+        self.query = Query(title="Q", sql="SELECT 1")
         self.chart = Chart(
-            slug="c", title="C",
+            title="C",
             options={"series": [{"type": "bar", "encode": {"x": "${cat}", "y": "${val}"}}]},
         )
-        self.panel = Panel(slug="p", query=self.query, chart=self.chart,
+        self.panel = Panel(query=self.query, chart=self.chart,
                            bindings={"cat": "tenant", "val": "open"})
 
     def test_the_query_result_becomes_the_first_stage(self):
@@ -226,7 +229,7 @@ class DatasetTests(TestCase):
         self.assertEqual([stage["id"] for stage in option["dataset"]], ["query"])
         self.assertEqual(option["series"][0]["datasetId"], "query")
 
-    def test_slots_are_replaced_by_the_bound_columns(self):
+    def test_placeholders_are_replaced_by_the_bound_columns(self):
         option = build(self.panel, ["tenant", "open"], [("a", 1)])
 
         self.assertEqual(option["series"][0]["encode"], {"x": "tenant", "y": "open"})
@@ -241,7 +244,7 @@ class DatasetTests(TestCase):
                          "open")
 
     def test_a_charts_transforms_are_resolved(self):
-        """The chart does not, so its pipe names slots."""
+        """The chart does not, so its pipe names placeholders."""
         self.chart.transforms = [{"type": "sort", "config": {"dimension": "${val}"}}]
 
         option = build(self.panel, ["tenant", "open"], [("a", 1)])
@@ -249,7 +252,7 @@ class DatasetTests(TestCase):
         self.assertEqual(option["dataset"][1]["transform"][0]["config"]["dimension"],
                          "open")
 
-    def test_a_list_slot_becomes_one_series_per_column(self):
+    def test_a_list_placeholder_becomes_one_series_per_column(self):
         self.chart.options = {
             "series": [{"type": "bar", "encode": {"x": "${cat}", "y": "${measures[]}"}}]
         }
@@ -263,7 +266,7 @@ class DatasetTests(TestCase):
         self.assertEqual([entry["encode"]["y"] for entry in option["series"]],
                          ["open", "closed"])
 
-    def test_an_unbound_list_slot_keeps_its_series(self):
+    def test_an_unbound_list_placeholder_keeps_its_series(self):
         """Dropping it would render an empty chart and report nothing."""
         self.chart.options = {
             "series": [{"type": "bar", "encode": {"x": "${cat}", "y": "${measures[]}"}}]
@@ -293,7 +296,7 @@ class DatasetTests(TestCase):
 
         self.assertEqual(option["series"][0]["datasetId"], "query")
 
-    def test_an_unbound_slot_is_left_in_place(self):
+    def test_an_unbound_placeholder_is_left_in_place(self):
         """It has to fail where it can be seen, not quietly plot nothing."""
         self.panel.bindings = {"cat": "tenant"}
 
@@ -322,52 +325,52 @@ class ModelValidationTests(TestCase):
 
     def test_several_statements_are_rejected(self):
         with self.assertRaises(ValidationError):
-            Query(slug="q", title="Q", sql="SELECT 1; DROP TABLE x").clean()
+            Query(title="Q", sql="SELECT 1; DROP TABLE x").clean()
 
     def test_a_semicolon_in_a_string_shall_not_be_mistaken_for_a_statement(self):
-        Query(slug="q", title="Q", sql="SELECT string_agg(a, ';') FROM t").clean()
+        Query(title="Q", sql="SELECT string_agg(a, ';') FROM t").clean()
 
     def test_a_single_trailing_semicolon_is_allowed(self):
-        Query(slug="q", title="Q", sql="SELECT 1;").clean()
+        Query(title="Q", sql="SELECT 1;").clean()
 
     def test_a_placeholder_without_a_default_is_rejected(self):
         """The signature is probed by running the query alone, so it must be runnable."""
         with self.assertRaises(ValidationError):
-            Query(slug="q", title="Q", sql="SELECT ${t}").clean()
+            Query(title="Q", sql="SELECT ${t}").clean()
 
     def test_a_chart_may_not_declare_a_dataset(self):
         with self.assertRaises(ValidationError):
-            Chart(slug="c", title="C", options={"dataset": [{"source": []}]}).clean()
+            Chart(title="C", options={"dataset": [{"source": []}]}).clean()
 
     def test_a_span_wider_than_the_grid_is_rejected(self):
-        query = Query.objects.create(slug="q", title="Q", sql="SELECT 1")
-        chart = Chart.objects.create(slug="c", title="C")
+        query = Query.objects.create(title="Q", sql="SELECT 1")
+        chart = Chart.objects.create(title="C")
 
         with self.assertRaises(ValidationError):
-            Panel(slug="p", query=query, chart=chart, span=99).clean()
+            Panel(query=query, chart=chart, span=99).clean()
 
     def test_a_binding_naming_an_unknown_column_is_rejected(self):
         query = Query.objects.create(
-            slug="q", title="Q", sql="SELECT 1",
+            title="Q", sql="SELECT 1",
             signature=[{"name": "tenant", "type_oid": 25, "kind": "category"}],
         )
-        chart = Chart.objects.create(slug="c", title="C")
-        panel = Panel(slug="p", query=query, chart=chart, bindings={"x": "nope"})
+        chart = Chart.objects.create(title="C")
+        panel = Panel(query=query, chart=chart, bindings={"x": "nope"})
 
         with self.assertRaises(ValidationError):
             panel.clean()
 
     def test_available_columns_follow_the_shaping_pipe(self):
         query = Query.objects.create(
-            slug="q", title="Q", sql="SELECT 1",
+            title="Q", sql="SELECT 1",
             signature=[
                 {"name": "team", "type_oid": 25, "kind": "category"},
                 {"name": "effort", "type_oid": 23, "kind": "number"},
                 {"name": "state", "type_oid": 25, "kind": "category"},
             ],
         )
-        chart = Chart.objects.create(slug="c", title="C")
-        panel = Panel(slug="p", query=query, chart=chart, transforms=[{
+        chart = Chart.objects.create(title="C")
+        panel = Panel(query=query, chart=chart, transforms=[{
             "type": transforms.AGGREGATE,
             "config": {
                 "resultDimensions": [{"from": "team"}, {"from": "effort", "method": "sum"}],
@@ -381,7 +384,7 @@ class ModelValidationTests(TestCase):
     def test_a_signature_is_not_cleared_when_the_probe_fails(self):
         """A moment's trouble reaching the analytics role must not empty every dropdown."""
         signature = [{"name": "tenant", "type_oid": 25, "kind": "category"}]
-        query = Query.objects.create(slug="q", title="Q", sql="SELECT 1",
+        query = Query.objects.create(title="Q", sql="SELECT 1",
                                      signature=signature)
 
         query.save()
@@ -391,7 +394,7 @@ class ModelValidationTests(TestCase):
     def test_columns_do_not_reprobe_once_a_signature_is_known(self):
         """The heal is for a query that never had one, not a cache to refresh."""
         query = Query.objects.create(
-            slug="q", title="Q", sql="SELECT 1",
+            title="Q", sql="SELECT 1",
             signature=[{"name": "tenant", "type_oid": 25, "kind": "category"}],
         )
         calls = []
@@ -401,10 +404,10 @@ class ModelValidationTests(TestCase):
         self.assertEqual(calls, [])
 
     def test_a_panel_falls_back_to_the_querys_title(self):
-        query = Query.objects.create(slug="q", title="From the query", sql="SELECT 1")
-        chart = Chart.objects.create(slug="c", title="C")
+        query = Query.objects.create(title="From the query", sql="SELECT 1")
+        chart = Chart.objects.create(title="C")
 
-        self.assertEqual(Panel(slug="p", query=query, chart=chart).heading,
+        self.assertEqual(Panel(query=query, chart=chart).heading,
                          "From the query")
 
 
@@ -414,21 +417,21 @@ class ExampleTests(TestCase):
     def test_the_examples_are_created(self):
         # post_migrate already ran for the test database, so they are in place.
         for example in EXAMPLE_QUERIES:
-            self.assertTrue(Query.objects.filter(slug=example["slug"]).exists())
+            self.assertTrue(Query.objects.filter(title=example["title"]).exists())
         for example in EXAMPLE_CHARTS:
-            self.assertTrue(Chart.objects.filter(slug=example["slug"]).exists())
+            self.assertTrue(Chart.objects.filter(title=example["title"]).exists())
         for example in EXAMPLE_PANELS:
-            self.assertTrue(Panel.objects.filter(slug=example["slug"]).exists())
-        self.assertTrue(Dashboard.objects.filter(slug="home").exists())
+            self.assertTrue(Panel.objects.filter(title=example["title"]).exists())
+        self.assertTrue(Dashboard.objects.filter(name="home").exists())
 
     def test_running_again_shall_not_undo_an_edit(self):
         """A deployment must not overwrite what an administrator changed."""
-        slug = EXAMPLE_PANELS[0]["slug"]
-        Panel.objects.filter(slug=slug).update(title="Renamed by hand")
+        title = EXAMPLE_PANELS[0]["title"]
+        Panel.objects.filter(title=title).update(description="Edited by hand")
 
         create_examples()
 
-        self.assertEqual(Panel.objects.get(slug=slug).title, "Renamed by hand")
+        self.assertEqual(Panel.objects.get(title=title).description, "Edited by hand")
 
     def test_a_deleted_example_comes_back_on_the_next_migrate(self):
         """Documented rather than desirable: get_or_create restores what is missing.
@@ -437,29 +440,29 @@ class ExampleTests(TestCase):
         tenant is. An administrator who wants one gone for good empties its query or
         takes its panel off the dashboard, either of which survives.
         """
-        slug = EXAMPLE_PANELS[0]["slug"]
-        Panel.objects.filter(slug=slug).delete()
+        title = EXAMPLE_PANELS[0]["title"]
+        Panel.objects.filter(title=title).delete()
 
         create_examples()
 
-        self.assertTrue(Panel.objects.filter(slug=slug).exists())
+        self.assertTrue(Panel.objects.filter(title=title).exists())
 
     def test_one_query_is_used_by_more_than_one_panel(self):
         """The reuse the split exists for has to be visible in what ships."""
-        reused = Query.objects.get(slug="example-issues-by-state")
+        reused = Query.objects.get(title="Issues by tenant and state")
 
         self.assertGreater(reused.panels.count(), 1)
 
-    def test_every_example_binds_every_slot_its_chart_declares(self):
+    def test_every_example_binds_every_placeholder_its_chart_declares(self):
         for example in EXAMPLE_PANELS:
-            panel = Panel.objects.select_related("chart").get(slug=example["slug"])
-            for slot in panel.chart.slots:
-                self.assertIn(slot, panel.bindings, f"{panel.slug}: ${{{slot}}} unbound")
+            panel = Panel.objects.select_related("chart").get(title=example["title"])
+            for placeholder in panel.chart.placeholders:
+                self.assertIn(placeholder, panel.bindings, f"{panel.title}: ${{{placeholder}}} unbound")
 
     def test_every_example_chart_shall_be_valid(self):
         """clean() is what the admin runs; an example must pass it."""
         for example in EXAMPLE_CHARTS:
-            Chart.objects.get(slug=example["slug"]).full_clean()
+            Chart.objects.get(title=example["title"]).full_clean()
 
     def test_every_example_shall_be_a_usable_option_object(self):
         """An example is the first thing anyone sees, so none may render empty.
@@ -468,14 +471,14 @@ class ExampleTests(TestCase):
         so tests/test_panels.py runs each example for real; this only checks the shape.
         """
         for example in EXAMPLE_PANELS:
-            panel = Panel.objects.select_related("chart").get(slug=example["slug"])
+            panel = Panel.objects.select_related("chart").get(title=example["title"])
             option = build(panel, ["tenant_id", "state", "issues"], [("a", "open", 1)])
 
             self.assertTrue(option["dataset"])
-            self.assertTrue(option.get("series"), f"{panel.slug}: no series")
+            self.assertTrue(option.get("series"), f"{panel.title}: no series")
             for entry in option["series"]:
                 self.assertNotIn("${", str(entry.get("encode")),
-                                 f"{panel.slug}: a slot was left unbound")
+                                 f"{panel.title}: a placeholder was left unbound")
 
 
 class SharedResultTests(TestCase):
@@ -523,11 +526,11 @@ class DashboardLayoutTests(TestCase):
     """The grid, which has to survive a narrow screen."""
 
     def test_the_component_names_the_spans_its_style_block_needs(self):
-        dashboard = Dashboard.objects.create(slug="d", title="D", columns=12)
-        query = Query.objects.create(slug="q", title="Q", sql="SELECT 1")
-        chart = Chart.objects.create(slug="c", title="C")
+        dashboard = Dashboard.objects.create(name="d", title="D", columns=12)
+        query = Query.objects.create(title="Q", sql="SELECT 1")
+        chart = Chart.objects.create(title="C")
         for index, span in enumerate((6, 6, 4)):
-            Panel.objects.create(slug=f"p{index}", dashboard=dashboard, query=query,
+            Panel.objects.create(dashboard=dashboard, query=query,
                                  chart=chart, span=span, order=index)
 
         context = DashboardComponent(request=None).get_context_data(dashboard="d")
@@ -537,10 +540,10 @@ class DashboardLayoutTests(TestCase):
 
     def test_the_grid_collapses_below_the_breakpoint(self):
         """A span against a single column would ask for implicit columns and overflow."""
-        dashboard = Dashboard.objects.create(slug="d", title="D", columns=12)
-        query = Query.objects.create(slug="q", title="Q", sql="SELECT 1")
-        chart = Chart.objects.create(slug="c", title="C")
-        Panel.objects.create(slug="p", dashboard=dashboard, query=query, chart=chart,
+        dashboard = Dashboard.objects.create(name="d", title="D", columns=12)
+        query = Query.objects.create(title="Q", sql="SELECT 1")
+        chart = Chart.objects.create(title="C")
+        Panel.objects.create(dashboard=dashboard, query=query, chart=chart,
                              span=6)
 
         rendered = render_to_string(
@@ -557,10 +560,16 @@ class DashboardLayoutTests(TestCase):
 class DashboardInlineTests(TestCase):
     """Adding a panel from its dashboard has to produce a usable row."""
 
-    def test_the_inline_offers_the_slug(self):
-        """A field the inline leaves out is excluded from validation, so the panel would
-        be saved with an empty slug and the second one would collide with the first."""
-        self.assertIn("slug", PanelInline.fields)
+    def test_the_inline_offers_a_bare_dropdown(self):
+        """The related-field wrapper's add/change/delete/view icons are all wrong here:
+        a query or a chart is authored on its own page, not while laying out a grid."""
+        inline = PanelInline(Dashboard, site)
+        request = RequestFactory().get("/")
+        request.user = User.objects.create_superuser("wrapper", password="x")
+        formset = inline.get_formset(request)
+        for name in ("query", "chart"):
+            widget = formset.form.base_fields[name].widget
+            self.assertNotIsInstance(widget, RelatedFieldWidgetWrapper)
 
 
 class PrettyJsonTests(TestCase):
@@ -597,7 +606,7 @@ class PrettyJsonTests(TestCase):
         from django.forms.models import modelform_factory
 
         form = modelform_factory(Chart, fields=["options"])(
-            instance=Chart(slug="c", title="C", options={"series": [{"type": "bar"}]})
+            instance=Chart(title="C", options={"series": [{"type": "bar"}]})
         )
         value = form["options"].value()
 

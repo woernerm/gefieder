@@ -40,7 +40,7 @@ it, where there are columns for them to span.
     <div id="{{ grid_id }}">
         {% for panel in panels %}
             <div class="gf-span-{{ panel.span }}">
-                {% component "analytics/panel.html" with component_class="PanelComponent" panel=panel.slug %}{% endcomponent %}
+                {% component "analytics/panel.html" with component_class="PanelComponent" panel=panel.pk %}{% endcomponent %}
             </div>
         {% endfor %}
     </div>

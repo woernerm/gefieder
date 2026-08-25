@@ -14,7 +14,7 @@ the last stage unless it names a ``datasetId`` itself.
 
 Nothing here decides what the chart looks like -- that is the stored option object's job.
 What this module does is fill in the two things the option object deliberately does not
-know: where its data comes from, and which column each ``${slot}`` meant.
+know: where its data comes from, and which column each ``${placeholder}`` meant.
 """
 
 from copy import deepcopy
@@ -54,39 +54,39 @@ def _plain(value):
     return str(value)
 
 
-def _expand(series, slots, bound):
-    """Repeat a series once per column for the one slot written as a list.
+def _expand(series, placeholders, bound):
+    """Repeat a series once per column for the one placeholder written as a list.
 
     A stacked bar over three measures is three series that differ only in the column
     they read, so the chart declares one carrying ``${measures[]}`` and it is repeated
     here. Each copy is named after its column, which is what the legend shows.
 
     Args:
-        series: The series list from the chart's options, before slot resolution.
-        slots: Slot name to whether it takes a list.
-        bound: The panel's bindings, read only for the list slot's own columns.
+        series: The series list from the chart's options, before placeholder resolution.
+        placeholders: Placeholder name to whether it takes a list.
+        bound: The panel's bindings, read only for the list placeholder's own columns.
 
     Returns:
-        The series list with every list slot expanded.
+        The series list with every list placeholder expanded.
     """
     expanded = []
     for entry in series:
         listed = [
-            name for name, is_list in slots.items()
+            name for name, is_list in placeholders.items()
             if is_list and f"${{{name}[]}}" in _strings(entry)
         ]
         if not listed:
             expanded.append(entry)
             continue
 
-        # One list slot per series: a second would make the count of series a product of
+        # One list placeholder per series: a second would make the count of series a product of
         # two bindings, which is a chart nobody asked for.
         name = listed[0]
         columns = bound.get(name) or []
         columns = columns if isinstance(columns, list) else [columns]
 
         # Nothing bound leaves the series as written, token and all. Dropping it would
-        # render an empty chart and report nothing, where every other unbound slot is
+        # render an empty chart and report nothing, where every other unbound placeholder is
         # left in place precisely so the mistake is visible.
         if not columns:
             expanded.append(entry)
@@ -128,9 +128,9 @@ def build(panel, columns, rows):
         rows: The query result rows.
 
     Returns:
-        The chart's stored options with the dataset chain added, every bound slot
-        replaced by its column, and any list slot expanded into one series per column.
-        An unbound slot is left as written, so it fails where it can be seen rather than
+        The chart's stored options with the dataset chain added, every bound placeholder
+        replaced by its column, and any list placeholder expanded into one series per column.
+        An unbound placeholder is left as written, so it fails where it can be seen rather than
         quietly plotting nothing.
 
     Raises:
@@ -172,9 +172,9 @@ def build(panel, columns, rows):
     if not isinstance(declared, list):
         raise ChartBuildError("The chart's series must be a list.")
 
-    # Expanded before resolution so a list slot's own token is gone by the time the
-    # remaining slots are replaced, and every series is resolved the same way.
-    series = _expand(declared, chart.slots, bound)
+    # Expanded before resolution so a list placeholder's own token is gone by the time the
+    # remaining placeholders are replaced, and every series is resolved the same way.
+    series = _expand(declared, chart.placeholders, bound)
     if not all(isinstance(entry, dict) for entry in series):
         raise ChartBuildError("Every entry in the chart's series must be an object.")
 

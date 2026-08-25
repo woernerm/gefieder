@@ -22,9 +22,9 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "slugs",
+            "titles",
             nargs="*",
-            help="Only these queries, by slug. Every query when omitted.",
+            help="Only these queries, by title. Every query when omitted.",
         )
         parser.add_argument(
             "--refresh-signature",
@@ -34,17 +34,17 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         queries = Query.objects.all()
-        if options["slugs"]:
-            queries = queries.filter(slug__in=options["slugs"])
+        if options["titles"]:
+            queries = queries.filter(title__in=options["titles"])
 
         failures = 0
         for query in queries:
             problems = list(self._check(query, options["refresh_signature"]))
             for problem in problems:
-                self.stderr.write(self.style.ERROR(f"FAIL {query.slug}: {problem}"))
+                self.stderr.write(self.style.ERROR(f"FAIL {query.title}: {problem}"))
             failures += len(problems)
             if not problems:
-                self.stdout.write(self.style.SUCCESS(f"ok   {query.slug}"))
+                self.stdout.write(self.style.SUCCESS(f"ok   {query.title}"))
 
         if failures:
             raise CommandError(f"{failures} check(s) failed.")

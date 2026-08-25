@@ -14,7 +14,7 @@ from .query import PanelQueryError, run_shared
 
 
 @staff_member_required
-def panel_data(request, slug):
+def panel_data(request, pk):
     """Run one panel's query and render it as a chart fragment.
 
     One request per panel, so a page holding several of them fetches all at once and a
@@ -23,7 +23,7 @@ def panel_data(request, slug):
 
     Args:
         request: The admin request; the user needs the panel view permission.
-        slug: Which panel to render.
+        pk: Which panel to render.
 
     Returns:
         The rendered fragment, carrying either the chart or the reason there is none.
@@ -35,7 +35,7 @@ def panel_data(request, slug):
         raise PermissionDenied
 
     panel = get_object_or_404(
-        Panel.objects.select_related("query", "chart"), slug=slug
+        Panel.objects.select_related("query", "chart"), pk=pk
     )
 
     # Only the panel's own stored values are used. Reading them from the query string

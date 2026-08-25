@@ -13,24 +13,25 @@ from .models import Dashboard, Panel
 
 @register_component
 class PanelComponent(BaseComponent):
-    """Looks a panel up by slug and hands the template what the placeholder needs."""
+    """Looks a panel up by primary key and hands the template what it needs."""
 
     def get_context_data(self, **kwargs):
-        """Resolve the ``panel`` slug the template passed.
+        """Resolve the ``panel`` primary key the template passed.
 
         Args:
-            **kwargs: The component's template arguments; ``panel`` names the slug.
+            **kwargs: The component's template arguments; ``panel`` is the primary key.
 
         Returns:
             The context with the Panel added, or with it left None when no panel of that
-            slug exists -- an embedded panel that has been deleted leaves a note on the
+            id exists -- an embedded panel that has been deleted leaves a note on the
             page rather than breaking the page it sits on.
         """
         context = super().get_context_data(**kwargs)
+        panel = kwargs.get("panel")
         context["panel"] = (
-            Panel.objects.select_related("query", "chart")
-            .filter(slug=kwargs.get("panel"))
-            .first()
+            Panel.objects.select_related("query", "chart").filter(pk=panel).first()
+            if str(panel or "").isdigit()
+            else None
         )
         return context
 
@@ -45,17 +46,17 @@ class DashboardComponent(BaseComponent):
     """
 
     def get_context_data(self, **kwargs):
-        """Resolve the ``dashboard`` slug the template passed.
+        """Resolve the ``dashboard`` name the template passed.
 
         Args:
-            **kwargs: The component's template arguments; ``dashboard`` names the slug.
+            **kwargs: The component's template arguments; ``dashboard`` names it.
 
         Returns:
             The context with the dashboard, its panels in order, the id its style block
             is written against, and the spans that block needs a rule for.
         """
         context = super().get_context_data(**kwargs)
-        dashboard = Dashboard.objects.filter(slug=kwargs.get("dashboard")).first()
+        dashboard = Dashboard.objects.filter(name=kwargs.get("dashboard")).first()
         context["dashboard"] = dashboard
         panels = (
             list(dashboard.panels.select_related("query", "chart").order_by("order", "title"))
@@ -66,6 +67,6 @@ class DashboardComponent(BaseComponent):
 
         # Scoped to this grid so two dashboards on one page cannot restyle each other,
         # and only the spans in use get a rule.
-        context["grid_id"] = f"gf-dashboard-{dashboard.slug}" if dashboard else ""
+        context["grid_id"] = f"gf-dashboard-{dashboard.name}" if dashboard else ""
         context["spans"] = sorted({panel.span for panel in panels})
         return context

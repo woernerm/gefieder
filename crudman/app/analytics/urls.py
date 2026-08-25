@@ -7,5 +7,5 @@ from . import views
 app_name = "analytics"
 
 urlpatterns = [
-    path("<slug:slug>/data/", views.panel_data, name="data"),
+    path("<int:pk>/data/", views.panel_data, name="data"),
 ]

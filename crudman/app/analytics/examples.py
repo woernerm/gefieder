@@ -4,7 +4,7 @@ something to look at.
 Between them they show what the split is for. ``example-issues-by-state`` is queried
 once and drawn twice: as a grouped bar, where a panel's shaping transform rolls the rows
 up per tenant, and as a table, where the same rows are pivoted untouched. Neither chart
-mentions a column -- both name ``${slot}`` tokens that the panels bind -- so either can
+mentions a column -- both name ``${placeholder}`` tokens that the panels bind -- so either can
 be pointed at another query without being edited.
 
 They query the gold and silver models the SQLMesh project ships, which the example
@@ -17,7 +17,7 @@ query; both are edits and both survive.
 """
 
 HOME_DASHBOARD = {
-    "slug": "home",
+    "name": "home",
     "title": "Overview",
     "description": "The dashboard the admin index carries.",
     "columns": 12,
@@ -25,7 +25,7 @@ HOME_DASHBOARD = {
 
 EXAMPLE_QUERIES = (
     {
-        "slug": "example-issues-by-state",
+        "ref": "example-issues-by-state",
         "title": "Issues by tenant and state",
         "description": (
             "Long format -- one row per tenant and state -- which is what lets the same "
@@ -44,7 +44,7 @@ EXAMPLE_QUERIES = (
         "checks": {"columns": ["tenant_id", "state", "issues"], "min_rows": 1},
     },
     {
-        "slug": "example-issue-metrics",
+        "ref": "example-issue-metrics",
         "title": "Issue metrics per tenant",
         "description": "The precomputed gold metrics, one row per tenant.",
         "sql": (
@@ -61,12 +61,12 @@ EXAMPLE_QUERIES = (
 
 EXAMPLE_CHARTS = (
     {
-        "slug": "example-grouped-bar",
+        "ref": "example-grouped-bar",
         "title": "Grouped bar",
         "description": (
             "A bar chart the way the ECharts library writes one, with encode naming "
-            "slots where the example had a list of numbers. ${measures[]} is a list "
-            "slot: the series is repeated once per column bound to it, each named after "
+            "placeholders where the example had a list of numbers. ${measures[]} is a list "
+            "placeholder: the series is repeated once per column bound to it, each named after "
             "its column, which is what the legend shows."
         ),
         "options": {
@@ -84,11 +84,11 @@ EXAMPLE_CHARTS = (
         },
     },
     {
-        "slug": "example-share-pie",
+        "ref": "example-share-pie",
         "title": "Share pie",
         "description": (
             "A pie, and a presentation transform doing the sorting. The transform names "
-            "a slot rather than a column, which is what keeps the chart reusable."
+            "a placeholder rather than a column, which is what keeps the chart reusable."
         ),
         "options": {
             "tooltip": {"trigger": "item"},
@@ -107,7 +107,7 @@ EXAMPLE_CHARTS = (
         ],
     },
     {
-        "slug": "example-matrix-table",
+        "ref": "example-matrix-table",
         "title": "Table",
         "description": (
             "ECharts has no table series, so this is its matrix coordinate system: the "
@@ -144,7 +144,7 @@ EXAMPLE_CHARTS = (
 
 EXAMPLE_PANELS = (
     {
-        "slug": "example-issues-per-tenant",
+        "ref": "example-issues-per-tenant",
         "title": "Issues per tenant",
         "description": (
             "The same query as the table beside it, rolled up: the shaping transform "
@@ -170,7 +170,7 @@ EXAMPLE_PANELS = (
         "order": 10,
     },
     {
-        "slug": "example-issues-by-state-table",
+        "ref": "example-issues-by-state-table",
         "title": "Issues by state",
         "description": "The same query, pivoted rather than rolled up.",
         "query": "example-issues-by-state",
@@ -180,7 +180,7 @@ EXAMPLE_PANELS = (
         "order": 20,
     },
     {
-        "slug": "example-effort-share",
+        "ref": "example-effort-share",
         "title": "Effort share",
         "description": "A second query, and a chart that knows nothing about it.",
         "query": "example-issue-metrics",
@@ -205,23 +205,25 @@ def create_examples(**kwargs):
     from .models import Chart, Dashboard, Panel, Query
 
     dashboard, _ = Dashboard.objects.get_or_create(
-        slug=HOME_DASHBOARD["slug"],
-        defaults={key: value for key, value in HOME_DASHBOARD.items() if key != "slug"},
+        name=HOME_DASHBOARD["name"],
+        defaults={key: value for key, value in HOME_DASHBOARD.items() if key != "name"},
     )
 
+    # The "ref" is a key within this module only, not a field: it is how a panel below
+    # names the query and chart it wants. Identity in the database is the title, which
+    # is what makes a second post_migrate leave an edited example alone.
+    created = {}
     for group, model in ((EXAMPLE_QUERIES, Query), (EXAMPLE_CHARTS, Chart)):
         for row in group:
-            model.objects.get_or_create(
-                slug=row["slug"],
-                defaults={key: value for key, value in row.items() if key != "slug"},
+            fields = {key: value for key, value in row.items() if key != "ref"}
+            instance, _ = model.objects.get_or_create(
+                title=row["title"], defaults=fields
             )
-
-    queries = {query.slug: query for query in Query.objects.all()}
-    charts = {chart.slug: chart for chart in Chart.objects.all()}
+            created[row["ref"]] = instance
 
     for row in EXAMPLE_PANELS:
-        fields = {key: value for key, value in row.items() if key != "slug"}
-        fields["query"] = queries[fields["query"]]
-        fields["chart"] = charts[fields["chart"]]
+        fields = {key: value for key, value in row.items() if key != "ref"}
+        fields["query"] = created[fields["query"]]
+        fields["chart"] = created[fields["chart"]]
         fields["dashboard"] = dashboard
-        Panel.objects.get_or_create(slug=row["slug"], defaults=fields)
+        Panel.objects.get_or_create(title=row["title"], defaults=fields)

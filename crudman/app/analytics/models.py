@@ -10,10 +10,10 @@ The split exists so that each piece can be authored once and reused:
 * a **Query** is SQL and nothing else. It knows its placeholders but not what will be
   drawn from it, so the same rows can feed several panels -- and it can be tested on its
   own, which is what ``checks`` and the ``check_queries`` command are for.
-* a **Chart** is appearance and nothing else. It names ``${slot}`` tokens instead of
+* a **Chart** is appearance and nothing else. It names ``${placeholder}`` tokens instead of
   columns, so once it looks right it can be pointed at any query that has the columns.
 * a **Panel** is the only place anything concrete lives: which query, which chart, the
-  parameter values, the shaping transforms, and which column each slot reads.
+  parameter values, the shaping transforms, and which column each placeholder reads.
 * a **Dashboard** is an ordered set of panels and the width of its grid.
 
 The one rule that makes this hold together: a query and a chart never mention each other.
@@ -25,7 +25,7 @@ from django.db import models
 
 from .bindings import propose
 from .encoders import PrettyJSONEncoder
-from .parameters import names as placeholder_names, slots as chart_slots
+from .parameters import names as placeholder_names, placeholders as chart_placeholders
 from .parameters import statement_count
 from .query import describe
 from .transforms import ALLOWED, TransformError, columns_after, validate
@@ -41,13 +41,6 @@ class Query(models.Model):
     is fair game, which makes authoring a query an analyst-level right rather than an
     editorial one -- see the permission note in ``analytics/admin.py``.
     """
-
-    slug = models.SlugField(
-        "slug",
-        max_length=100,
-        unique=True,
-        help_text="Identifier for this query, e.g. issues-by-tenant.",
-    )
     title = models.CharField("title", max_length=200)
     description = models.TextField(
         "description",
@@ -102,7 +95,7 @@ class Query(models.Model):
         ordering = ("title",)
 
     def __str__(self):
-        return self.title or self.slug
+        return self.title
 
     @property
     def placeholders(self):
@@ -184,20 +177,13 @@ class Chart(models.Model):
     type or axes because the option object already says all of that, which is what lets
     an example be pasted in from the ECharts library and work. The one edit a pasted
     example needs is its data: where it named a column or carried inline numbers, it
-    names a ``${slot}`` that a panel binds to a column.
+    names a ``${placeholder}`` that a panel binds to a column.
     """
-
-    slug = models.SlugField(
-        "slug",
-        max_length=100,
-        unique=True,
-        help_text="Identifier for this chart, e.g. grouped-bar.",
-    )
     title = models.CharField("title", max_length=200)
     description = models.TextField(
         "description",
         blank=True,
-        help_text="What this chart shows, and which slots a panel has to fill.",
+        help_text="What this chart shows, and which placeholders a panel has to fill.",
     )
 
     options = models.JSONField(
@@ -207,9 +193,9 @@ class Chart(models.Model):
         encoder=PrettyJSONEncoder,
         help_text=(
             "The ECharts option object, as pasted from echarts.apache.org/examples, "
-            "with ${slot} where it would name a column: "
+            "with ${placeholder} where it would name a column: "
             'series: [{type: "line", encode: {x: "${day}", y: "${total}"}}]. '
-            "Write ${slot[]} to repeat a series once per bound column. Do not declare "
+            "Write ${placeholder[]} to repeat a series once per bound column. Do not declare "
             "a dataset -- the panel builds it; put sorting and trimming in transforms."
         ),
     )
@@ -234,12 +220,12 @@ class Chart(models.Model):
         ordering = ("title",)
 
     def __str__(self):
-        return self.title or self.slug
+        return self.title
 
     @property
-    def slots(self):
-        """Slot name to whether it was written as a list, across options and transforms."""
-        return chart_slots([self.options, self.transforms])
+    def placeholders(self):
+        """Placeholder name to whether it was written as a list, across options and transforms."""
+        return chart_placeholders([self.options, self.transforms])
 
     def clean(self):
         if not isinstance(self.options, dict):
@@ -269,9 +255,8 @@ class Dashboard(models.Model):
     grid whose cells do not line up cannot be described in the first place, so there is
     nothing to validate and no layout solver to write.
     """
-
-    slug = models.SlugField(
-        "slug",
+    name = models.SlugField(
+        "name",
         max_length=100,
         unique=True,
         help_text='Identifier for this dashboard. The one called "home" is the admin index.',
@@ -291,26 +276,19 @@ class Dashboard(models.Model):
         ordering = ("title",)
 
     def __str__(self):
-        return self.title or self.slug
+        return self.title or self.name
 
 
 class Panel(models.Model):
     """A query and a chart, joined -- and the only place a concrete value appears.
 
     Everything that cannot be decided while authoring a query or a chart is decided here:
-    what the placeholders are worth, how the rows are grouped, which column each slot
+    what the placeholders are worth, how the rows are grouped, which column each placeholder
     reads, and how much of the grid the result occupies.
     """
 
-    slug = models.SlugField(
-        "slug",
-        max_length=100,
-        unique=True,
-        help_text="Identifier used to embed this panel in a template.",
-    )
-
-    # Null means the panel is not on a dashboard but embedded by slug from a template,
-    # which is the only way a panel can appear on a change form.
+    # Null means the panel is not on a dashboard but embedded by primary key from a
+    # template, which is the only way a panel can appear on a change form.
     dashboard = models.ForeignKey(
         Dashboard,
         on_delete=models.SET_NULL,
@@ -356,8 +334,8 @@ class Panel(models.Model):
         default=dict,
         encoder=PrettyJSONEncoder,
         help_text=(
-            'Which column each of the chart\'s slots reads, e.g. {"day": "created_on"}. '
-            "A list slot takes a list of columns. Proposed automatically; edit freely."
+            'Which column each of the chart\'s placeholders reads, e.g. {"day": "created_on"}. '
+            "A list placeholder takes a list of columns. Proposed automatically; edit freely."
         ),
     )
 
@@ -384,7 +362,7 @@ class Panel(models.Model):
         ordering = ("order", "title")
 
     def __str__(self):
-        return self.title or self.slug
+        return self.title
 
     @property
     def heading(self):
@@ -398,7 +376,7 @@ class Panel(models.Model):
 
     @property
     def available_columns(self):
-        """The columns a slot may be bound to: the query's, after this panel's shaping."""
+        """The columns a placeholder may be bound to: the query's, after this panel's shaping."""
         after = columns_after(self.transforms, self.query.columns)
         by_name = {column["name"]: column for column in self.query.signature or []}
         # A column an aggregate invented is not in the signature, so it is described by
@@ -407,7 +385,7 @@ class Panel(models.Model):
 
     def propose_bindings(self):
         """What the admin offers for ``bindings`` before anyone edits them."""
-        return propose(self.chart.slots, self.available_columns, self.chart.options)
+        return propose(self.chart.placeholders, self.available_columns, self.chart.options)
 
     def clean(self):
         if not isinstance(self.parameters, dict):

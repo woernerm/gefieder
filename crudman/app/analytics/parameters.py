@@ -7,7 +7,7 @@ One syntax for both sides, so an author learns it once:
 * ``${name:format}`` in SQL is **interpolated** -- the value becomes part of the
   statement text. That is what binding cannot do: an identifier, an ``IN`` list, and
   later the time macros. Every format quotes or validates what it emits; see FORMATS.
-* ``${name}`` in a chart's options names a **slot**, resolved to the column a panel
+* ``${name}`` in a chart's options names a **placeholder**, resolved to the column a panel
   bound it to. Charts are written without column names so one chart serves many queries.
 
 Interpolation is a deliberate widening of what a stored query can reach, taken on the
@@ -24,8 +24,8 @@ from psycopg import sql
 PLACEHOLDER = re.compile(r"\$\{(?P<name>[a-z_][a-z0-9_]*)(?::(?P<format>[a-z]+))?\}")
 """``${name}`` or ``${name:format}``. Names are lowercase identifiers, as SQL is."""
 
-SLOT = re.compile(r"^\$\{(?P<name>[a-z_][a-z0-9_]*)(?P<list>\[\])?\}$")
-"""A chart slot, matched only as a whole string so a label or formatter is never rewritten."""
+PLACEHOLDER_TOKEN = re.compile(r"^\$\{(?P<name>[a-z_][a-z0-9_]*)(?P<list>\[\])?\}$")
+"""A chart placeholder, matched only as a whole string so a label or formatter is never rewritten."""
 
 _MARKER = "\x00"
 """Stands in for a bound placeholder while the percent signs around it are escaped.
@@ -136,14 +136,14 @@ def bind(sql_text, values):
     return statement, bound
 
 
-def slots(options):
-    """Every slot name a chart's options and transforms refer to.
+def placeholders(options):
+    """Every placeholder name a chart's options and transforms refer to.
 
     Args:
         options: Any JSON-shaped structure from a chart.
 
     Returns:
-        A dict of slot name to whether it was written as a list (``${name[]}``). A name
+        A dict of placeholder name to whether it was written as a list (``${name[]}``). A name
         used both ways counts as a list, that being the wider of the two.
     """
     found = {}
@@ -156,7 +156,7 @@ def slots(options):
             for value in node:
                 walk(value)
         elif isinstance(node, str):
-            match = SLOT.match(node)
+            match = PLACEHOLDER_TOKEN.match(node)
             if match:
                 name = match.group("name")
                 found[name] = bool(match.group("list")) or found.get(name, False)
@@ -166,17 +166,17 @@ def slots(options):
 
 
 def resolve(node, bindings):
-    """Replace a chart's slots with the columns a panel bound them to.
+    """Replace a chart's placeholders with the columns a panel bound them to.
 
-    Only a string that is *entirely* a slot is replaced, so a formatter or a label
+    Only a string that is *entirely* a placeholder is replaced, so a formatter or a label
     mentioning ``${...}`` is left as the author wrote it.
 
     Args:
         node: The structure to resolve; it is not modified.
-        bindings: Slot name to column name, or to a list of them for a list slot.
+        bindings: Placeholder name to column name, or to a list of them for a list placeholder.
 
     Returns:
-        A copy with every bound slot replaced. An unbound slot is left in place, which is
+        A copy with every bound placeholder replaced. An unbound placeholder is left in place, which is
         what makes the resulting chart fail visibly rather than silently plot nothing.
     """
     if isinstance(node, dict):
@@ -184,7 +184,7 @@ def resolve(node, bindings):
     if isinstance(node, list):
         return [resolve(value, bindings) for value in node]
     if isinstance(node, str):
-        match = SLOT.match(node)
+        match = PLACEHOLDER_TOKEN.match(node)
         if match and match.group("name") in bindings:
             return bindings[match.group("name")]
     return node

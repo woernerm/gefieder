@@ -6,7 +6,7 @@ analyst-level right rather than an editorial one, which is why "analytics" is ab
 ``sso.roles.MANAGED_APPS``: the three provider ranks carry no permission here at all, and
 someone has to be given it deliberately (a superuser holds it inherently).
 
-The split shows up in the forms as one convenience. A chart names slots and a query
+The split shows up in the forms as one convenience. A chart names placeholders and a query
 returns columns, so a panel has to say which is which; asking for that from a blank field
 would make reuse feel like a cost. Saving a panel with no bindings fills them in from the
 query's probed columns, and the proposal is then an ordinary editable value -- see
@@ -14,6 +14,7 @@ query's probed columns, and the proposal is then an ordinary editable value -- s
 """
 
 from django.contrib import admin, messages
+from django.contrib.admin.widgets import RelatedFieldWidgetWrapper
 from unfold.admin import ModelAdmin
 
 from .models import Chart, Dashboard, Panel, Query
@@ -21,13 +22,12 @@ from .models import Chart, Dashboard, Panel, Query
 
 @admin.register(Query)
 class QueryAdmin(ModelAdmin):
-    list_display = ("title", "slug", "column_summary")
-    search_fields = ("title", "slug", "sql")
-    prepopulated_fields = {"slug": ("title",)}
+    list_display = ("title", "column_summary")
+    search_fields = ("title", "sql")
     readonly_fields = ("column_summary",)
 
     fieldsets = (
-        (None, {"fields": ("title", "slug", "description")}),
+        (None, {"fields": ("title", "description")}),
         ("Query", {"fields": ("sql", "parameter_defaults", "column_summary")}),
         ("Checks", {"fields": ("checks",)}),
     )
@@ -48,25 +48,23 @@ class QueryAdmin(ModelAdmin):
 
 @admin.register(Chart)
 class ChartAdmin(ModelAdmin):
-    list_display = ("title", "slug", "slot_summary")
-    search_fields = ("title", "slug")
-    prepopulated_fields = {"slug": ("title",)}
-    readonly_fields = ("slot_summary",)
+    list_display = ("title", "placeholder_summary")
+    search_fields = ("title",)
 
     fieldsets = (
-        (None, {"fields": ("title", "slug", "description")}),
-        ("Chart", {"fields": ("options", "transforms", "slot_summary")}),
+        (None, {"fields": ("title", "description")}),
+        ("Chart", {"fields": ("options", "transforms")}),
     )
 
-    @admin.display(description="slots")
-    def slot_summary(self, instance):
-        """Which slots a panel using this chart will have to bind."""
-        slots = instance.slots
-        if not slots:
-            return "none -- this chart names no ${slot}"
+    @admin.display(description="placeholders")
+    def placeholder_summary(self, instance):
+        """Which placeholders a panel using this chart will have to bind."""
+        placeholders = instance.placeholders
+        if not placeholders:
+            return "none -- this chart names no ${placeholder}"
         return ", ".join(
             f"${{{name}}}" + ("[] (a list)" if is_list else "")
-            for name, is_list in slots.items()
+            for name, is_list in placeholders.items()
         )
 
 
@@ -75,19 +73,30 @@ class PanelInline(admin.TabularInline):
 
     model = Panel
     extra = 0
-    # The slug has to be here: a field the inline leaves out is excluded from validation
-    # too, so a panel added from a dashboard would be saved with an empty one and the
-    # second such panel would collide with the first on the unique constraint.
-    fields = ("order", "slug", "title", "query", "chart", "span", "height")
+    fields = ("order", "title", "query", "chart", "span", "height")
     ordering = ("order",)
     show_change_link = True
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        """Hand back the bare select, without the wrapper's add/change/delete/view icons.
+
+        Django wraps every related field in a RelatedFieldWidgetWrapper, whose four icons
+        are all wrong here: a query or a chart is authored on its own page, not invented
+        while laying out a dashboard. Unwrapped here rather than in
+        ``formfield_for_foreignkey``, which runs before the wrapping and so cannot undo it.
+        """
+        field = super().formfield_for_dbfield(db_field, request, **kwargs)
+        if db_field.name in ("query", "chart") and isinstance(
+            field.widget, RelatedFieldWidgetWrapper
+        ):
+            field.widget = field.widget.widget
+        return field
 
 
 @admin.register(Dashboard)
 class DashboardAdmin(ModelAdmin):
-    list_display = ("title", "slug", "columns", "panel_count")
-    search_fields = ("title", "slug")
-    prepopulated_fields = {"slug": ("title",)}
+    list_display = ("title", "name", "columns", "panel_count")
+    search_fields = ("title", "name")
     inlines = (PanelInline,)
 
     @admin.display(description="panels")
@@ -97,15 +106,14 @@ class DashboardAdmin(ModelAdmin):
 
 @admin.register(Panel)
 class PanelAdmin(ModelAdmin):
-    list_display = ("__str__", "slug", "dashboard", "query", "chart", "span")
+    list_display = ("__str__", "dashboard", "query", "chart", "span")
     list_filter = ("dashboard", "chart")
-    search_fields = ("title", "slug")
-    prepopulated_fields = {"slug": ("title",)}
+    search_fields = ("title",)
     autocomplete_fields = ("query", "chart")
     readonly_fields = ("binding_help",)
 
     fieldsets = (
-        (None, {"fields": ("title", "slug", "description")}),
+        (None, {"fields": ("title", "description")}),
         ("Sources", {"fields": ("query", "chart", "parameters")}),
         ("Shaping", {"fields": ("transforms",)}),
         ("Bindings", {"fields": ("bindings", "binding_help")}),
@@ -133,7 +141,7 @@ class PanelAdmin(ModelAdmin):
         """
         super().save_model(request, obj, form, change)
 
-        if obj.bindings or not obj.chart.slots:
+        if obj.bindings or not obj.chart.placeholders:
             return
 
         proposal = obj.propose_bindings()
@@ -145,6 +153,6 @@ class PanelAdmin(ModelAdmin):
         messages.info(
             request,
             "Bindings proposed from the query's columns: "
-            + ", ".join(f"${{{slot}}} -> {column}" for slot, column in proposal.items())
+            + ", ".join(f"${{{placeholder}}} -> {column}" for placeholder, column in proposal.items())
             + ". Change any that are wrong.",
         )

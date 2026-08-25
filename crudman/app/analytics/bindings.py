@@ -1,13 +1,13 @@
-"""Proposing which column each of a chart's slots should read.
+"""Proposing which column each of a chart's placeholders should read.
 
-A chart names slots, a query returns columns, and a panel says which is which. Asking an
+A chart names placeholders, a query returns columns, and a panel says which is which. Asking an
 author to fill that in from nothing would make the reuse the split buys feel like a cost,
 so the form arrives already filled: the proposal below is what the panel admin offers,
-and every slot stays editable because a proposal is a guess.
+and every placeholder stays editable because a proposal is a guess.
 
 Two things are scored. The name, because an author who wrote ``${total}`` and a query
 returning ``total_effort`` meant them to meet. And the kind, because the option object
-already says where a slot sits -- a slot used as ``encode.x`` against a category axis
+already says where a placeholder sits -- a placeholder used as ``encode.x`` against a category axis
 wants a column of labels, one used as ``encode.y`` wants a number -- so a proposal that
 puts a timestamp on a value axis can be discounted without anyone declaring anything.
 """
@@ -22,37 +22,37 @@ SIMILARITY = 50.0
 """What a name match is worth: the whole score, most of it, or a share of it."""
 
 KIND_PENALTY = 0.3
-"""Multiplier for a column whose kind is not the one the slot's position implies."""
+"""Multiplier for a column whose kind is not the one the placeholder's position implies."""
 
 KIND_MATCH = 5.0
-"""Added when the kind agrees, so a slot whose name resembles nothing can still be
+"""Added when the kind agrees, so a placeholder whose name resembles nothing can still be
 proposed a column of the right sort -- ``${v}`` and a column called ``n`` share no
 letters, and leaving the field empty would be the less useful answer."""
 
 TAKEN_PENALTY = 0.5
-"""Two slots reading one column stays possible -- a table's rows and columns could not
+"""Two placeholders reading one column stays possible -- a table's rows and columns could not
 both be filled otherwise when only one column suits -- but any untaken column of the
 right kind is preferred to it."""
 
 
-def _name_score(slot, column):
+def _name_score(placeholder, column):
     """How much the two names look like each other, from 0 to EXACT."""
-    slot, column = slot.lower(), column.lower()
-    if slot == column:
+    placeholder, column = placeholder.lower(), column.lower()
+    if placeholder == column:
         return EXACT
-    if slot in column or column in slot:
+    if placeholder in column or column in placeholder:
         return SUBSTRING
-    return SequenceMatcher(None, slot, column).ratio() * SIMILARITY
+    return SequenceMatcher(None, placeholder, column).ratio() * SIMILARITY
 
 
 def expected_kinds(options):
-    """Which kind of column each slot's position in the option object implies.
+    """Which kind of column each placeholder's position in the option object implies.
 
     Args:
         options: The chart's option object, as stored.
 
     Returns:
-        A dict of slot name to "number", "category" or None when the position says
+        A dict of placeholder name to "number", "category" or None when the position says
         nothing. Only ``encode`` is read: it is where a series states what a dimension is
         for, so it is the one place the chart already carries the answer.
     """
@@ -66,8 +66,8 @@ def expected_kinds(options):
                 # carry labels; on a grid, y is the measure. The same channel therefore
                 # means different things, and the series says which.
                 matrix = node.get("coordinateSystem") == "matrix"
-                for channel, slot in encode.items():
-                    for name in _slot_names(slot):
+                for channel, placeholder in encode.items():
+                    for name in _placeholder_names(placeholder):
                         kinds.setdefault(name, _channel_kind(channel, matrix))
             for key, value in node.items():
                 if key != "encode":
@@ -96,44 +96,44 @@ def _channel_kind(channel, matrix=False):
     return None
 
 
-def _slot_names(value):
-    """The slot names inside one ``encode`` channel, which may hold a list."""
+def _placeholder_names(value):
+    """The placeholder names inside one ``encode`` channel, which may hold a list."""
     values = value if isinstance(value, list) else [value]
     names = []
     for entry in values:
         if isinstance(entry, str):
-            match = parameters.SLOT.match(entry)
+            match = parameters.PLACEHOLDER_TOKEN.match(entry)
             if match:
                 names.append(match.group("name"))
     return names
 
 
-def propose(slots, columns, options=None):
-    """Suggest a column for every slot a chart declares.
+def propose(placeholders, columns, options=None):
+    """Suggest a column for every placeholder a chart declares.
 
     Args:
-        slots: Slot name to whether it takes a list, as ``parameters.slots`` returns.
+        placeholders: Placeholder name to whether it takes a list, as ``parameters.placeholders`` returns.
         columns: The available columns, each ``{"name", "kind", ...}``, in query order.
         options: The chart's option object, read only to tell a value axis from a
             category one.
 
     Returns:
-        A dict of slot name to a column name, or to a list of them for a list slot.
+        A dict of placeholder name to a column name, or to a list of them for a list placeholder.
         Assignment is greedy on the best score, so the clearest match is settled first
-        and cannot be taken by a weaker one. A slot no column suits is left out rather
+        and cannot be taken by a weaker one. A placeholder no column suits is left out rather
         than filled with a wrong answer.
     """
     kinds = expected_kinds(options or {})
     scores = []
-    for slot in slots:
+    for placeholder in placeholders:
         for column in columns:
-            score = _name_score(slot, column["name"])
-            if kinds.get(slot):
-                if kinds[slot] == column.get("kind"):
+            score = _name_score(placeholder, column["name"])
+            if kinds.get(placeholder):
+                if kinds[placeholder] == column.get("kind"):
                     score += KIND_MATCH
                 else:
                     score *= KIND_PENALTY
-            scores.append((score, slot, column["name"]))
+            scores.append((score, placeholder, column["name"]))
 
     scores.sort(key=lambda entry: (-entry[0], entry[1], entry[2]))
 
@@ -141,41 +141,41 @@ def propose(slots, columns, options=None):
     taken = set()
     deferred = []
 
-    def wants(slot):
-        """Whether this slot can still take a column in the first round."""
-        return slots[slot] or slot not in proposal
+    def wants(placeholder):
+        """Whether this placeholder can still take a column in the first round."""
+        return placeholders[placeholder] or placeholder not in proposal
 
-    def give(slot, column):
-        if slots[slot]:
-            proposal.setdefault(slot, [])
-            if column not in proposal[slot]:
-                proposal[slot].append(column)
+    def give(placeholder, column):
+        if placeholders[placeholder]:
+            proposal.setdefault(placeholder, [])
+            if column not in proposal[placeholder]:
+                proposal[placeholder].append(column)
         else:
-            proposal[slot] = column
+            proposal[placeholder] = column
         taken.add(column)
 
-    # First round: every slot gets a column of its own, best match first. A column
-    # already spoken for is not assigned here but held back, so a slot that could have
+    # First round: every placeholder gets a column of its own, best match first. A column
+    # already spoken for is not assigned here but held back, so a placeholder that could have
     # had an unused column is not handed a shared one just because it scored higher.
-    for score, slot, column in scores:
-        if score <= 0 or not wants(slot):
+    for score, placeholder, column in scores:
+        if score <= 0 or not wants(placeholder):
             continue
         if column in taken:
-            deferred.append((score * TAKEN_PENALTY, slot, column))
+            deferred.append((score * TAKEN_PENALTY, placeholder, column))
             continue
-        # A list slot collects only the kind it asked for -- a stacked bar wants every
+        # A list placeholder collects only the kind it asked for -- a stacked bar wants every
         # measure, not the label column beside them.
-        if slots[slot] and kinds.get(slot) and kinds[slot] != _kind_of(column, columns):
+        if placeholders[placeholder] and kinds.get(placeholder) and kinds[placeholder] != _kind_of(column, columns):
             continue
-        give(slot, column)
+        give(placeholder, column)
 
     # Second round: whatever is still empty may share a column, since a table's rows and
     # columns cannot both be filled otherwise when only one column suits.
     deferred.sort(key=lambda entry: (-entry[0], entry[1], entry[2]))
-    for score, slot, column in deferred:
-        if score <= 0 or slot in proposal:
+    for score, placeholder, column in deferred:
+        if score <= 0 or placeholder in proposal:
             continue
-        give(slot, column)
+        give(placeholder, column)
 
     return proposal
 
