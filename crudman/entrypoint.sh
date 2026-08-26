@@ -22,6 +22,30 @@ until uv run --project /crudman python manage.py shell -c \
   sleep 2
 done
 
+# Fail loudly if the crudman schema is gone. PostgreSQL silently ignores a search_path
+# entry that names no existing schema, so a missing crudman schema does not raise here --
+# it quietly shifts every CREATE TABLE to the next entry, public, where this role has no
+# CREATE grant. The migration then dies on "permission denied for schema public", naming a
+# schema nobody configured.
+#
+# The postgresql entrypoint re-applies gf_0005 on every start and normally recreates the
+# schema before this runs, so reaching this point means that repair did not happen -- a
+# structural script that failed, or a database still starting from an older image. Say so
+# rather than letting the misleading permission error stand.
+if ! uv run --project /crudman python manage.py shell -c "
+import sys
+from django.db import connection
+
+with connection.cursor() as cursor:
+    cursor.execute(\"SELECT to_regnamespace('crudman') IS NOT NULL\")
+    sys.exit(0 if cursor.fetchone()[0] else 1)
+"; then
+  echo "The crudman schema does not exist in the database." >&2
+  echo "The postgresql container recreates it from gf_0005_create_schemas.sql each time" >&2
+  echo "it starts, so check its log for a failed structural init script, then restart it." >&2
+  exit 1
+fi
+
 # The SFTP and Arrow Flight endpoints only serve; the web role owns the migrations and
 # the static files, so wait here until it has applied the migrations rather than racing
 # it.

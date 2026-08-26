@@ -56,6 +56,7 @@ BEGIN
 END;
 $$;
 
+DROP EVENT TRIGGER IF EXISTS grafana_read_on_create_schema;
 CREATE EVENT TRIGGER grafana_read_on_create_schema
     ON ddl_command_end
     WHEN TAG IN ('CREATE SCHEMA')
@@ -107,6 +108,7 @@ BEGIN
 END;
 $$;
 
+DROP EVENT TRIGGER IF EXISTS grafana_read_on_create_crudman_table;
 CREATE EVENT TRIGGER grafana_read_on_create_crudman_table
     ON ddl_command_end
     WHEN TAG IN ('CREATE TABLE')

@@ -13,9 +13,23 @@
 -- NOINHERIT is deliberately NOT set: a member should get the group's rights simply by
 -- connecting, without having to SET ROLE.
 
-CREATE ROLE ${DB_ROLE_PREFIX}viewer NOLOGIN;
-CREATE ROLE ${DB_ROLE_PREFIX}editor NOLOGIN;
-CREATE ROLE ${DB_ROLE_PREFIX}admin NOLOGIN;
+-- CREATE ROLE has no IF NOT EXISTS, and these scripts re-run on every start (see the
+-- postgresql entrypoint), so create each role only when it is absent. The rights below
+-- are re-granted either way, which is what lets a re-run repair a tampered grant.
+DO $$
+DECLARE
+    rank text;
+BEGIN
+    FOREACH rank IN ARRAY ARRAY['${DB_ROLE_PREFIX}viewer',
+                                '${DB_ROLE_PREFIX}editor',
+                                '${DB_ROLE_PREFIX}admin']
+    LOOP
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = rank) THEN
+            EXECUTE format('CREATE ROLE %I NOLOGIN', rank);
+        END IF;
+    END LOOP;
+END;
+$$;
 
 --------------------------------------------------------------------
 -- Read access to the analytics data.
@@ -95,6 +109,7 @@ BEGIN
 END;
 $$;
 
+DROP EVENT TRIGGER IF EXISTS developer_write_on_create_schema;
 CREATE EVENT TRIGGER developer_write_on_create_schema
     ON ddl_command_end
     WHEN TAG IN ('CREATE SCHEMA')

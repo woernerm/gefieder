@@ -1,8 +1,8 @@
 -- Seed three example tenants so a fresh system has something to look at and so the SQLMesh
 -- project (models/silver/project_a, models/silver/project_b and the polars-based
--- models/bronze/project_c) illustrates where real tenant files go. initdb scripts run only
--- once, when the data volume is first created, so this does not interfere with tenants
--- created later through the admin panel.
+-- models/bronze/project_c) illustrates where real tenant files go. The "once" in the
+-- filename keeps this out of the scripts the entrypoint re-applies on every start, so
+-- deleting an example tenant is permanent and tenants created later are left alone.
 --
 -- These are ordinary tenants: an administrator can delete them in crudman like any other.
 -- (Deleting a tenant leaves its SQLMesh model files; the admin removes the tenant's

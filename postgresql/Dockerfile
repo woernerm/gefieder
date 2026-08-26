@@ -91,3 +91,11 @@ COPY --from=extensions --chown=postgres:postgres /opt/duckdb-extensions/ /opt/du
 # buildtime.env, which the scripts cannot read for themselves because psql interpolates
 # nothing inside a plpgsql function body. Same arrangement as grafana/.render.
 COPY --chown=postgres:postgres postgresql/.initdb/ /docker-entrypoint-initdb.d/
+
+# The base image runs the scripts above only on an empty data directory. This entrypoint
+# re-applies the structural ones to an existing database on every start as well, so a
+# schema or grant added after the first install still reaches the deployment, and a schema
+# dropped by hand comes back. It execs the base entrypoint when it is done.
+COPY --chown=postgres:postgres postgresql/entrypoint.sh /gf-entrypoint.sh
+ENTRYPOINT ["/gf-entrypoint.sh"]
+CMD ["postgres"]
