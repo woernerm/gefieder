@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from conftest import LOGGING_UNITS
+from conftest import CRUDMAN_PATH, LOGGING_UNITS
 
 # A line is considered timestamped if it carries a calendar date and clock time somewhere
 # in it. This matches journald's own ISO-8601 stamp as well as the formats the services
@@ -302,4 +302,74 @@ class TestLogTimestamps:
             prefix = cur.fetchone()[0]
         assert "%m" not in prefix and "%t" not in prefix, (
             f"log_line_prefix adds a timestamp of its own: {prefix!r}"
+        )
+
+
+class TestApplicationErrors:
+    """An unhandled exception reaches the journal.
+
+    Django's own default routes django.request through the "mail_admins" handler alone once
+    DEBUG is off, and adds a console handler only while DEBUG is on. A production stack with
+    no ADMINS address therefore swallows every 500: the user sees the error page, and the
+    traceback that says what happened is discarded. Nothing else records it either, since
+    Django catches the exception and gunicorn only ever sees the 500 response it returns.
+
+    That is the failure this asserts against, because it is invisible until the day someone
+    reports an error and there is nothing to read.
+
+    The request goes over HTTP rather than through "podman exec", which would prove nothing:
+    podman forwards only the container's main process to journald, so an exec's output never
+    reaches the journal however logging is configured. Only a real request runs inside the
+    gunicorn workers whose stream is captured.
+    """
+
+    def test_an_unhandled_exception_shall_reach_the_journal(self, http):
+        # Unique per run, so the assertion cannot pass on an entry left by a previous one.
+        marker = f"gf-logging-probe-{int(time.time())}"
+        resp = http.get(
+            f"/{CRUDMAN_PATH}/error-logging-probe/", params={"marker": marker}
+        )
+        assert resp.status_code == 500, (
+            f"the probe route answered {resp.status_code}; ERROR_LOGGING_PROBE is not set "
+            "for this stack, so the test would pass without testing anything"
+        )
+
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            log = journal("crudman")
+            if marker in log:
+                break
+            time.sleep(2)
+        else:
+            pytest.fail(
+                f"crudman's journal has no record of the 500 raised for {marker}; the "
+                "traceback is being discarded"
+            )
+
+        # The message alone would not say what went wrong, which is the point of keeping
+        # the log: the traceback is what names the line that raised.
+        assert "Traceback" in log and "RuntimeError" in log, (
+            f"{marker} was logged without its traceback, so the log does not say what "
+            "raised"
+        )
+
+    def test_the_request_that_failed_shall_be_identifiable(self, http):
+        """The access log says which request the traceback belongs to.
+
+        gunicorn ships with its access log off, which leaves a report of "an error around
+        14:30" with nothing to match against: the traceback names the code but not the URL,
+        the user or the time the request arrived.
+        """
+        marker = f"gf-access-probe-{int(time.time())}"
+        http.get(f"/{CRUDMAN_PATH}/error-logging-probe/", params={"marker": marker})
+
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            log = journal("crudman")
+            if "error-logging-probe" in log and " 500 " in log:
+                return
+            time.sleep(2)
+        pytest.fail(
+            "crudman's journal has no access-log line for the failing request, so a "
+            "reported error cannot be tied to the request that caused it"
         )

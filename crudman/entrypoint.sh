@@ -89,4 +89,8 @@ user.set_password(
 user.save()
 "
 
-exec uv run --project /crudman gunicorn -b 0.0.0.0:8000 crudman.wsgi:application
+# "--access-logfile -" turns the access log on (gunicorn ships it off) and points both
+# its logs at the stream journald captures, so a reported error can be tied to the
+# request that caused it even when nothing raised.
+exec uv run --project /crudman gunicorn -b 0.0.0.0:8000 \
+  --access-logfile - --error-logfile - crudman.wsgi:application

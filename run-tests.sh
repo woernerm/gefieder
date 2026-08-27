@@ -298,9 +298,13 @@ install -m 0755 serverstats/collect.sh "$APP_CONFIG_DIR/serverstats/collect.sh"
 #
 # The single sign-on settings point at the stand-in provider but arrive switched off, the
 # state every installation runs in. The sign-in tests turn OIDC_ENABLED on themselves.
+#
+# ERROR_LOGGING_PROBE adds the route test_logs.py uses to make the server raise. Set only
+# here, so no deployment serves it.
 {
   echo "SERVER_NAME=${SERVER_NAME}"
   echo "DEBUG=${DEBUG}"
+  echo "ERROR_LOGGING_PROBE=true"
   echo "HTTP_PORT=${HTTP_PORT}"
   echo "HTTPS_PORT=${HTTPS_PORT}"
   echo "PG_PORT=${PG_PORT}"
@@ -315,6 +319,7 @@ install -m 0755 serverstats/collect.sh "$APP_CONFIG_DIR/serverstats/collect.sh"
   echo "OIDC_CLIENT_ID=${OIDC_CLIENT_ID}"
   grep -v -e '^SERVER_NAME=' -e '^DEBUG=' -e '^OIDC_' -e '^HTTP_PORT=' \
           -e '^HTTPS_PORT=' -e '^PG_PORT=' -e '^SFTP_PORT=' -e '^FLIGHT_PORT=' \
+          -e '^ERROR_LOGGING_PROBE=' \
           runtime.env || true
 } > "$APP_CONFIG_DIR/runtime.env"
 

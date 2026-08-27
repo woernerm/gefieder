@@ -11,6 +11,8 @@ from django.urls import include, path
 
 from sso import views as sso_views
 
+from . import views
+
 # Must match CRUDMAN_PATH of the proxy service, which forwards the path unchanged so
 # that direct access on port 8000 uses the same URLs.
 CRUDMAN_PATH = os.environ.get("CRUDMAN_PATH", "crudman")
@@ -38,6 +40,18 @@ urlpatterns = [
 # and a sign-in would bounce between the two until the browser gave up.
 if settings.OIDC_ENABLED:
     urlpatterns += [path(f"{CRUDMAN_PATH}/accounts/", include("allauth.urls"))]
+
+# A route that raises on purpose, so the integration suite can check that a 500's
+# traceback actually reaches the journal -- the one thing that cannot be asserted from
+# outside the running server, since only the container's main process is forwarded to
+# journald and a "podman exec" writes somewhere else entirely.
+#
+# Off unless the variable is set, which only the test stack does: an always-present route
+# that raises is one URL guess away from being a nuisance on a production server.
+if os.environ.get("ERROR_LOGGING_PROBE", "").strip().lower() == "true":
+    urlpatterns += [
+        path(f"{CRUDMAN_PATH}/error-logging-probe/", views.error_logging_probe),
+    ]
 
 urlpatterns += [
     path(f"{CRUDMAN_PATH}/", admin.site.urls),

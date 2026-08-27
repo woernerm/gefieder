@@ -74,6 +74,36 @@ if not DEBUG:
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
 
+# Django's own default sends handled exceptions to "mail_admins" alone once DEBUG is off,
+# so without an ADMINS address a 500 leaves no trace at all: the traceback dies with the
+# response Django returns in its place. Route every record to stderr instead, which is
+# where journald picks the container's log up.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        # No timestamp: journald stamps every line it captures.
+        "plain": {"format": "%(levelname)s %(name)s %(message)s"},
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stderr",
+            "formatter": "plain",
+        },
+    },
+    "root": {"handlers": ["console"], "level": "INFO"},
+    "loggers": {
+        # Tracebacks of the 500s a user reports, which is what this configuration exists
+        # for. propagate=False keeps the root handler from logging each one twice.
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+    },
+}
+
 
 # Application definition
 
