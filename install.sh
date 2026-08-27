@@ -178,13 +178,15 @@ fi
 # lines from, so this checks what will actually be bound. Both failure modes below are
 # silent until someone's browser times out. Neither aborts the install — the stack is
 # worth having with only some ports open — so this reports the fix for *this* host.
+PORTS="${HTTP_PORT} ${HTTPS_PORT} ${PG_PORT} ${SFTP_PORT} ${FLIGHT_PORT}"
+PORT_HINTS=""   # collected fixes, repeated in the cheat sheet at the end
+
+# A running deployment holds the very ports checked below, so it goes down first.
 if systemctl --user is-active main-pod.service >/dev/null 2>&1; then
   echo "Stopping the currently running deployment before install"
   systemctl --user stop main-pod.service >/dev/null 2>&1 || true
 fi
 step "Checking the published ports"
-PORTS="${HTTP_PORT} ${HTTPS_PORT} ${PG_PORT} ${SFTP_PORT} ${FLIGHT_PORT}"
-PORT_HINTS=""   # collected fixes, repeated in the cheat sheet at the end
 
 # 1. Rootless podman may not bind low ports: the kernel reserves everything below
 #    net.ipv4.ip_unprivileged_port_start (1024 by default) for root. Which ports those
@@ -205,11 +207,17 @@ Let rootless podman bind port(s)${LOW_PORTS} (currently reserved below ${UNPRIV_
 fi
 
 # 2. A port already in use by another service makes the pod fail to start with a bind
-#    error, worth catching before that happens.
+#    error, worth catching before that happens. The deployment just stopped above may still
+#    hold one: systemctl returns once the unit is inactive, but podman's rootless port
+#    forwarder closes its listening socket a moment later. So give a busy port a while to
+#    come free -- what is still held afterwards really does belong to something else.
 for p in $PORTS; do
-  if command -v ss >/dev/null 2>&1 && ss -ltn "sport = :$p" 2>/dev/null | grep -q ":$p"; then
-    echo "  port ${p} is already in use by another service; free it or edit main.pod" >&2
-  fi
+  waited=0
+  while command -v ss >/dev/null 2>&1 && ss -ltn "sport = :$p" 2>/dev/null | grep -q ":$p"; do
+    [ "$waited" -ge 30 ] && echo "  port ${p} is already in use by another service; free it or edit main.pod" >&2 && break
+    sleep 1
+    waited=$((waited + 1))
+  done
 done
 
 # 3. The host firewall: firewalld (RHEL) and ufw (Ubuntu) are the two that ship enabled
