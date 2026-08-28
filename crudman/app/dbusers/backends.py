@@ -75,9 +75,7 @@ class ScramBackend(ProvisioningBackend):
 
     def connection_hint(self, user_name: str) -> str:
         return (
-            f"psql -h <server> -U {user_name} -d {settings.DATABASES['default']['NAME']}, "
-            f"or set SQLMESH_PASSWORD to "
-            f"this password to run sqlmesh with your own account."
+            f"To run sqlmesh, set SQLMESH_PASSWORD to this password."
         )
 
 

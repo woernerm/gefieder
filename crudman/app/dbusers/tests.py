@@ -4,6 +4,9 @@ The database functions themselves are covered against the live stack in
 tests/test_db_users.py. What is worth testing here is the part that decides *what* to ask
 the database for: the rank a person's groups earn them, the role name derived from their
 username, and the reconciliation that runs on every login.
+
+The switch that drives all this from the user page is tested in sso/tests.py, where the
+admin it lives on is.
 """
 from unittest.mock import patch
 
@@ -69,6 +72,18 @@ class RankTests(TestCase):
 
     def test_no_group_means_no_database_access(self):
         self.assertIsNone(db_role_for_user(self.user))
+
+    def test_a_superuser_ranks_as_admin_without_a_group(self):
+        """Single sign-on is what grants the rank groups, and it may be switched off."""
+        self.user.is_superuser = True
+        self.assertEqual(db_role_for_user(self.user), ADMIN)
+
+    def test_a_group_still_wins_for_a_superuser(self):
+        """The exemption is a floor, not an override: it only fills the gap where no
+        group speaks at all."""
+        self.user.is_superuser = True
+        self.user.groups.add(Group.objects.get(name=ADMIN_GROUP))
+        self.assertEqual(db_role_for_user(self.user), ADMIN)
 
     def test_group_maps_to_rank(self):
         self.user.groups.add(Group.objects.get(name=EDITOR_GROUP))
@@ -251,6 +266,34 @@ class CredentialHandoverTests(TestCase):
 
         self.assertIsNotNone(second)
         self.assertNotEqual(first, second)
+
+
+class NonStaffTests(TestCase):
+    """A database account does not depend on reaching the admin.
+
+    Someone may query the warehouse without administering anything, so the rank groups
+    are what decide the account and is_staff is not consulted at all.
+    """
+
+    def setUp(self):
+        Group.objects.get_or_create(name=VIEWER_GROUP)
+        self.user = User.objects.create(username="marcus", is_staff=False)
+        self.user.groups.add(Group.objects.get(name=VIEWER_GROUP))
+
+    def test_a_non_staff_user_can_be_enrolled(self):
+        with patch("dbusers.utils.connection"):
+            record = enroll(self.user)
+        self.assertEqual(record.group_role, VIEWER)
+
+    def test_losing_staff_status_does_not_disable_the_account(self):
+        with patch("dbusers.utils.connection"):
+            enroll(self.user)
+
+        with patch("dbusers.utils.connection") as conn:
+            sync(self.user)
+
+        conn.cursor.assert_not_called()
+        self.assertTrue(DatabaseUser.objects.get(user=self.user).is_enabled)
 
 
 class RemovalTests(TestCase):

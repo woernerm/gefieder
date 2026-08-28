@@ -3,6 +3,8 @@ from unittest import skipUnless
 from unittest.mock import MagicMock, patch
 
 import requests
+from dbusers.models import DatabaseUser
+from dbusers.utils import enroll
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth import authenticate
@@ -32,6 +34,7 @@ from .roles import (
     highest_role,
 )
 from .scopes import scopes_for
+from unfold.widgets import UnfoldBooleanSwitchWidget
 
 # The group each rank grants, built the way roles.py builds it rather than spelled out, so
 # these tests follow SSO_GROUP_PREFIX instead of asserting the value it ships with.
@@ -140,7 +143,7 @@ class HighestRoleTests(TestCase):
 
 
 class ApplyRolesTests(TestCase):
-    """Applying a login's roles: the provider owns the flags and the sso- groups only."""
+    """Applying a login's roles: the provider owns the flags and the rank groups only."""
 
     def setUp(self):
         self.user = User.objects.create_user("kim")
@@ -452,6 +455,11 @@ class AdminMenuTests(TestCase):
 
     def test_the_heading_holds_users_and_groups_only(self):
         self.assertEqual(self.sections["Access"], ["Groups", "Users"])
+
+    def test_database_access_has_no_section_of_its_own(self):
+        """It is a switch on the user, so a heading listing the accounts would be a
+        second place to look for the same fact."""
+        self.assertNotIn("Database access", self.sections)
 
 
 @skipUnless(settings.OIDC_ENABLED, "allauth is only installed when single sign-on is on")
@@ -1001,3 +1009,152 @@ class AvatarInTheSidebarTests(TestCase):
         # publishes no picture — and must stay reachable rather than being replaced by a
         # blank circle.
         self.assertNotContains(self.client.get(reverse("admin:index")), "background-image")
+
+
+class DatabaseAccessSwitchTests(TestCase):
+    """The switch on the user page, which is how a database account is given and taken.
+
+    Everything below the switch — the role name, the rank, the credential handover — is
+    covered in dbusers/tests.py. What matters here is that the switch reflects what
+    exists and that saving reconciles it.
+    """
+
+    def setUp(self):
+        for name in (VIEWER, EDITOR, ADMIN):
+            Group.objects.get_or_create(name=name)
+        self.client.force_login(User.objects.create_superuser("root"))
+        self.user = User.objects.create_user("marcus", password="x")
+        self.user.groups.add(Group.objects.get(name=EDITOR))
+
+    def _post(self, **overrides):
+        """Save the user's change page with the switch in a given position.
+
+        Args:
+            **overrides: Form fields to set, notably database_access.
+
+        Returns:
+            The response.
+        """
+        data = {
+            "username": self.user.username,
+            "first_name": "",
+            "last_name": "",
+            "email": "",
+            "is_active": "on",
+            "groups": [str(group.pk) for group in self.user.groups.all()],
+            "user_permissions": [],
+            "last_login_0": "",
+            "last_login_1": "",
+            "date_joined_0": "2026-01-01",
+            "date_joined_1": "00:00:00",
+        }
+        data.update(overrides)
+        if settings.OIDC_ENABLED:
+            data.update({
+                "socialaccount_set-TOTAL_FORMS": "0",
+                "socialaccount_set-INITIAL_FORMS": "0",
+            })
+        return self.client.post(
+            reverse("admin:auth_user_change", args=[self.user.pk]), data
+        )
+
+    def test_switching_it_on_enrolls(self):
+        with patch("dbusers.utils.connection"):
+            self._post(database_access="on")
+
+        self.assertTrue(DatabaseUser.objects.filter(user=self.user).exists())
+
+    def test_switching_it_off_removes(self):
+        with patch("dbusers.utils.connection"):
+            enroll(self.user)
+            self._post()
+
+        self.assertFalse(DatabaseUser.objects.filter(user=self.user).exists())
+
+    def test_saving_without_touching_it_leaves_the_account_alone(self):
+        with patch("dbusers.utils.connection"):
+            enroll(self.user)
+
+        with patch("dbusers.utils.connection") as conn:
+            self._post(database_access="on")
+
+        # No re-enrollment: create_db_user would rewrite the role the person already has.
+        conn.cursor.assert_not_called()
+        self.assertTrue(DatabaseUser.objects.filter(user=self.user).exists())
+
+    def test_the_switch_shows_the_account_that_exists(self):
+        with patch("dbusers.utils.connection"):
+            enroll(self.user)
+
+        page = self.client.get(reverse("admin:auth_user_change", args=[self.user.pk]))
+        self.assertTrue(page.context["adminform"].form["database_access"].value())
+
+    def test_the_switch_is_rendered_as_a_switch(self):
+        """Unfold's formfield_overrides reach model fields only, so a plain form field
+        silently falls back to Django's bare checkbox."""
+        page = self.client.get(reverse("admin:auth_user_change", args=[self.user.pk]))
+        widget = page.context["adminform"].form.fields["database_access"].widget
+        self.assertIsInstance(widget, UnfoldBooleanSwitchWidget)
+
+    def test_a_superuser_needs_no_rank_group(self):
+        """With single sign-on off nothing grants a role group, so the local
+        administrator would otherwise be the one person unable to get an account."""
+        self.user.groups.clear()
+        self.user.is_superuser = True
+        self.user.save()
+
+        with patch("dbusers.utils.connection"):
+            self._post(database_access="on", groups=[], is_superuser="on")
+
+        self.assertTrue(DatabaseUser.objects.filter(user=self.user).exists())
+
+    def test_a_user_without_a_rank_cannot_be_switched_on(self):
+        """Without a rank there is no privilege set to grant, so the switch is disabled
+        rather than failing on save."""
+        self.user.groups.clear()
+
+        with patch("dbusers.utils.connection") as conn:
+            self._post(database_access="on", groups=[])
+
+        conn.cursor.assert_not_called()
+        self.assertFalse(DatabaseUser.objects.filter(user=self.user).exists())
+
+    def test_a_database_failure_does_not_lose_the_user_edit(self):
+        with patch("dbusers.utils.enroll", side_effect=RuntimeError("boom")), \
+                patch("sso.admin.enroll", side_effect=RuntimeError("boom")):
+            self._post(database_access="on", first_name="Marcus")
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, "Marcus")
+        self.assertFalse(DatabaseUser.objects.filter(user=self.user).exists())
+
+
+class DatabaseAccessColumnTests(TestCase):
+    """The user list, where an operator asks who may reach the database."""
+
+    def setUp(self):
+        Group.objects.get_or_create(name=EDITOR)
+        self.client.force_login(User.objects.create_superuser("root"))
+        self.with_access = User.objects.create_user("marcus")
+        self.with_access.groups.add(Group.objects.get(name=EDITOR))
+        with patch("dbusers.utils.connection"):
+            enroll(self.with_access)
+        self.without = User.objects.create_user("someone_else")
+
+    def test_the_column_is_shown(self):
+        page = self.client.get(reverse("admin:auth_user_changelist"))
+        self.assertIn("has_database_access", page.context["cl"].list_display)
+
+    def test_filtering_to_those_who_have_it(self):
+        page = self.client.get(
+            reverse("admin:auth_user_changelist"), {"database_access": "1"}
+        )
+        listed = {user.username for user in page.context["cl"].queryset}
+        self.assertEqual(listed, {"marcus"})
+
+    def test_filtering_to_those_who_do_not(self):
+        page = self.client.get(
+            reverse("admin:auth_user_changelist"), {"database_access": "0"}
+        )
+        listed = {user.username for user in page.context["cl"].queryset}
+        self.assertEqual(listed, {"root", "someone_else"})

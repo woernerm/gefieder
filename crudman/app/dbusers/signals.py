@@ -46,9 +46,8 @@ def sync_on_login(sender, request, user, **kwargs):
     role_name = user.database_user.role_name
     messages.warning(
         request,
-        f"Your database password: {secret} — copy it now. It is not stored anywhere "
-        f"and cannot be shown again; an administrator can only issue a new one. "
-        f"{backend.connection_hint(role_name)}",
+        f"Your database user is {role_name} and password: {secret} — copy it now. "
+        f"It will not be shown again. {backend.connection_hint(role_name)}",
     )
 
 

@@ -1,10 +1,11 @@
-# dbusers — per-administrator database accounts
+# dbusers — per-person database accounts
 
 ## Why this exists
 
-Developing SQLMesh models needs a database connection. Without this app there is exactly
-one: the `sqlmesh` podman secret, which is also the credential the deployed engine uses for
-production. Sharing it with a team has three consequences worth naming:
+Querying the warehouse, and developing SQLMesh models against it, needs a database
+connection. Without this app there is exactly one: the `sqlmesh` podman secret, which is
+also the credential the deployed engine uses for production. Sharing it with a team has
+three consequences worth naming:
 
 - Every developer holds a credential that reaches production data.
 - No query is attributable. `pg_stat_activity` and the `server_stats` schema record the
@@ -12,12 +13,36 @@ production. Sharing it with a team has three consequences worth naming:
   back to.
 - Offboarding means rotating a secret that everyone else also holds, on every departure.
 
-Each administrator therefore gets their own PostgreSQL login role. The shared secret stays
-where it belongs: in the container and in CI.
+Each person therefore gets their own PostgreSQL login role. The shared secret stays where
+it belongs: in the container and in CI.
+
+Database access does not depend on administering anything: an analyst may query the
+warehouse without reaching the admin at all, so the switch is independent of `is_staff`
+and the rank alone decides what the role may do. A viewer connects read-only; an editor
+and an admin may write.
+
+## Where it appears
+
+Nowhere of its own. The app registers no admin page, because the question an operator
+asks is "who may reach the database", which belongs on the person rather than in a list
+of role names beside them:
+
+- A **Database access** switch on the user's change page, next to active and staff
+  status. Turning it on and saving provisions the role; turning it off and saving drops
+  it. The switch shows the account that exists rather than a stored intention, so a save
+  that could not reach the database reports the failure and the next save retries.
+- A **database access** column and filter on the user list, beside staff status.
+
+The switch is disabled for someone holding no rank group, since there is no privilege set
+to grant them — except a superuser, who ranks as `admin` whatever their groups say.
+Single sign-on is what assigns the rank groups, and it may be switched off entirely; the
+local administrator would otherwise be the one person unable to reach the database. It
+lives in `sso/admin.py`, with the user admin it belongs to; this app keeps the model, the
+PostgreSQL bridge and the login-time reconciliation.
 
 ## What it must do
 
-- Provision a login role per Django administrator, named `<prefix>u_<slug>` from their
+- Provision a login role per Django user, named `<prefix>u_<slug>` from their
   username, with privileges from exactly one `<prefix>`-group role. The prefix is
   `DB_ROLE_PREFIX` in `buildtime.env` (`gf_` by default), so the names this app derives
   and the roles the database created come from one setting.
@@ -28,15 +53,16 @@ where it belongs: in the container and in CI.
 - Reconcile that rank on every login: a promotion or demotion in the provider reaches the
   database on the person's next sign-in.
 - Issue the credential once and never store it. A lost password is reset, not recovered.
-- Show the password to its owner and to nobody else. An administrator enrolls someone; the
-  password is generated on that person's next sign-in and shown only to them. Enrolling
-  therefore creates a role with no password, which under scram-sha-256 cannot connect at
-  all until it is claimed. This is why provisioning is split in two (`enroll` /
+- Show the password to its owner and to nobody else. An administrator switches access on;
+  the password is generated on that person's next sign-in and shown only to them.
+  Enrolling therefore creates a role with no password, which under scram-sha-256 cannot
+  connect at all until it is claimed. This is why provisioning is split in two (`enroll` /
   `issue_credential`): the alternative is either an administrator relaying a secret that is
   not theirs, or storing a readable password until it is collected.
-- Disable, by default, on offboarding — so objects a departed person created keep their
-  owner and the audit trail survives. Deleting outright is offered separately, because
-  PostgreSQL cannot drop a role that still owns anything: deleting the account deletes
+- Disable, rather than drop, when someone is offboarded through the identity provider or
+  their Django account is deleted — so objects a departed person created keep their owner
+  and the audit trail survives. Switching access off is the deliberate exception and does
+  drop the role, because PostgreSQL cannot drop one that still owns anything: it takes
   that data with it.
 - Refuse to touch the service roles — the superuser plus the three named by
   `CRUDMAN_DB_USER`, `SQLMESH_DB_USER` and `GRAFANA_DB_USER` — which the
@@ -84,8 +110,9 @@ provisioning, shown once, and stored nowhere: PostgreSQL keeps only a SCRAM veri
 the role carry — and everything else (role naming, ranks, reconciliation, offboarding) is
 independent of it. When a validator and an OAuth-capable driver are both available, adding
 an `OAuthBackend` that reports `issues_secret = False` removes the password from the flow;
-the admin's one-time-password message disappears on its own, and `create_db_user` already
-accepts a NULL password to mean "this role authenticates elsewhere".
+the one-time-password message disappears on its own, and `create_db_user` already accepts
+a NULL password to mean "this role authenticates elsewhere". The switch does not change:
+it still says whether the person has an account.
 
 The remaining work at that point is outside this app: a validator in the postgresql image,
 `oauth_issuer`/`oauth_client_id` in `postgresql.conf`, an `oauth` line in `pg_hba.conf`, and

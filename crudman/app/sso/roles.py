@@ -10,11 +10,12 @@ testable whether or not single sign-on is switched on.
 """
 import os
 
-GROUP_PREFIX = os.environ.get("SSO_GROUP_PREFIX", "sso-")
+GROUP_PREFIX = os.environ.get("SSO_GROUP_PREFIX", "")
 """Prefix on the group names, from SSO_GROUP_PREFIX, which the crudman quadlet passes in.
 
-It keeps these groups clear of groups an admin already uses. The default is what
-buildtime.env ships, for a checkout run without the quadlet.
+Empty by default, so a group is named for the rank it grants. It exists to keep these
+groups clear of groups an admin already uses, which is the exception rather than the rule.
+The default is what buildtime.env ships, for a checkout run without the quadlet.
 """
 
 RANKS = ("viewer", "editor", "admin")

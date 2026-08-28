@@ -281,7 +281,9 @@ class TestSigningIn:
             "from django.contrib.auth.models import User;"
             f"print(sorted(g.name for g in User.objects.get(username='{SSO_USER}').groups.all()))"
         )
-        assert groups == f"['project-b-analysts', '{SSO_ROLE_GROUP}']"
+        # Sorted, so the expectation follows SSO_GROUP_PREFIX rather than assuming the
+        # rank group still sorts after a locally granted one.
+        assert groups == str(sorted(["project-b-analysts", SSO_ROLE_GROUP]))
 
     def test_grafana_shall_sign_a_visitor_in(self, single_sign_on, browser):
         browser.get(f"/{GRAFANA_PATH}/")

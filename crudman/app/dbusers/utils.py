@@ -64,7 +64,9 @@ def db_role_for_user(user) -> str | None:
     Returns:
         The database group role, or None if they hold none. Someone may hold several
         managed groups at once; the most privileged wins, as ``sso.roles.highest_role``
-        resolves the same ambiguity.
+        resolves the same ambiguity. A superuser earns the admin rank whatever their
+        groups say: with single sign-on off nothing grants a role group, and the local
+        administrator would otherwise be the one person unable to reach the database.
     """
     names = set(user.groups.values_list("name", flat=True))
     # RANKS runs from least to most privileged, so walking it backwards returns the
@@ -73,6 +75,9 @@ def db_role_for_user(user) -> str | None:
         group = GROUP_FOR_RANK[rank]
         if group in names:
             return GROUP_TO_DB_ROLE[group]
+
+    if user.is_superuser:
+        return GROUP_TO_DB_ROLE[GROUP_FOR_RANK["admin"]]
     return None
 
 
