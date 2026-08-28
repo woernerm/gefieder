@@ -34,7 +34,7 @@ from .utils import (
 VIEWER = GROUP_TO_DB_ROLE[GROUP_FOR_RANK["viewer"]]
 EDITOR = GROUP_TO_DB_ROLE[GROUP_FOR_RANK["editor"]]
 ADMIN = GROUP_TO_DB_ROLE[GROUP_FOR_RANK["admin"]]
-MARCUS = f"{ROLE_PREFIX}marcus"
+JDOE = f"{ROLE_PREFIX}jdoe"
 
 # The Django groups those ranks come from, named the way sso.roles builds them.
 VIEWER_GROUP = GROUP_FOR_RANK["viewer"]
@@ -44,7 +44,7 @@ ADMIN_GROUP = GROUP_FOR_RANK["admin"]
 
 class RoleNameTests(TestCase):
     def test_username_is_slugged(self):
-        self.assertEqual(role_name_for("marcus"), MARCUS)
+        self.assertEqual(role_name_for("jdoe"), JDOE)
 
     def test_email_username_becomes_an_identifier(self):
         """An email-address username becomes a valid identifier.
@@ -52,8 +52,8 @@ class RoleNameTests(TestCase):
         Providers commonly send an email address as the username, which
         PostgreSQL will not accept as one."""
         self.assertEqual(
-            role_name_for("Marcus.Woerner@example.com"),
-            f"{ROLE_PREFIX}marcus_woerner_example_com",
+            role_name_for("John.Doe@example.com"),
+            f"{ROLE_PREFIX}john_doe_example_com",
         )
 
     def test_name_is_capped_to_the_identifier_limit(self):
@@ -68,7 +68,7 @@ class RankTests(TestCase):
     def setUp(self):
         for name in (VIEWER_GROUP, EDITOR_GROUP, ADMIN_GROUP):
             Group.objects.get_or_create(name=name)
-        self.user = User.objects.create(username="marcus")
+        self.user = User.objects.create(username="jdoe")
 
     def test_no_group_means_no_database_access(self):
         self.assertIsNone(db_role_for_user(self.user))
@@ -103,11 +103,11 @@ class SyncTests(TestCase):
     def setUp(self):
         for name in (VIEWER_GROUP, EDITOR_GROUP, ADMIN_GROUP):
             Group.objects.get_or_create(name=name)
-        self.user = User.objects.create(username="marcus")
+        self.user = User.objects.create(username="jdoe")
         self.user.groups.add(Group.objects.get(name=VIEWER_GROUP))
         self.record = DatabaseUser.objects.create(
             user=self.user,
-            role_name=MARCUS,
+            role_name=JDOE,
             group_role=VIEWER,
             awaiting_credential=False,
         )
@@ -137,7 +137,7 @@ class SyncTests(TestCase):
         sql, params = cursor.execute.call_args[0]
         self.assertIn("create_db_user", sql)
         # A NULL password: re-ranking must not issue a new credential.
-        self.assertEqual(params, [MARCUS, None, ADMIN])
+        self.assertEqual(params, [JDOE, None, ADMIN])
         self.record.refresh_from_db()
         self.assertEqual(self.record.group_role, ADMIN)
 
@@ -149,7 +149,7 @@ class SyncTests(TestCase):
         cursor = conn.cursor.return_value.__enter__.return_value
         sql, params = cursor.execute.call_args[0]
         self.assertIn("delete_db_user", sql)
-        self.assertEqual(params, [MARCUS])
+        self.assertEqual(params, [JDOE])
         self.record.refresh_from_db()
         self.assertFalse(self.record.is_enabled)
 
@@ -192,7 +192,7 @@ class CredentialHandoverTests(TestCase):
 
     def setUp(self):
         Group.objects.get_or_create(name=EDITOR_GROUP)
-        self.user = User.objects.create(username="marcus")
+        self.user = User.objects.create(username="jdoe")
         self.user.groups.add(Group.objects.get(name=EDITOR_GROUP))
 
     def test_enrolling_creates_the_role_without_a_password(self):
@@ -202,7 +202,7 @@ class CredentialHandoverTests(TestCase):
         cursor = conn.cursor.return_value.__enter__.return_value
         sql, params = cursor.execute.call_args[0]
         self.assertIn("create_db_user", sql)
-        self.assertEqual(params, [MARCUS, None, EDITOR])
+        self.assertEqual(params, [JDOE, None, EDITOR])
         self.assertTrue(record.awaiting_credential)
 
     def test_the_password_is_issued_on_the_next_login(self):
@@ -215,7 +215,7 @@ class CredentialHandoverTests(TestCase):
         self.assertIsNotNone(secret)
         cursor = conn.cursor.return_value.__enter__.return_value
         _, params = cursor.execute.call_args[0]
-        self.assertEqual(params[0], MARCUS)
+        self.assertEqual(params[0], JDOE)
         self.assertEqual(params[1], secret, "the issued password must be the one set")
 
     def test_the_password_is_issued_only_once(self):
@@ -254,7 +254,7 @@ class CredentialHandoverTests(TestCase):
         # Cleared straight away, so a leaked password stops working now rather than at the
         # person's next sign-in.
         self.assertIn("clear_db_user_password", sql)
-        self.assertEqual(params, [MARCUS])
+        self.assertEqual(params, [JDOE])
         self.assertTrue(DatabaseUser.objects.get(user=self.user).awaiting_credential)
 
     def test_reset_then_login_issues_a_different_password(self):
@@ -277,7 +277,7 @@ class NonStaffTests(TestCase):
 
     def setUp(self):
         Group.objects.get_or_create(name=VIEWER_GROUP)
-        self.user = User.objects.create(username="marcus", is_staff=False)
+        self.user = User.objects.create(username="jdoe", is_staff=False)
         self.user.groups.add(Group.objects.get(name=VIEWER_GROUP))
 
     def test_a_non_staff_user_can_be_enrolled(self):
@@ -299,7 +299,7 @@ class NonStaffTests(TestCase):
 class RemovalTests(TestCase):
     def setUp(self):
         Group.objects.get_or_create(name=EDITOR_GROUP)
-        self.user = User.objects.create(username="marcus")
+        self.user = User.objects.create(username="jdoe")
         self.user.groups.add(Group.objects.get(name=EDITOR_GROUP))
         with patch("dbusers.utils.connection"):
             enroll(self.user)
@@ -311,7 +311,7 @@ class RemovalTests(TestCase):
         cursor = conn.cursor.return_value.__enter__.return_value
         sql, params = cursor.execute.call_args[0]
         self.assertIn("drop_db_user", sql)
-        self.assertEqual(params, [MARCUS])
+        self.assertEqual(params, [JDOE])
         self.assertFalse(DatabaseUser.objects.filter(user=self.user).exists())
 
     def test_removing_an_account_that_does_not_exist_is_refused(self):
@@ -327,4 +327,4 @@ class RemovalTests(TestCase):
             record = enroll(self.user)
 
         self.assertTrue(record.awaiting_credential)
-        self.assertEqual(record.role_name, MARCUS)
+        self.assertEqual(record.role_name, JDOE)

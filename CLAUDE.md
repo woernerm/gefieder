@@ -81,3 +81,8 @@
 - Push to origin/main triggers `.github/workflows/publish.yml` (builds images & creates 
   GitHub release).
 - Make your responses 300 words or less.
+- Example names are John Doe, Max Mustermann, Joe Bloggs, Bob Smith, John Q. Public,
+  Average Joe, John Q. Citizen, Jean Dupont, Paul Martin, Monsieur Durand, Monsieur 
+  Tout-le-monde, Madame Tout-le-monde, Matti Meikäläinen, Meðal-Jón, Meðal-Jóna, 
+  Jón Jónsson, Jóna Jónsdóttir, Jos Bleau, G. Raymond, Pinco Pallino.
+  Do not use other names.

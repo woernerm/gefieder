@@ -1,4 +1,5 @@
 from base64 import b64decode, b64encode
+from logging import CRITICAL, disable
 from unittest import skipUnless
 from unittest.mock import MagicMock, patch
 
@@ -1023,7 +1024,7 @@ class DatabaseAccessSwitchTests(TestCase):
         for name in (VIEWER, EDITOR, ADMIN):
             Group.objects.get_or_create(name=name)
         self.client.force_login(User.objects.create_superuser("root"))
-        self.user = User.objects.create_user("marcus", password="x")
+        self.user = User.objects.create_user("jdoe", password="x")
         self.user.groups.add(Group.objects.get(name=EDITOR))
 
     def _post(self, **overrides):
@@ -1120,12 +1121,16 @@ class DatabaseAccessSwitchTests(TestCase):
         self.assertFalse(DatabaseUser.objects.filter(user=self.user).exists())
 
     def test_a_database_failure_does_not_lose_the_user_edit(self):
+        # The admin logs the failure it recovers from, so muffle the traceback the
+        # deliberate error would otherwise print across the test output.
+        self.addCleanup(disable, 0)
+        disable(CRITICAL)
         with patch("dbusers.utils.enroll", side_effect=RuntimeError("boom")), \
                 patch("sso.admin.enroll", side_effect=RuntimeError("boom")):
-            self._post(database_access="on", first_name="Marcus")
+            self._post(database_access="on", first_name="John")
 
         self.user.refresh_from_db()
-        self.assertEqual(self.user.first_name, "Marcus")
+        self.assertEqual(self.user.first_name, "John")
         self.assertFalse(DatabaseUser.objects.filter(user=self.user).exists())
 
 
@@ -1135,7 +1140,7 @@ class DatabaseAccessColumnTests(TestCase):
     def setUp(self):
         Group.objects.get_or_create(name=EDITOR)
         self.client.force_login(User.objects.create_superuser("root"))
-        self.with_access = User.objects.create_user("marcus")
+        self.with_access = User.objects.create_user("jdoe")
         self.with_access.groups.add(Group.objects.get(name=EDITOR))
         with patch("dbusers.utils.connection"):
             enroll(self.with_access)
@@ -1150,7 +1155,7 @@ class DatabaseAccessColumnTests(TestCase):
             reverse("admin:auth_user_changelist"), {"database_access": "1"}
         )
         listed = {user.username for user in page.context["cl"].queryset}
-        self.assertEqual(listed, {"marcus"})
+        self.assertEqual(listed, {"jdoe"})
 
     def test_filtering_to_those_who_do_not(self):
         page = self.client.get(

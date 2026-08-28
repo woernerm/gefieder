@@ -11,7 +11,7 @@ import os
 
 import pytest
 
-from conftest import CONTAINERS, SECRETS, SUPERUSER_NAME, podman
+from conftest import CONTAINERS, SECRETS, SUPERUSER_NAME, inspect_container, podman
 
 # The actual secret values, from the same env the suite uses for its DB connections.
 SECRET_VALUES = {
@@ -46,7 +46,7 @@ def _image_text(container):
     embedded the value. Read from the image (not the container) so a runtime-only
     /run/secrets mount is not mistaken for a baked-in value.
     """
-    image = json.loads(podman("inspect", container))[0]["ImageName"]
+    image = inspect_container(container)["ImageName"]
     cfg = json.loads(podman("image", "inspect", image))[0]
     env = cfg.get("Config", {}).get("Env", []) or []
     history = [h.get("created_by", "") for h in cfg.get("History", [])]

@@ -88,7 +88,7 @@ BEGIN
         -- Only the schemas SQLMesh works in: its physical layer (sqlmesh__*), its state
         -- schema (sqlmesh) and the virtual layer of the medallion levels, including the
         -- staging layer and the per-environment suffixed copies a dev plan creates
-        -- (silver_staging, silver__dev_marcus, ...) -- which is why these match on a
+        -- (silver_staging, silver__dev_jdoe, ...) -- which is why these match on a
         -- prefix. starts_with rather than LIKE because a configured name may hold an
         -- underscore, which LIKE would read as a single-character wildcard.
         CONTINUE WHEN NOT starts_with(obj.object_identity, 'sqlmesh')
