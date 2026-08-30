@@ -86,3 +86,4 @@
   Tout-le-monde, Madame Tout-le-monde, Matti Meikäläinen, Meðal-Jón, Meðal-Jóna, 
   Jón Jónsson, Jóna Jónsdóttir, Jos Bleau, G. Raymond, Pinco Pallino.
   Do not use other names.
+- You can always delete running deployments (e.g. when trying to run the run-tests.sh script), because you are not running on the target machine.

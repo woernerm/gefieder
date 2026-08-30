@@ -16,5 +16,7 @@ dependencies = [
     "polars",
     "pyarrow",
     "psycopg[binary]",
+    # Syntax highlighting for the model definitions on the documentation pages.
+    "pygments",
     "whitenoise",
 ]

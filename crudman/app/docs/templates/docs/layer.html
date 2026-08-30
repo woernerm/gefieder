@@ -1,0 +1,89 @@
+{# One medallion layer, each of its models in full: what it is, what it holds, and the #}
+{# statement SQLMesh runs. #}
+{% extends "unfold/layouts/base_simple.html" %}
+
+{% block title %}{{ title }} | {{ site_title }}{% endblock %}
+
+{% block branding %}
+    {% include "unfold/helpers/site_branding.html" %}
+{% endblock %}
+
+{% block extrastyle %}
+    {{ block.super }}
+    <style>{{ sql_styles }}</style>
+{% endblock %}
+
+{% block content %}
+    <div class="{{ form_classes.prose }} max-w-4xl">
+        <h1>{{ title }}</h1>
+
+        {% for model in layer.models %}
+            <h2 id="{{ model.name }}">{{ model.name }}</h2>
+
+            {% if model.description %}
+                {# The description is a comment block from the model file, so its own #}
+                {# line breaks are the paragraphing it was written with. #}
+                <p style="white-space: pre-line">{{ model.description }}</p>
+            {% endif %}
+
+            {# Inline, not Tailwind classes: Unfold ships a prebuilt stylesheet, so an #}
+            {# arbitrary grid-cols-[...] and the gap-x/gap-y pair are never generated. #}
+            <dl style="display: grid; grid-template-columns: max-content 1fr; column-gap: 1.5rem; row-gap: 0.25rem">
+                <dt class="font-semibold">Kind</dt><dd>{{ model.kind }}</dd>
+                <dt class="font-semibold">Cron</dt><dd>{{ model.cron }}</dd>
+                {% if model.tenant %}
+                    <dt class="font-semibold">Tenant</dt><dd>{{ model.tenant }}</dd>
+                {% endif %}
+                {% if model.owner %}
+                    <dt class="font-semibold">Owner</dt><dd>{{ model.owner }}</dd>
+                {% endif %}
+                {% if model.stamp %}
+                    <dt class="font-semibold">Stamp</dt><dd>{{ model.stamp }}</dd>
+                {% endif %}
+                {% if model.tags %}
+                    <dt class="font-semibold">Tags</dt><dd>{{ model.tags|join:", " }}</dd>
+                {% endif %}
+                {% if model.grains %}
+                    <dt class="font-semibold">Grain</dt><dd>{{ model.grains|join:", " }}</dd>
+                {% endif %}
+                {% if model.references %}
+                    <dt class="font-semibold">References</dt><dd>{{ model.references|join:", " }}</dd>
+                {% endif %}
+                {% if model.audits %}
+                    <dt class="font-semibold">Audits</dt><dd>{{ model.audits|join:", " }}</dd>
+                {% endif %}
+                {% if model.depends_on %}
+                    <dt class="font-semibold">Depends on</dt><dd>{{ model.depends_on|join:", " }}</dd>
+                {% endif %}
+            </dl>
+
+            {% if model.columns %}
+                <h3>Columns</h3>
+
+                {# Scrolls on its own, so a wide table never widens the page itself. #}
+                <div class="overflow-x-auto">
+                    <table>
+                        <thead>
+                            <tr><th>Column</th><th>Type</th><th>Description</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for column in model.columns %}
+                                <tr>
+                                    <td><code>{{ column.name }}</code></td>
+                                    <td>{{ column.type }}</td>
+                                    <td>{{ column.description }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% endif %}
+
+            <h3>Definition</h3>
+
+            <pre class="bg-base-50 overflow-x-auto rounded-default dark:bg-base-800"><code class="highlight">{{ model.sql_html }}</code></pre>
+        {% empty %}
+            <p>No models in this layer.</p>
+        {% endfor %}
+    </div>
+{% endblock %}

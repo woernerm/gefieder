@@ -1,0 +1,136 @@
+{# The documentation's front page: the three layers and what each one holds. #}
+{% extends "unfold/layouts/base_simple.html" %}
+{% load static %}
+
+{% block title %}{{ title }} | {{ site_title }}{% endblock %}
+
+{% block branding %}
+    {% include "unfold/helpers/site_branding.html" %}
+{% endblock %}
+
+{% block extrahead %}
+    {{ block.super }}
+    <script src="{% static 'docs/echarts.min.js' %}"></script>
+{% endblock %}
+
+{% block content %}
+    <div class="{{ form_classes.prose }} max-w-4xl">
+        <h1>{{ title }}</h1>
+
+        <p>
+            The models this release ships, as SQLMesh describes them. A model's text and
+            its column comments are written in the model file itself, so what is here is
+            what the engine runs.
+        </p>
+    </div>
+
+    {% if lineage %}
+        {# Outside the prose column on purpose: ECharts scales the whole graph to fit
+           its box, so a narrower box means smaller nodes rather than a cropped view,
+           and the medallion layers are wide by nature. #}
+        <div class="{{ form_classes.prose }} max-w-4xl">
+            <h2>Lineage</h2>
+
+            <p>
+                Every model, each one to the right of the models it reads. Drag to pan,
+                scroll to zoom, click a model to read its description.
+            </p>
+        </div>
+
+        {# The height is inline, not a Tailwind class: Unfold ships a prebuilt #}
+        {# stylesheet, so an arbitrary value like h-[520px] is never generated and #}
+        {# the box would collapse -- leaving ECharts to draw into nothing. #}
+        <div id="lineage" style="height: 520px"
+             class="not-prose border border-base-200 mb-8 rounded-default w-full dark:border-base-800"></div>
+        {{ lineage|json_script:"lineage-data" }}
+    {% endif %}
+
+    <div class="{{ form_classes.prose }} max-w-4xl">
+        {% for layer in docs_layers %}
+            <h2 id="{{ layer.name }}">
+                <a href="{% url 'docs:layer' layer.name %}">{{ layer.name|capfirst }}</a>
+            </h2>
+
+            {% if layer.models %}
+                <ul>
+                    {% for model in layer.models %}
+                        <li>
+                            <a href="{% url 'docs:layer' layer.name %}#{{ model.name }}">{{ model.name }}</a>
+                            — {{ model.kind }}{% if model.tenant %}, {{ model.tenant }}{% endif %}
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p>No models in this layer.</p>
+            {% endif %}
+        {% empty %}
+            <p>No documentation was exported with this release.</p>
+        {% endfor %}
+    </div>
+{% endblock %}
+
+{% block footer %}
+    {{ block.super }}
+
+    {% if lineage %}
+        <script>
+            (function () {
+                const target = document.getElementById("lineage");
+                const option = JSON.parse(
+                    document.getElementById("lineage-data").textContent
+                );
+
+                // The colour names come with the option (lineage.THEME_COLORS) and the
+                // values from the page, where Unfold's theme writes UNFOLD["COLORS"] as
+                // custom properties -- so neither is repeated here.
+                const names = option.themeColors;
+                delete option.themeColors;
+                function colors() {
+                    const root = getComputedStyle(document.documentElement);
+                    return Object.fromEntries(
+                        Object.entries(names).map(([part, property]) => [
+                            part,
+                            root.getPropertyValue(property).trim(),
+                        ])
+                    );
+                }
+
+                function paint() {
+                    const color = colors();
+                    const series = option.series[0];
+                    series.itemStyle = { color: color.fill };
+                    series.label.color = color.label;
+                    // Inter, as the rest of the page has it: ECharts otherwise falls
+                    // back to its own default font.
+                    series.label.fontFamily = getComputedStyle(
+                        document.body
+                    ).fontFamily;
+                    series.lineStyle.color = color.line;
+                    // Hovering only lightens the fill, rather than leaving ECharts to
+                    // blank the node to white.
+                    series.emphasis.itemStyle = { color: color.highlight };
+                    return option;
+                }
+
+                const graph = echarts.init(target, null, { renderer: "svg" });
+                graph.setOption(paint());
+
+                graph.on("click", function (event) {
+                    if (event.dataType === "node" && event.data.url) {
+                        window.location.href = event.data.url;
+                    }
+                });
+
+                // Unfold's theme switch toggles a class on <html>, and the box is sized
+                // in CSS; ECharts has to be told about either change.
+                new MutationObserver(function () {
+                    graph.setOption(paint());
+                }).observe(document.documentElement, {
+                    attributes: true,
+                    attributeFilter: ["class"],
+                });
+                new ResizeObserver(function () { graph.resize(); }).observe(target);
+            })();
+        </script>
+    {% endif %}
+{% endblock %}

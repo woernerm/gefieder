@@ -1,0 +1,36 @@
+{# The documentation's own sidebar, standing in for the admin's app list. Same markup as #}
+{# Unfold's navigation helper, so the header, the resize handle and the user menu keep #}
+{# behaving as they do in the admin. #}
+{% load unfold %}
+
+<nav id="nav-sidebar-inner" class="bg-base-50 flex flex-col min-h-screen dark:text-font-default-dark dark:bg-base-950/20 {% element_classes 'navigation_inner' %}">
+    {% include "unfold/helpers/navigation_header.html" %}
+
+    {# h-0 grow, as Unfold's own app list does it: the nav scrolls on its own and the #}
+    {# user menu below stays in view however many models a layer has. #}
+    <div class="flex flex-col h-0 grow overflow-auto px-3 py-2">
+        <a href="{% url 'docs:index' %}"
+           class="flex font-semibold gap-3 items-center px-3 py-2 rounded-default text-font-important-light hover:bg-base-100 dark:text-font-important-dark dark:hover:bg-white/[.06]">
+            <span class="material-symbols-outlined md-18">menu_book</span>
+            Documentation
+        </a>
+
+        {% for layer in docs_layers %}
+            <p class="font-semibold mb-1 mt-4 px-3 text-font-subtle-light text-xs uppercase dark:text-font-subtle-dark">
+                <a href="{% url 'docs:layer' layer.name %}" class="hover:text-font-important-light dark:hover:text-font-important-dark">
+                    {{ layer.name|capfirst }}
+                </a>
+            </p>
+
+            {% for model in layer.models %}
+                <a href="{% url 'docs:layer' layer.name %}#{{ model.name }}"
+                   class="block px-3 py-1 rounded-default text-font-default-light truncate hover:bg-base-100 dark:text-font-default-dark dark:hover:bg-white/[.06]"
+                   title="{{ model.name }}">
+                    {{ model.name }}
+                </a>
+            {% endfor %}
+        {% endfor %}
+    </div>
+
+    {% include "unfold/helpers/navigation_user.html" %}
+</nav>

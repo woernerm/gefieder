@@ -252,6 +252,7 @@ cat <<EOF
 ${APP_NAME} is starting in development mode (plain HTTP, no certificate).
 
   Admin panel:  http://${HOST_ADDR}:${HTTP_PORT}/${CRUDMAN_PATH}/
+  Model docs:   http://${HOST_ADDR}:${HTTP_PORT}/${CRUDMAN_PATH}/docs/
   Grafana:      http://${HOST_ADDR}:${HTTP_PORT}/${GRAFANA_PATH}/
   Login:        ${SUPERUSER_NAME} / ${SUPERUSER_DEFAULT_PASSWORD}
 

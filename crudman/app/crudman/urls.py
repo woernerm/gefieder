@@ -20,6 +20,9 @@ CRUDMAN_PATH = os.environ.get("CRUDMAN_PATH", "crudman")
 urlpatterns = [
     # Under CRUDMAN_PATH so the proxy needs no extra route.
     path(f"{CRUDMAN_PATH}/dropzones/", include("dropzones.urls")),
+    # The SQLMesh model documentation. Listed before the admin, whose catch-all would
+    # otherwise claim it, and open from the viewer rank up rather than to staff only.
+    path(f"{CRUDMAN_PATH}/docs/", include("docs.urls")),
     # The admin's own login address, claimed so an unauthenticated visitor is sent to the
     # identity provider instead of a form. Django keeps redirecting here by name, so the
     # interception needs no other change.

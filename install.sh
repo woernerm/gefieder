@@ -587,6 +587,7 @@ ${APP_NAME} Cheat sheet
 ============================
 
   Admin panel:  ${BASE_URL}/${CRUDMAN_PATH}/
+  Model docs:   ${BASE_URL}/${CRUDMAN_PATH}/docs/
   Grafana:      ${BASE_URL}/${GRAFANA_PATH}/
   PostgreSQL:   host=${SERVER_NAME} port=${PG_PORT} dbname=${PG_DATABASE} user=${SUPERUSER_NAME}
                 psql "host=${SERVER_NAME} port=${PG_PORT} dbname=${PG_DATABASE} user=${SUPERUSER_NAME}"

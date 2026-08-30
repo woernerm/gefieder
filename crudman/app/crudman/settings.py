@@ -135,6 +135,8 @@ INSTALLED_APPS = [
     # Always installed, even with single sign-on off, so its post_migrate receiver keeps
     # the three role groups present and assignable by hand.
     'sso.apps.SsoConfig',
+    # The SQLMesh model documentation; ordinary views, open from the viewer rank up.
+    'docs.apps.DocsConfig',
 ]
 
 MIDDLEWARE = [
