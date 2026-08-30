@@ -106,11 +106,32 @@
                         document.body
                     ).fontFamily;
                     series.lineStyle.color = color.line;
+                    // A ribbon carries no quantity, so it stays faint enough to read
+                    // as a connection rather than as a volume.
+                    series.lineStyle.opacity = 0.3;
                     // Hovering only lightens the fill, rather than leaving ECharts to
                     // blank the node to white.
                     series.emphasis.itemStyle = { color: color.highlight };
+                    // The same for a ribbon: told no emphasis colour, ECharts lightens
+                    // the one it has until it is nearly white. Naming the colour keeps
+                    // it, and the opacity alone marks what the pointer is on.
+                    series.emphasis.lineStyle = {
+                        color: color.line,
+                        opacity: 0.55,
+                    };
                     return option;
                 }
+
+                // A node is named by its full "schema.table", which is too long to
+                // set beside every bar; the table alone repeats across tenants, so a
+                // bronze model is told apart by the tenant its schema names.
+                option.series[0].label.formatter = function (params) {
+                    const [schema, table] = params.name.split(".");
+                    const tenant = schema.replace(/^bronze_/, "");
+                    return schema.startsWith("bronze_")
+                        ? table + "  (" + tenant + ")"
+                        : table;
+                };
 
                 const graph = echarts.init(target, null, { renderer: "svg" });
                 graph.setOption(paint());

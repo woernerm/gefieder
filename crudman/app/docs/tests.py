@@ -1,7 +1,6 @@
 """Who reaches the documentation, and what the export puts in front of them."""
 
 import json
-import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -168,23 +167,50 @@ class LineageTest(TestCase):
     def test_the_chart_carries_every_model_and_edge(self):
         option = lineage.chart(self._models(), lambda model: "/docs/")
         series = option["series"][0]
+        self.assertEqual(series["type"], "sankey")
         self.assertEqual(
-            {node["id"] for node in series["data"]},
+            {node["name"] for node in series["data"]},
             {"bronze_project_a.issues", "silver.issues"},
         )
         self.assertEqual(
             series["links"],
-            [{"source": "bronze_project_a.issues", "target": "silver.issues"}],
+            [
+                {
+                    "source": "bronze_project_a.issues",
+                    "target": "silver.issues",
+                    "value": 1,
+                }
+            ],
         )
-        # Fixed positions: the medallion levels are the point of the picture.
-        self.assertEqual(series["layout"], "none")
-        self.assertLess(series["data"][0]["x"], series["data"][1]["x"])
+        # Sankey lays the columns out itself, so no coordinates are given.
+        self.assertNotIn("x", series["data"][0])
+
+    def test_a_model_may_read_several_others(self):
+        # The reason this is a sankey and not a tree: silver unions one bronze model per
+        # tenant, and a tree series allows a node only one parent.
+        models = [
+            {"name": "bronze_a.issues", "depends_on": [], "layer": "bronze"},
+            {"name": "bronze_b.issues", "depends_on": [], "layer": "bronze"},
+            {
+                "name": "silver.issues",
+                "depends_on": ["bronze_a.issues", "bronze_b.issues"],
+                "layer": "silver",
+            },
+        ]
+        series = lineage.chart(models, lambda model: "/docs/")["series"][0]
+        self.assertEqual(
+            sorted(link["source"] for link in series["links"]),
+            ["bronze_a.issues", "bronze_b.issues"],
+        )
+        self.assertEqual(len(series["data"]), 3)
 
     def test_a_node_keeps_its_full_name_and_link(self):
+        # Sankey identifies a node by its name, so the name is the full one and the
+        # template shortens it for display.
         option = lineage.chart(self._models(), lambda model: f"/docs/{model['layer']}/")
-        node = next(n for n in option["series"][0]["data"] if n["id"] == "silver.issues")
-        self.assertEqual(node["name"], "issues")
-        self.assertEqual(node["value"], "silver.issues")
+        node = next(
+            n for n in option["series"][0]["data"] if n["name"] == "silver.issues"
+        )
         self.assertEqual(node["url"], "/docs/silver/")
 
     def test_a_dependency_outside_the_project_is_left_out(self):
@@ -198,20 +224,15 @@ class LineageTest(TestCase):
         # The model itself is still drawn; only the edge to nowhere is dropped.
         self.assertEqual(len(option["series"][0]["data"]), 2)
 
-    def test_the_node_corners_are_round_on_a_wide_node(self):
-        # ECharts draws a symbol in a normalised -1..1 box and scales it to symbolSize,
-        # so the built-in roundRect comes out with corners as wide as the node is out of
-        # square -- 47x9 pixels rather than round. The path compensates per axis; what
-        # matters is that both radii land on the same number of pixels once scaled.
+    def test_the_last_column_is_labelled_on_its_own_side(self):
+        # A label to the right of the rightmost bar would run off the edge of the box.
         series = lineage.chart(self._models(), lambda model: "/docs/")["series"][0]
-        self.assertEqual(series["symbolSize"], lineage.NODE_SIZE)
-
-        horizontal, vertical = re.search(
-            r"A ([\d.]+) ([\d.]+)", series["symbol"]
-        ).groups()
-        width, height = lineage.NODE_SIZE
-        self.assertAlmostEqual(float(horizontal) * width / 2, lineage.CORNER_RADIUS)
-        self.assertAlmostEqual(float(vertical) * height / 2, lineage.CORNER_RADIUS)
+        placed = {
+            node["name"]: node.get("label", {}).get("position")
+            for node in series["data"]
+        }
+        self.assertEqual(placed["silver.issues"], "left")
+        self.assertIsNone(placed["bronze_project_a.issues"])
 
     def test_the_colours_are_named_theme_tokens_not_values(self):
         # The graph names Unfold's custom properties and the page resolves them, so a
