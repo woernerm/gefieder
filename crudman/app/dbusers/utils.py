@@ -30,8 +30,8 @@ added to ``sso.roles.RANKS`` reaches the database rank of the same name. Viewers
 included so read-only access is a provisioned account rather than a shared credential.
 """
 
-ROLE_PREFIX = f"{DB_ROLE_PREFIX}u_"
-"""Prefix every provisioned role carries, one level below the group roles.
+ROLE_PREFIX = DB_ROLE_PREFIX
+"""Prefix every provisioned role carries.
 
 It keeps these roles apart from the service and tenant roles sharing the namespace, so a
 person called "grafana" cannot collide with the service of that name.

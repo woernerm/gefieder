@@ -41,8 +41,7 @@ build_image() {  # engine, service
     --build-arg "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}" \
     --build-arg "SECRET_SUPERUSER_PASSWORD=${SECRET_SUPERUSER_PASSWORD}" \
     --build-arg "DUCKDB_EXTENSIONS=${DUCKDB_EXTENSIONS}" \
-    --build-arg "GRAFANA_PLUGINS=${GRAFANA_PLUGINS}" \
-    --build-arg "ECHARTS_VERSION=${ECHARTS_VERSION}"
+    --build-arg "GRAFANA_PLUGINS=${GRAFANA_PLUGINS}"
   if [ "$engine" = "docker" ]; then
     set -- "$@" \
       --build-arg "http_proxy=${HTTP_PROXY}" \

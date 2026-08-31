@@ -34,8 +34,8 @@ ADMIN_ROLE = f"{DB_ROLE_PREFIX}admin"
 
 # Throwaway account names, carrying the personal-account prefix crudman derives
 # (dbusers.utils) — which is what drop_db_user checks before it drops anything.
-VIEWER = f"{DB_ROLE_PREFIX}u_itest_viewer"
-EDITOR = f"{DB_ROLE_PREFIX}u_itest_editor"
+VIEWER = f"{DB_ROLE_PREFIX}itest_viewer"
+EDITOR = f"{DB_ROLE_PREFIX}itest_editor"
 PASSWORD = "itest-password-long-enough"
 
 

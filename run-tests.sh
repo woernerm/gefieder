@@ -45,6 +45,15 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
+# node runs the shipped ECharts bundle in test_lineage_chart.py. The library is fetched
+# unpinned at build time, so that test is what stands between a new release and a
+# documentation page whose lineage silently never draws.
+if ! command -v node >/dev/null 2>&1; then
+  echo "node is not installed; it renders the lineage chart in the test suite." >&2
+  echo "Install it with: sudo apt install nodejs   (RHEL: sudo dnf install nodejs)" >&2
+  exit 1
+fi
+
 # Rootless podman needs a usable subuid/subgid range for the current user (same requirement
 # the install script checks, and checked the same way). Rather than grep /etc/subuid, which
 # misses realm-joined users like name@domain whose ranges come from SSSD/nss and are not

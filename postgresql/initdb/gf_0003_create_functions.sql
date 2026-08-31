@@ -551,8 +551,9 @@ BEGIN
 
     -- Refuse anything that is not a provisioned personal account. Without this the
     -- function would drop a tenant role -- and its bronze schema with it -- for a caller
-    -- who passed the wrong name.
-    IF user_name !~ '^${DB_ROLE_PREFIX}u_' THEN
+    -- who passed the wrong name. The group roles share the prefix, so they are named out.
+    IF user_name !~ '^${DB_ROLE_PREFIX}'
+       OR user_name IN ('${DB_ROLE_PREFIX}viewer', '${DB_ROLE_PREFIX}editor', '${DB_ROLE_PREFIX}admin') THEN
         RAISE EXCEPTION 'refusing to drop %, which is not a provisioned user role', user_name;
     END IF;
 

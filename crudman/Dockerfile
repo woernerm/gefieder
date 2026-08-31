@@ -17,16 +17,14 @@ ARG PYTHON_INDEX
 COPY sqlmesh/pyproject.toml /sqlmesh/pyproject.toml
 RUN UV_EXTRA_INDEX_URL=${PYTHON_INDEX} uv sync --project /sqlmesh --no-dev
 
-# The charting library the lineage graph on the documentation page is drawn with, from
-# ECHARTS_VERSION in buildtime.env. Fetched here rather than by the browser so the page
-# renders on a server with no outbound internet, the same arrangement as the DuckDB
-# extensions and the Grafana plugins. In this stage because it already reaches the
-# network, and with Python because the base image carries no curl. An unset version would
-# ship an image whose lineage silently never draws, so it stops the build instead.
-ARG ECHARTS_VERSION
-RUN test -n "${ECHARTS_VERSION}" \
-      || { echo "ECHARTS_VERSION is empty; build via build.sh, which reads buildtime.env." >&2; exit 1; } \
-    && python -c "import urllib.request as r; r.urlretrieve('https://unpkg.com/echarts@${ECHARTS_VERSION}/dist/echarts.min.js', '/echarts.min.js')"
+# The charting library the lineage graph on the documentation page is drawn with. Fetched
+# here rather than by the browser so the page renders on a server with no outbound
+# internet, the same arrangement as the DuckDB extensions and the Grafana plugins. In this
+# stage because it already reaches the network, and with Python because the base image
+# carries no curl. Unpinned: run-tests.sh renders the shipped bundle and asserts the
+# lineage graph still draws (tests/test_lineage_chart.py), so a release that broke it
+# fails the suite rather than reaching a server.
+RUN python -c "import urllib.request as r; r.urlretrieve('https://unpkg.com/echarts@latest/dist/echarts.min.js', '/echarts.min.js')"
 
 COPY sqlmesh/ /sqlmesh/app/
 
