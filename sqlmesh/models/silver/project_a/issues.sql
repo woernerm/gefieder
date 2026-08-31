@@ -1,8 +1,6 @@
--- Project A's bronze -> silver transform. Everything specific to how *this* tenant
--- records issues lives here and nowhere else: its Jira-style column names, and its own
--- status vocabulary ("Done"/"In Progress"/"To Do") mapped onto the canonical
--- open/closed states that every tenant's silver output must agree on. A different tenant
--- (see project_b) decodes entirely different raw columns into the same shape.
+-- Project A's bronze -> silver transform. Everything specific to how *this* tenant records
+-- issues lives here: its Jira-style column names, and its own status vocabulary mapped onto
+-- the canonical open/closed states every tenant's silver output agrees on.
 --
 -- The output column list IS the harmonization contract; it must match the other tenants'
 -- staging models and the silver.issues union exactly.

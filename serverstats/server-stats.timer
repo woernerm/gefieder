@@ -1,15 +1,13 @@
 # Fires the server-statistics sample on a fixed cadence. The interval is
-# SERVER_STATS_INTERVAL from buildtime.env, substituted into OnUnitActiveSec below when the
-# release is rendered: systemd reads a cadence only from the unit file itself, never from an
-# environment file, so this is a build-time value rather than a runtime one. To change it on
-# a machine already installed, edit OnUnitActiveSec here and run
-# `systemctl --user daemon-reload`.
+# SERVER_STATS_INTERVAL, substituted into OnUnitActiveSec when the release is rendered:
+# systemd reads a cadence only from the unit file, never from an environment file. To change
+# it on an installed machine, edit OnUnitActiveSec and run `systemctl --user daemon-reload`.
 [Unit]
 Description=${APP_NAME} server-statistics sampling timer
 
 [Timer]
-# Take the first sample shortly after boot, then one per interval. Persistent=true runs a
-# missed sample once after the machine comes back, so a reboot leaves no permanent gap.
+# The first sample shortly after boot, then one per interval. Persistent=true runs a missed
+# one once the machine comes back, so a reboot leaves no permanent gap.
 OnBootSec=2min
 OnUnitActiveSec=${SERVER_STATS_INTERVAL}s
 Persistent=true

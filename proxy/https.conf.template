@@ -1,33 +1,28 @@
-# Production configuration: everything over TLS, plain HTTP permanently redirected.
-#
-# The classification and the routing are shared with the development configuration; only
-# the listeners and the TLS setup differ.
+# Production configuration: everything over TLS, plain HTTP permanently redirected. The
+# classification and the routing are shared with the development configuration.
 include /etc/nginx/proxy/maps.conf;
 
 server {
     listen 80;
     listen [::]:80;
-    # Named without a port, so it points at 443. A deployment that publishes HTTPS on
-    # another port (see "Using custom ports" in the README) has to name it here.
+    # Without a port, so it points at 443; a deployment publishing HTTPS elsewhere has to
+    # name that port here.
     return 301 https://$host$request_uri;
 }
 
 server {
     listen 443 ssl;
-    # Also accept IPv6, which a company network's DNS may well answer with. The entrypoint
-    # drops this line on a host whose kernel offers no IPv6, where nginx would refuse to
-    # start over an address family it cannot bind.
+    # A company network's DNS may answer with an AAAA record. The entrypoint drops this
+    # line on a kernel without IPv6, where nginx would refuse to start.
     listen [::]:443 ssl;
 
-    # Read from certs-effective rather than the host-mounted certs/: the entrypoint
-    # writes a copy there with the leaf certificate first, which nginx requires and the
-    # operator's file may not have. See reorder_fullchain() in entrypoint.sh. The key is
-    # never reordered, so it comes from the mount directly.
+    # certs-effective rather than the host-mounted certs/: the entrypoint writes a copy
+    # there with the leaf certificate first, which nginx requires and the operator's file
+    # may not have. The key is never reordered, so it comes from the mount.
     ssl_certificate /etc/nginx/proxy/certs-effective/fullchain.pem;
     ssl_certificate_key /etc/nginx/proxy/certs/privkey.pem;
 
-    # Security headers for all responses (including errors, hence "always"). HSTS tells
-    # browsers to use HTTPS only; the others harden against MIME sniffing and clickjacking.
+    # On every response, errors included, hence "always".
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "SAMEORIGIN" always;

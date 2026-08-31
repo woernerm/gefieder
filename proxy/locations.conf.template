@@ -1,38 +1,31 @@
-# The routing, shared by both configurations and included inside their server block. What
-# differs between HTTP and HTTPS is the listener and the TLS setup, never where a path
-# goes, so the proxy_pass rules, visit logging and WebSocket forwarding are stated once.
+# The routing, included inside both configurations' server block. What differs between HTTP
+# and HTTPS is the listener and the TLS setup, never where a path goes.
 
-    # Answer redirects with a path rather than a full URL: nginx builds an absolute one
-    # from the port it listens on inside the pod, so a deployment publishing anything
-    # other than 80/443 would send the browser to a port where nothing listens.
+    # A path rather than a full URL: nginx builds an absolute one from the port it listens
+    # on inside the pod, which is not the one the browser used.
     absolute_redirect off;
 
-    # The Django application serves its URLs under /${CRUDMAN_PATH} itself, so the
-    # path is forwarded unchanged.
+    # Django serves its URLs under /${CRUDMAN_PATH} itself, so the path is unchanged.
     location /${CRUDMAN_PATH}/ {
-        # Record page visits (the map drops assets/non-GET); other requests are not logged
-        # here. nginx's own access log on stdout still captures everything.
+        # Page visits only, the map dropping assets and non-GET. nginx's own access log on
+        # stdout still captures everything.
         access_log /var/log/app/visits.log visit_json if=$visit_log;
-        # Dropzone file uploads pass through here; nginx's 1m default would reject them.
+        # Dropzone uploads pass through here; nginx's 1m default would reject them.
         client_max_body_size 512m;
-        # All containers share the pod's network namespace, so the services are reachable
-        # on localhost rather than by container name -- a pod has no internal DNS.
+        # The containers share one network namespace, and a pod has no internal DNS.
         proxy_pass http://127.0.0.1:8000;
-        # $http_host, not $host: it keeps the port the browser used. The applications
-        # build absolute URLs from it, among them the single sign-on callback address,
-        # which the provider rejects unless it matches the registered one exactly.
+        # $http_host, not $host: it keeps the port the browser used, which the apps build
+        # their absolute URLs from -- the single sign-on callback among them.
         proxy_set_header Host $http_host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # Grafana is configured to serve from /${GRAFANA_PATH} (see GF_SERVER_*), so the
-    # path is forwarded unchanged.
+    # Grafana serves from /${GRAFANA_PATH} itself, so the path is unchanged.
     location /${GRAFANA_PATH}/ {
         access_log /var/log/app/visits.log visit_json if=$visit_log;
-        # Grafana Live streams dashboard updates over a WebSocket. Upgrade and Connection
-        # are hop-by-hop headers, which nginx drops, and the HTTP/1.0 it speaks upstream
-        # cannot carry an upgrade at all, so without these three Grafana answers 400.
+        # Grafana Live streams over a WebSocket. Upgrade and Connection are hop-by-hop
+        # headers nginx drops, and its upstream HTTP/1.0 cannot carry an upgrade at all.
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;

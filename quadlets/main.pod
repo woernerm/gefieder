@@ -1,21 +1,17 @@
-# The pod groups all seven containers into one shared network namespace, so they reach
-# each other on localhost, and publishes their ports here at the pod level. Which ports
-# comes from the operator's runtime.env, so moving one is an edit there and a restart.
-# Quadlet expands no variables itself but copies these lines verbatim into the generated
-# unit, where systemd expands them against the EnvironmentFile — which is why the pod needs
-# one although it runs no container.
+# The pod groups all seven containers into one network namespace, so they reach each other
+# on localhost, and publishes their ports. Which ports comes from runtime.env: quadlet
+# copies these lines verbatim into the generated unit, where systemd expands them against
+# the EnvironmentFile -- which is why the pod needs one although it runs no container.
 #
 # The web and database ports are the host side only; inside the pod nginx and PostgreSQL
 # keep 80, 443 and 5432. The dropzone endpoints publish the port they listen on, so
-# SFTP_PORT and FLIGHT_PORT are one setting each: bound by the endpoint, probed by its
-# healthcheck and advertised by crudman on the dropzone pages.
+# SFTP_PORT and FLIGHT_PORT are one setting each.
 #
-# PostgreSQL is published for reporting and the engineering tools that write bronze. It
-# skips the proxy because its wire protocol is not HTTP, so there is nothing to route;
-# access is guarded by the database's own passwords.
+# PostgreSQL is published for reporting and the tools that write bronze, skipping the proxy
+# because its wire protocol is not HTTP; its own passwords guard it.
 #
-# The file is named main.pod, so the generated unit is main-pod.service and containers
-# link to it with Pod=main.pod, while PodName below is the name podman shows.
+# The file is named main.pod, so the generated unit is main-pod.service and containers link
+# to it with Pod=main.pod, while PodName below is what podman shows.
 [Pod]
 PodName=${APP_NAME}
 PublishPort=${HTTP_PORT}:80
@@ -24,9 +20,8 @@ PublishPort=${PG_PORT}:5432
 PublishPort=${SFTP_PORT}:${SFTP_PORT}
 PublishPort=${FLIGHT_PORT}:${FLIGHT_PORT}
 
-# Read by systemd, not podman: this unit only starts the pod, so unlike the container units
-# it passes nothing to --env-file. A missing file fails the unit, which is the honest
-# outcome: an unexpanded port would fail it a moment later with a less useful message.
+# Read by systemd, not podman: this unit starts only the pod and passes nothing to
+# --env-file. A missing file fails it, as an unexpanded port would a moment later.
 [Service]
 EnvironmentFile=%h/.config/${APP_NAME}/runtime.env
 

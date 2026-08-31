@@ -1,14 +1,11 @@
-# Development configuration: plain HTTP, no certificates required.
-#
-# The classification and the routing are shared with the production configuration; only
-# the listener differs, and that is all this file states.
+# Development configuration: plain HTTP, no certificates required. The classification and
+# the routing are shared with the production configuration; only the listener differs.
 include /etc/nginx/proxy/maps.conf;
 
 server {
     listen 80;
-    # Also accept IPv6, which a company network's DNS may well answer with. The entrypoint
-    # drops this line on a host whose kernel offers no IPv6, where nginx would refuse to
-    # start over an address family it cannot bind.
+    # A company network's DNS may answer with an AAAA record. The entrypoint drops this
+    # line on a kernel without IPv6, where nginx would refuse to start.
     listen [::]:80;
 
     include /etc/nginx/proxy/locations.conf;

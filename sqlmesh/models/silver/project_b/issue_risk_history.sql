@@ -1,18 +1,17 @@
--- The same history as models/silver/project_a/issue_risk_history.sql, and the same macro.
+-- The same history and the same macro as models/silver/project_a/issue_risk_history.sql.
 -- What differs is one line: `gateway duckdb`.
 --
--- @temporal_join reads that gateway and emits the lookup its engine has: project_a gets
--- PostgreSQL's LATERAL ... LIMIT 1, this model DuckDB's ASOF JOIN, which executes as a
--- single merge instead of a seek per tick. `dialect duckdb` makes that legal to write
--- down, and the macro refuses the combination without it — ASOF is DuckDB grammar, which
--- other dialects read as a table alias rather than rejecting.
+-- @temporal_join reads that gateway and emits the lookup its engine has: PostgreSQL's
+-- LATERAL ... LIMIT 1 there, DuckDB's ASOF JOIN here, which executes as a single merge
+-- rather than a seek per tick. `dialect duckdb` makes that legal to write down, and the
+-- macro refuses the combination without it -- ASOF is DuckDB grammar, which another dialect
+-- reads as a table alias rather than rejecting.
 --
 -- The storage is PostgreSQL either way: the gateway attaches this database as its only
--- catalog, so the seeds are read from it and this table written back into it, and the
--- silver union cannot tell which engine produced which half.
+-- catalog, so the silver union cannot tell which engine produced which half.
 --
--- The status mapping stays one-to-one for the reason project_a's does. The vocabulary is
--- the same todo/in_progress/closed, and this tenant's tool never reports in_progress.
+-- The status mapping stays one-to-one for the reason project_a's does; this tenant's tool
+-- never reports in_progress.
 MODEL (
   name silver_staging.issue_risk_history__project_b,
   kind FULL,

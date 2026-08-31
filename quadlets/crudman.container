@@ -1,8 +1,8 @@
 # The Django administration panel, reachable through the proxy.
 #
-# The image is the one install.sh loaded from the release. The entrypoint waits for the
-# database itself, so ordering after postgresql is a hint rather than a hard requirement.
-# Notify=healthy marks the service started only once the healthcheck below passes.
+# The image install.sh loaded from the release. The entrypoint waits for the database
+# itself, so ordering after postgresql is a hint. Notify=healthy marks the service started
+# only once the healthcheck below passes.
 [Unit]
 Description=${APP_NAME} crudman (Django admin panel)
 After=postgresql.service
@@ -12,19 +12,16 @@ ContainerName=crudman
 Pod=main.pod
 Image=${REGISTRY}/crudman:${IMAGE_TAG}
 Notify=healthy
-# A real init at PID 1 that forwards signals to the whole process tree and reaps it, so
-# podman's SIGTERM reaches gunicorn and in-flight requests drain instead of being cut off
-# by the SIGKILL that ends a timed-out stop.
+# Forwards signals to the whole process tree and reaps it, so podman's SIGTERM reaches
+# gunicorn and in-flight requests drain rather than being SIGKILLed at the stop timeout.
 RunInit=true
-# Run on the host's timezone rather than the image's UTC, so gunicorn's own stamp agrees
-# with journald's beside it. The sftp and flight containers run this image without the
-# setting: Django's logging emits no timestamp, so there is nothing to align.
+# The host's timezone rather than the image's UTC, so gunicorn's own stamp agrees with
+# journald's. The sftp and flight containers need none: Django's logging emits no stamp.
 Timezone=local
 Environment=APP_NAME=${APP_NAME}
 # SERVER_NAME and DEBUG come from runtime.env, so changing either needs a restart rather
-# than a rebuild. The installer writes the file before the units start; podman rejects a
-# missing env file, and systemd's optional "-" prefix does not work here — quadlet passes
-# the path to --env-file, which takes it literally.
+# than a rebuild. podman rejects a missing env file, and systemd's optional "-" prefix does
+# not help: quadlet passes the path to --env-file, which takes it literally.
 EnvironmentFile=%h/.config/${APP_NAME}/runtime.env
 Environment=SUPERUSER_NAME=${SUPERUSER_NAME}
 Environment=SUPERUSER_EMAIL=${SUPERUSER_EMAIL}
@@ -33,21 +30,18 @@ Environment=POSTGRES_HOST=localhost
 Environment=POSTGRES_PORT=5432
 Environment=POSTGRES_DB=${PG_DATABASE}
 Environment=POSTGRES_USER=${CRUDMAN_DB_USER}
-# The prefix on the login roles crudman provisions for administrators (see DB_USER_PREFIX
-# in buildtime.env).
+# The prefix on the login roles crudman provisions (DB_USER_PREFIX in buildtime.env).
 Environment=DB_USER_PREFIX=${DB_USER_PREFIX}
-# The prefix on the rank names -- the Django group a provider rank grants and the database
-# group role behind it -- and the one on the per-tenant bronze schemas, which is how the
-# admin finds tenants in the catalog. Only this container needs either: the sftp and flight
-# roles neither sign anyone in nor onboard a tenant.
+# The prefix on the rank names, and the one on the per-tenant bronze schemas the admin
+# finds tenants by. Only this container signs anyone in or onboards a tenant.
 Environment=ROLE_PREFIX=${ROLE_PREFIX}
 Environment=BRONZE_SCHEMA_PREFIX=${BRONZE_SCHEMA_PREFIX}
-# The dropzones uploads. Shared read-only with the sqlmesh container at the same path,
-# so the file paths stored in the database resolve there too.
+# Shared read-only with sqlmesh at the same path, so the paths stored in the database
+# resolve there too.
 Environment=UPLOADS_DIR=/var/lib/app/uploads
 Volume=uploads_data.volume:/var/lib/app/uploads:z
-# The names of the secrets mounted below, so the code that reads a file back out of
-# /run/secrets looks for the same name podman put there (see SECRET_* in buildtime.env).
+# So the code reading a file back out of /run/secrets looks for the name podman put
+# there (see SECRET_* in buildtime.env).
 Environment=SECRET_DJANGO_KEY=${SECRET_DJANGO_KEY}
 Environment=SECRET_CRUDMAN_PASSWORD=${SECRET_CRUDMAN_PASSWORD}
 Environment=SECRET_SUPERUSER_PASSWORD=${SECRET_SUPERUSER_PASSWORD}
@@ -55,21 +49,19 @@ Environment=SECRET_OIDC_CLIENT=${SECRET_OIDC_CLIENT}
 Secret=${SECRET_DJANGO_KEY}
 Secret=${SECRET_CRUDMAN_PASSWORD}
 Secret=${SECRET_SUPERUSER_PASSWORD}
-# A placeholder while OIDC_ENABLED is false, but must exist: podman will not start a
-# container whose Secret= is missing.
+# A placeholder while OIDC_ENABLED is false, but podman will not start a container whose
+# Secret= is missing.
 Secret=${SECRET_OIDC_CLIENT}
 # Any answer below 500 counts as healthy, and redirects are not followed: the panel
-# redirects when nobody is signed in, and a probe that followed it would test the identity
-# provider rather than this container. Single-quoted -c argument, because quadlet mangles
-# the closing quote of a double-quoted HealthCmd.
+# redirects when nobody is signed in, and following it would test the identity provider.
+# Single-quoted, quadlet mangling the closing quote of a double-quoted HealthCmd.
 HealthCmd=python -c 'import http.client,os; c=http.client.HTTPConnection("127.0.0.1",8000,timeout=5); c.request("GET","/"+os.environ["CRUDMAN_PATH"]+"/"); raise SystemExit(0 if c.getresponse().status<500 else 1)'
 HealthInterval=10s
 HealthTimeout=5s
 HealthRetries=10
-# The same probe as a startup healthcheck, polled every second. Migrations, collectstatic
-# and the superuser update run before gunicorn binds, so readiness lands at an
-# unpredictable point and Notify=healthy would otherwise wait out the start period plus an
-# interval. Podman switches to the regular interval after the first success.
+# The same probe every second at startup: migrations, collectstatic and the superuser
+# update run before gunicorn binds, so readiness lands at an unpredictable point and
+# Notify=healthy would wait out a whole interval. podman reverts after the first success.
 HealthStartupCmd=python -c 'import http.client,os; c=http.client.HTTPConnection("127.0.0.1",8000,timeout=5); c.request("GET","/"+os.environ["CRUDMAN_PATH"]+"/"); raise SystemExit(0 if c.getresponse().status<500 else 1)'
 HealthStartupInterval=1s
 HealthStartupTimeout=5s

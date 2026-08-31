@@ -1,10 +1,8 @@
--- Example gold model: precomputed issue metrics per tenant. Gold reads the harmonized
--- silver schema only, so it needs no per-tenant logic at all -- one set of gold models
--- serves every tenant. Grafana dashboards point at gold (and silver), never at the
--- bronze schemas or the sqlmesh__* physical schemas.
+-- Example gold model: precomputed issue metrics per tenant. Gold reads harmonized silver
+-- only, so one set of gold models serves every tenant. Dashboards point at gold and silver,
+-- never at the bronze or sqlmesh__* schemas.
 --
--- Gold is materialized (kind FULL) per the medallion architecture: the metrics are
--- precomputed tables rather than views, so dashboards stay fast.
+-- Materialized (kind FULL): precomputed tables rather than views, so dashboards stay fast.
 MODEL (
   name gold.issue_metrics,
   kind FULL,

@@ -1,6 +1,5 @@
-# The uploads volume holding the files uploaded through dropzones. crudman writes it;
-# the sqlmesh container mounts it read-only at the same path, so the file paths stored
-# in the crudman.dropzones_upload rows resolve in both containers. It survives stopping
-# the stack; remove it explicitly to discard the data.
+# The files uploaded through dropzones. crudman writes it and sqlmesh mounts it read-only
+# at the same path, so the paths in crudman.dropzones_upload resolve in both. It survives
+# stopping the stack; remove it to discard the data.
 [Volume]
 VolumeName=uploads_data

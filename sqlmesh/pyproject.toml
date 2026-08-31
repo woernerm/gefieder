@@ -3,22 +3,14 @@ name = "sqlmesh-service"
 version = "0.1.0"
 description = "The SQLMesh analytics engine for the analytics platform."
 requires-python = ">=3.13"
-# The postgres extra of sqlmesh is intentionally not used: it depends on psycopg2,
-# which must be compiled against libpq. psycopg2-binary provides the same module as
-# a prebuilt wheel, so no compiler or libpq headers are needed in the image.
+# sqlmesh's postgres extra is deliberately unused: it depends on psycopg2, which must be
+# compiled against libpq, while psycopg2-binary is the same module as a prebuilt wheel.
 #
-# polars is used by the Project C bronze model (models/bronze/project_c/issues_raw.py),
-# which transforms its raw data with polars instead of SQL. Declared here so the package
-# is present in the image's Python environment.
+# polars is what the Project C bronze model transforms its raw data with.
 #
-# duckdb is pinned to the version pg_duckdb runs, which the postgresql image prints during
-# its build and stores its extensions under (/opt/duckdb-extensions/v<version>/). SQLMesh
-# itself only asks for ">=0.10", but with the duckdb gateway in config.py there are two
-# DuckDB engines in one system: the extensions in DUCKDB_EXTENSIONS have to exist for both,
-# and a community build lags a new DuckDB release by weeks -- duckpgq had no 1.5.5 build on
-# the day this was pinned, though 1.5.4 had one. Matching the versions also means a query
-# behaves the same whichever of the two engines runs it.
-#
-# tests/test_duckdb_extensions.py fails if the two ever drift apart, which is the signal to
-# bump this line to whatever the new base image runs.
+# duckdb is pinned to the version pg_duckdb runs, which the postgresql image stores its
+# extensions under. With config.py's duckdb gateway there are two DuckDB engines in one
+# system, and DUCKDB_EXTENSIONS has to exist for both while a community build lags a new
+# DuckDB release by weeks. tests/test_duckdb_extensions.py fails when the two drift apart,
+# which is the signal to bump this line.
 dependencies = ["sqlmesh[lsp,github,web]", "psycopg2-binary", "polars", "duckdb==1.5.4"]

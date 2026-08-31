@@ -1,17 +1,14 @@
-# Oneshot service that takes one server-statistics sample. The companion timer fires it
-# on the configured interval. It runs on the host as the rootless-podman user (not as a
-# container) because only the host can read the pod's cgroup counters, disk IOPS and
-# network egress. The script reaches the database with `podman exec postgresql`, so it
-# needs nothing published on a port.
+# One server-statistics sample, fired by the companion timer. It runs on the host as the
+# rootless-podman user rather than as a container, because only the host can read the pod's
+# cgroup counters, disk IOPS and network egress, and reaches the database with
+# `podman exec postgresql` rather than over a published port.
 #
-# Installed under ~/.config/systemd/user/ by install.sh, alongside the quadlet-generated
-# units, so `systemctl --user` and `journalctl --user` manage and show it like the rest.
-# ${APP_NAME} is rendered by the installer (envsubst), the same way the quadlets are.
+# install.sh puts it under ~/.config/systemd/user/ beside the quadlet-generated units, and
+# renders ${APP_NAME} as it does for those.
 [Unit]
 Description=${APP_NAME} server-statistics sample
-# The sample reaches the database through the postgresql container, so only attempt it
-# once the pod is up. This is a hint, not a hard dependency: a tick that runs while the
-# database is down simply fails and the next one succeeds.
+# A hint, not a hard dependency: a tick that runs while the database is down simply fails
+# and the next one succeeds.
 After=main-pod.service
 Wants=main-pod.service
 
@@ -19,10 +16,8 @@ Wants=main-pod.service
 Type=oneshot
 # The collector derives its state directory from the app name.
 Environment=APP_NAME=${APP_NAME}
-# The role it connects as, the database it connects to and the schema it writes to. Passed
-# rather than left to the collector's fallbacks, which fit only a deployment that kept the
-# default SUPERUSER_NAME, PG_DATABASE and SERVER_STATS_SCHEMA: renaming one would leave
-# every sample failing silently.
+# The role, database and schema. Passed rather than left to the collector's fallbacks,
+# which fit only a deployment that kept every default.
 Environment=POSTGRES_USER=${SUPERUSER_NAME}
 Environment=POSTGRES_DB=${PG_DATABASE}
 Environment=SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}

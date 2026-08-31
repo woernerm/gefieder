@@ -1,15 +1,12 @@
 -- The harmonized silver.issues model: one canonical issue shape for every tenant.
 --
--- This model is deliberately thin. All it does is stack the per-tenant transforms on top
--- of each other; every tenant-specific quirk has already been resolved upstream. Adding or
--- removing a tenant is the only reason to touch this file -- add one UNION ALL line per
--- tenant. Because each upstream model already emits the canonical columns, downstream gold
--- models never need to know how many tenants exist or how their raw data looked.
+-- Deliberately thin: it stacks the per-tenant transforms, every quirk having been resolved
+-- upstream. Adding or removing a tenant is one UNION ALL line and the only reason to touch
+-- this file, and gold never learns how many tenants exist.
 --
--- The upstream model differs by tenant only in *where* the bronze -> canonical transform
--- happens: project_a/project_b do it in a SQL staging model (silver_staging.issues__<tenant>),
--- project_c does it in a polars Python model that already lands canonical columns in its
--- bronze schema (see models/bronze/project_c/issues_raw.py). Either way the columns match.
+-- The upstream model differs by tenant only in *where* the transform happens: project_a and
+-- project_b use a SQL staging model, project_c a polars Python model that already lands
+-- canonical columns in its bronze schema. Either way the columns match.
 MODEL (
   name silver.issues,
   kind VIEW,

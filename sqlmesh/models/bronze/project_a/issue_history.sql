@@ -1,14 +1,13 @@
--- Project A's issue *history*: one row per change of an issue, not one row per issue.
--- Issue trackers keep this alongside the current state (Jira calls it the changelog), and
--- it is what any question about how a project developed has to be answered from.
+-- Project A's issue *history*: one row per change of an issue, which is what any question
+-- about how a project developed has to be answered from. Issue trackers keep it alongside
+-- the current state; Jira calls it the changelog.
 --
--- Like the other example models this is a SEED so the pipeline has data without an
--- external source; a real tenant's bronze model is a view over the source schema. The
--- column names are the tenant's own, as always in bronze.
+-- A SEED like the other example models, so the pipeline has data without an external
+-- source. The column names are the tenant's own, as always in bronze.
 --
--- The uniqueness audit is not decoration: silver joins this history to another one with
--- @temporal_join, which reads the row in effect at a point in time. Two rows with the same
--- timestamp for one issue would make "the row in effect" arbitrary.
+-- The uniqueness audit is not decoration: silver joins this with @temporal_join, which
+-- reads the row in effect at a point in time, and two rows sharing a timestamp would make
+-- that arbitrary.
 MODEL (
   name bronze_project_a.issue_history,
   kind SEED (

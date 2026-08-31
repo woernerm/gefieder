@@ -1,13 +1,11 @@
-# Provisions the project's PostgreSQL database as a read-only Grafana data source.
-# The password is read from the podman secret mounted into the container, named by
-# SECRET_GRAFANA_PASSWORD in buildtime.env and substituted in by grafana/render.sh.
+# The project's PostgreSQL database as a read-only Grafana data source. The password comes
+# from the podman secret named by SECRET_GRAFANA_PASSWORD, substituted by
+# grafana/render.sh.
 apiVersion: 1
 
 datasources:
-  # The name and uid are interpolated from APP_NAME at build time by
-  # grafana/render.sh, so they track the project name from buildtime.env. The login role
-  # comes from the same file (GRAFANA_DB_USER), which is what the database init scripts
-  # create and grant read access to.
+  # Name and uid come from APP_NAME, the login role from GRAFANA_DB_USER, so both track
+  # buildtime.env -- the same file the init scripts created that role from.
   - name: ${APP_NAME}
     type: postgres
     uid: ${APP_NAME}-postgresql

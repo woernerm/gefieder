@@ -1,11 +1,10 @@
 name: Build and release
 
-# Build the five custom images with docker, render the quadlets, and publish everything
-# as a GitHub release: one tarball per image, one file per quadlet, plus install.sh.
-# A server then installs it without a checkout via the curl one-liner in install.sh.
+# Build the five custom images with docker, render the quadlets and publish everything as a
+# GitHub release: one tarball per image, one file per quadlet, plus install.sh, which a
+# server then runs without a checkout.
 #
-# Triggered by every commit to main; also runnable manually, optionally with an explicit
-# tag to override the calendar version.
+# Triggered by every commit to main, and runnable manually with an explicit tag.
 on:
   push:
     branches: ["main"]
@@ -22,17 +21,15 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      # Pinned to a full commit SHA (v5.0.0) so a moved tag cannot change what runs.
-      # fetch-depth: 0 brings the tags along; the calendar version below counts the
-      # releases already tagged this month, and a shallow checkout has none of them.
+      # Pinned to a full commit SHA (v5.0.0), so a moved tag cannot change what runs.
+      # fetch-depth: 0 brings the tags the calendar version below counts.
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
           fetch-depth: 0
 
-      # The release tag: the explicit one from a manual run, otherwise a calendar version
-      # YY.M.x (e.g. 26.7.1, 26.12.11). The month resets the counter; within a month x is
-      # the highest patch already released for that YY.M, plus one. Existing tags are the
-      # source of truth, so a re-run cannot collide with an earlier release.
+      # The explicit tag from a manual run, otherwise a calendar version YY.M.x. The month
+      # resets the counter, and x is the highest patch already released for that YY.M plus
+      # one, so a re-run cannot collide with an earlier release.
       - name: Resolve the release tag
         env:
           INPUT_TAG: ${{ github.event.inputs.tag }}
@@ -44,21 +41,17 @@ jobs:
 
           PREFIX="$(date +%y).$(date +%-m)"
 
-          # List the tags for this month and take the largest patch number. --sort=-v:refname
-          # would order 11 before 2, so compare numerically instead.
+          # --sort=-v:refname would order 11 before 2, so compare numerically.
           LAST="$(git tag --list "${PREFIX}.*" \
             | sed -n "s/^${PREFIX}\.\([0-9][0-9]*\)$/\1/p" \
             | sort -n | tail -n 1)"
 
           echo "TAG=${PREFIX}.$(( ${LAST:-0} + 1 ))" >> "$GITHUB_ENV"
 
-      # Load the build-time settings so the build args and the rendered quadlets use the
-      # same values. buildtime.env is sourced rather than grepped straight into
-      # $GITHUB_ENV: CERTIFICATE_PATH references ${APP_NAME} in shell syntax, and only a
-      # shell resolves that against the APP_NAME set earlier in the same file. Only the
-      # KEY=value names are then forwarded, each with its resolved value; comments and
-      # blank lines never reach $GITHUB_ENV. envsubst (gettext) renders the quadlet
-      # templates below.
+      # So the build args and the rendered quadlets use the same values. Sourced rather
+      # than grepped into $GITHUB_ENV: CERTIFICATE_PATH references ${APP_NAME} in shell
+      # syntax, which only a shell resolves. Only the KEY=value names are then forwarded,
+      # each with its resolved value. envsubst renders the quadlet templates below.
       - name: Load buildtime.env
         run: |
           set -a
@@ -69,14 +62,12 @@ jobs:
           done
           sudo apt-get update && sudo apt-get install -y gettext-base
 
-      # The same script used for local builds, so CI and a developer build identically.
-      # It reads buildtime.env itself and passes the proxy settings as --build-arg.
+      # The same script local builds use, so CI and a developer build identically.
       - name: Build the images
         run: ./build.sh
 
-      # Stage every release asset in dist/: one tarball per image (quadlets/requirements.md's
-      # "one file per docker image"), one file per quadlet, the rendered manifest the installer
-      # sources, and the installer itself.
+      # Every release asset in dist/: one tarball per image, one file per quadlet, the
+      # rendered manifest the installer sources, and the installer itself.
       - name: Stage the release assets
         run: |
           mkdir -p dist
@@ -84,20 +75,17 @@ jobs:
             docker save "${REGISTRY}/${svc}:${IMAGE_TAG}" -o "dist/${svc}.tar"
           done
 
-          # Render the quadlet templates and the server-stats systemd units, substituting
-          # only the known tokens so nginx's $host and Grafana's %(domain)s are left
-          # untouched. The units take ${APP_NAME} like the quadlets do.
+          # Only the known tokens, so nginx's $host and Grafana's %(domain)s survive.
           VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_USER_PREFIX} ${ROLE_PREFIX} ${BRONZE_SCHEMA_PREFIX} ${SECRET_SUPERUSER_PASSWORD} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD} ${SECRET_DJANGO_KEY} ${SECRET_OIDC_CLIENT}'
           for f in quadlets/* serverstats/server-stats.service serverstats/server-stats.timer; do
             envsubst "$VARS" < "$f" > "dist/$(basename "$f")"
           done
 
-          # The host-side collector and the default runtime config ship verbatim; the
-          # installer drops them next to the rendered units.
+          # These ship verbatim, next to the rendered units.
           cp serverstats/collect.sh dist/collect.sh
           cp runtime.env dist/runtime.env
 
-          # The installer sources this for the values baked into the images.
+          # What the installer sources for the values baked into the images.
           {
             echo "APP_NAME=${APP_NAME}"
             echo "SUPERUSER_NAME=${SUPERUSER_NAME}"
@@ -114,27 +102,21 @@ jobs:
             echo "SECRET_OIDC_CLIENT=${SECRET_OIDC_CLIENT}"
           } > dist/manifest.env
 
-          # Bake the repository URL and the scratch directory into the installer: the
-          # installer runs standalone from the release, so neither can come from
-          # buildtime.env, and TEMPDIR is needed before manifest.env is downloaded into it.
-          # Only these two are substituted; the installer's own shell variables ($WORK,
-          # $BASE, ...) are left untouched. REPO has no default, so fail here rather than
-          # publish an installer that would download from an empty URL.
+          # The installer runs standalone from the release, so neither can come from
+          # buildtime.env, and TEMPDIR is needed before manifest.env lands in it. Only
+          # these two are substituted, the installer's own $WORK and $BASE surviving. REPO
+          # has no default, so this fails rather than publishing an empty download URL.
           if [ -z "${REPO}" ]; then
             echo "REPO is not set in buildtime.env; set it to this repository's URL." >&2
             exit 1
           fi
           envsubst '${REPO} ${TEMPDIR}' < install.sh > dist/install.sh
 
-          # The uninstaller downloads nothing, so it ships verbatim; it discovers what to
-          # remove from the files install.sh left on the machine.
+          # It downloads nothing, discovering what to remove from the installed files.
           cp uninstall.sh dist/uninstall.sh
 
-      # --latest moves GitHub's "latest release" pointer to this release, which is what
-      # ${REPO}/releases/latest/download/... in install.sh resolves to. Without it gh
-      # infers the latest release by sorting tags as semver, where 26.7.2 outranks
-      # 26.12.11 -- a December release would leave the pointer on an older one. The
-      # pointer is a single marker, so exactly one release ever carries it.
+      # --latest moves the pointer ${REPO}/releases/latest/download/... resolves to.
+      # Without it gh sorts tags as semver, where 26.7.2 outranks 26.12.11.
       - name: Publish the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

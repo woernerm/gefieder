@@ -1,18 +1,15 @@
 # The request classification the visit log is built on, and the WebSocket handshake
 # mapping. Both configurations need them identically, and a map may only appear at http
-# level, so they live here rather than in the server blocks.
+# level.
 
 # --- dashboard/page visit logging -----------------------------------------------------
 # A structured access log for usage statistics: which dashboard is visited, when, by which
-# session. Separate from the access log nginx writes to stdout, and limited to real page
-# navigations, because one dashboard view triggers dozens of API, asset and live-poll
-# requests that would inflate every count. The collector drains this file into
-# server_stats.dashboard_visit.
+# session. Limited to real page navigations, one dashboard view triggering dozens of API,
+# asset and live-poll requests. The collector drains it into server_stats.dashboard_visit.
 
-# Tag a request with the app it is a page visit for, or "" to skip it. Grafana renders a
-# dashboard at /${GRAFANA_PATH}/d/<uid>/<slug> (/d-solo for a single panel), with its panel
-# data and assets elsewhere; crudman serves its pages under /${CRUDMAN_PATH}/, its assets
-# under /${CRUDMAN_PATH}/static/.
+# The app a request is a page visit for, or "" to skip it. Grafana renders a dashboard at
+# /${GRAFANA_PATH}/d/<uid>/<slug> (/d-solo for one panel), with its data and assets
+# elsewhere; crudman serves its pages under /${CRUDMAN_PATH}/, its assets below static/.
 map $uri $visit_app {
     default                              "";
     ~^/${GRAFANA_PATH}/d-solo/           grafana;
@@ -21,24 +18,22 @@ map $uri $visit_app {
     ~^/${CRUDMAN_PATH}/                  crudman;
 }
 
-# Only GET requests are page views; a POST is a form submit/login, not a visit.
+# A POST is a form submit or a login, not a visit.
 map $request_method $visit_is_get {
     default  0;
     GET      1;
 }
 
-# The final gate: log only when the request is a GET and matched an app. The value is the
-# app name (non-empty => logged via the "if=$visit_log" below), or "" to drop the line.
+# The final gate: the app name when the request is a GET that matched one, and non-empty
+# is what "if=$visit_log" below logs on.
 map "$visit_is_get:$visit_app" $visit_log {
     default        "";
     ~^1:(.+)$      $1;
 }
 
-# One JSON object per visit. escape=json keeps user-controlled fields from breaking it.
-# The session cookie is logged raw — the log lives on the proxy's own volume, owned by the
-# rootless podman user — and the collector hashes it before storing, so the raw value never
-# reaches the database. $remote_addr is the direct client, $http_x_forwarded_for the
-# original one behind any proxy.
+# One JSON object per visit; escape=json keeps a user-controlled field from breaking it.
+# The session cookie is logged raw -- the log lives on the proxy's own volume -- and the
+# collector hashes it, so the raw value never reaches the database.
 log_format visit_json escape=json
     '{"ts":"$time_iso8601","app":"$visit_app","path":"$uri",'
     '"status":$status,"ip":"$remote_addr","xff":"$http_x_forwarded_for",'
@@ -46,8 +41,7 @@ log_format visit_json escape=json
     '"grafana_session":"$cookie_grafana_session","crudman_session":"$cookie_sessionid"}';
 
 # --- WebSocket handshakes ---------------------------------------------------------------
-# The value for the Connection header sent upstream: "upgrade" for a handshake, "close" for
-# an ordinary request, which must not carry one. See the grafana location below.
+# The Connection header sent upstream: "upgrade" for a handshake, "close" otherwise.
 map $http_upgrade $connection_upgrade {
     default upgrade;
     ''      close;

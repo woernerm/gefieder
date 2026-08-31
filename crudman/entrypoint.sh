@@ -2,36 +2,31 @@
 set -e
 
 # The one crudman image serves three roles: the admin panel (the default), the dropzones
-# SFTP endpoint ("sftp", used by sftp.container) and the dropzones Arrow Flight endpoint
-# ("flight", used by flight.container). They share the database wait below.
+# SFTP endpoint and the dropzones Arrow Flight endpoint, selected by the quadlets' Exec=
+# lines. They share the database wait below.
 #
-# All three log to stdout/stderr only; journald captures the stream per unit and is what
-# survives a crash, a container replacement and a restart. It rotates and size-caps the
-# log on its own, which a file on the volume did not.
+# All three log to stdout/stderr only, and journald rotates and size-caps that stream per
+# unit, which a file on the volume did not.
 ROLE="${1:-web}"
 case "$ROLE" in
   web|sftp|flight) ;;
   *) echo "unknown role: $ROLE" >&2; exit 1 ;;
 esac
 
-# Wait until PostgreSQL accepts connections, because the containers in the pod start
-# without ordering and this one can come up while the database is still initializing.
+# The containers in the pod start without ordering, so this one can come up while the
+# database is still initializing.
 until uv run --project /crudman python manage.py shell -c \
   "from django.db import connection; connection.ensure_connection()" >/dev/null 2>&1; do
   echo "Waiting for the database to become available..."
   sleep 2
 done
 
-# Fail loudly if the crudman schema is gone. PostgreSQL silently ignores a search_path
-# entry that names no existing schema, so a missing crudman schema does not raise here --
-# it quietly shifts every CREATE TABLE to the next entry, public, where this role has no
-# CREATE grant. The migration then dies on "permission denied for schema public", naming a
-# schema nobody configured.
+# PostgreSQL ignores a search_path entry naming no existing schema, so a missing crudman
+# schema shifts every CREATE TABLE to public, where this role has no CREATE grant, and the
+# migration dies on "permission denied for schema public".
 #
-# The postgresql entrypoint re-applies gf_0005 on every start and normally recreates the
-# schema before this runs, so reaching this point means that repair did not happen -- a
-# structural script that failed, or a database still starting from an older image. Say so
-# rather than letting the misleading permission error stand.
+# The postgresql entrypoint re-applies gf_0005 on every start, so reaching this point means
+# that repair did not happen -- a structural script that failed, or an older image.
 if ! uv run --project /crudman python manage.py shell -c "
 import sys
 from django.db import connection
@@ -46,9 +41,8 @@ with connection.cursor() as cursor:
   exit 1
 fi
 
-# The SFTP and Arrow Flight endpoints only serve; the web role owns the migrations and
-# the static files, so wait here until it has applied the migrations rather than racing
-# it.
+# The web role owns the migrations and the static files, so the two endpoints wait for it
+# rather than racing it.
 if [ "$ROLE" = "sftp" ] || [ "$ROLE" = "flight" ]; then
   until uv run --project /crudman python manage.py migrate --check >/dev/null 2>&1; do
     echo "Waiting for crudman to apply the database migrations..."
@@ -60,20 +54,14 @@ if [ "$ROLE" = "sftp" ] || [ "$ROLE" = "flight" ]; then
   exec uv run --project /crudman python manage.py flightserver
 fi
 
-# Apply the committed database migrations before starting the application server.
-# Migrations are generated and committed during development, not authored here against
-# live data, so only "migrate" runs.
+# Migrations are generated and committed during development, so only "migrate" runs.
 uv run --project /crudman python manage.py migrate --noinput
 
-# Collect the static files for whitenoise. With DEBUG disabled, the manifest static
-# files storage requires this to have run before the first request is served.
+# whitenoise's manifest storage needs this before the first request is served.
 uv run --project /crudman python manage.py collectstatic --noinput
 
-# Create or update the Django superuser with the password from the mounted secret.
-# This is used instead of "manage.py createsuperuser" because createsuperuser fails
-# if the user already exists, i.e. on every container restart. Updating the existing
-# user instead also means that rotating the secret rotates the superuser password on
-# the next restart.
+# Not "manage.py createsuperuser", which fails once the user exists, i.e. on every
+# restart. Updating instead also makes rotating the secret rotate the password.
 uv run --project /crudman python manage.py shell -c "
 import os
 from pathlib import Path
@@ -89,8 +77,7 @@ user.set_password(
 user.save()
 "
 
-# "--access-logfile -" turns the access log on (gunicorn ships it off) and points both
-# its logs at the stream journald captures, so a reported error can be tied to the
-# request that caused it even when nothing raised.
+# gunicorn ships its access log off; "--access-logfile -" turns it on and points both logs
+# at the stream journald captures, so a reported error can be tied to its request.
 exec uv run --project /crudman gunicorn -b 0.0.0.0:8000 \
   --access-logfile - --error-logfile - crudman.wsgi:application

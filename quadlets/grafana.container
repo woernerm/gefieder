@@ -1,5 +1,5 @@
-# The Grafana dashboards, with the database pre-configured as a read-only data source.
-# The provisioning is baked into the custom image install.sh loaded from the release.
+# The Grafana dashboards, with the database pre-configured as a read-only data source, all
+# baked into the image install.sh loaded from the release.
 [Unit]
 Description=${APP_NAME} Grafana dashboards
 After=postgresql.service
@@ -8,31 +8,28 @@ After=postgresql.service
 ContainerName=grafana
 Pod=main.pod
 Image=${REGISTRY}/grafana:${IMAGE_TAG}
-# APP_NAME names the provisioned data source. The admin user logs in with the superuser
-# name and password, the same credentials as the PostgreSQL and Django superuser.
+# APP_NAME names the provisioned data source. The admin logs in with the same credentials
+# as the PostgreSQL and Django superuser.
 Environment=APP_NAME=${APP_NAME}
-# SERVER_NAME and the OIDC_* settings, which custom.ini reads back as $__env{} references,
-# so changing the host name or identity provider needs a restart rather than a rebuild.
+# custom.ini reads these back as $__env{}, so changing the host name or identity provider
+# needs a restart rather than a rebuild.
 EnvironmentFile=%h/.config/${APP_NAME}/runtime.env
 Environment=GF_SECURITY_ADMIN_USER=${SUPERUSER_NAME}
 Environment=GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/${SECRET_SUPERUSER_PASSWORD}
-# Serve Grafana from the /GRAFANA_PATH subpath behind the proxy so its internal links
-# and assets resolve correctly. The path stays here rather than in custom.ini because it
-# depends on the build-time GRAFANA_PATH variable; the entrypoint builds the public address
-# (GF_SERVER_ROOT_URL) from it, SERVER_NAME and DEBUG.
+# The subpath behind the proxy, so Grafana's internal links and assets resolve. Here
+# rather than in custom.ini because it depends on the build-time GRAFANA_PATH; the
+# entrypoint builds GF_SERVER_ROOT_URL from it, SERVER_NAME and DEBUG.
 Environment=GRAFANA_PATH=${GRAFANA_PATH}
 Environment=GF_SERVER_SERVE_FROM_SUB_PATH=true
-# Log to the container's stdout only, so journald captures the stream like every other
-# service; it rotates and size-caps the log, and a file on the volume did not. This stays
-# here as GF_* env, not in custom.ini: the image's entrypoint passes log.mode on
-# grafana-server's command line, which overrides the ini file but honours a pre-set GF_*
-# environment variable.
+# To stdout only, so journald rotates and size-caps the stream as a file on the volume did
+# not. As GF_* env rather than in custom.ini: the image's entrypoint passes log.mode on
+# grafana-server's command line, overriding the ini file but honouring the environment.
 Environment=GF_LOG_MODE=console
 # RHEL/Fedora SELinux needs a relabeled volume for rootless podman to mount it.
 Volume=grafana_data.volume:/var/lib/grafana:z
 # superuser_password for the admin login, grafana_password for the data source,
 # oidc_client_secret for single sign-on. The last is a placeholder while OIDC_ENABLED is
-# false, but must exist: podman will not start a container whose Secret= is missing.
+# false, but podman will not start a container whose Secret= is missing.
 Secret=${SECRET_SUPERUSER_PASSWORD}
 Secret=${SECRET_GRAFANA_PASSWORD}
 Secret=${SECRET_OIDC_CLIENT}

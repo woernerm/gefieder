@@ -1,7 +1,6 @@
 -- Project B's component history: how each area's safety classification and owning team
--- changed over time. The counterpart of bronze_project_a.component_history, on its own
--- timeline again -- an area is reclassified when the safety case demands it, which has
--- nothing to do with when the issues on it are touched.
+-- changed over time. The counterpart of bronze_project_a.component_history, again on its
+-- own timeline.
 MODEL (
   name bronze_project_b.component_history,
   kind SEED (

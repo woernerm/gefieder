@@ -1,18 +1,15 @@
--- Project A's second bronze -> silver transform, and the worked example for
--- @temporal_join (macros/temporal_join.py): an issue's history combined with that of the
--- component it belongs to.
+-- Project A's second bronze -> silver transform, and the worked example for @temporal_join
+-- (macros/temporal_join.py): an issue's history combined with its component's.
 --
--- Both sides move on their own timeline — the issue is worked on, the component is
--- reclassified when the safety case changes — so a plain ASOF join would follow one and
--- miss every change of the other. The macro builds the joined history from the union of
--- both, so a row starts a period during which everything this model reports stayed the
--- same. That is what makes "how long did this issue sit on a class D component" answerable.
+-- Both sides move on their own timeline, so a plain ASOF join would follow one and miss
+-- every change of the other. The macro builds the joined history from the union of both, so
+-- a row starts a period during which everything this model reports stayed the same -- which
+-- is what makes "how long did this issue sit on a class D component" answerable.
 --
--- The macro judges "stayed the same" by the source columns, which is why the status
--- mapping is one-to-one and every source column is reported: folding two statuses onto one
--- canonical state, or leaving owner_team out, would let a source change through as a
--- second row identical to the first. assert_every_row_is_a_change catches both, so a
--- tenant that starts using a fourth status fails the audit until the mapping is extended.
+-- "Stayed the same" is judged by the source columns, which is why the status mapping is
+-- one-to-one and every source column is reported: folding two statuses into one, or leaving
+-- owner_team out, would let a source change through as a row identical to the one before.
+-- assert_every_row_is_a_change catches both.
 --
 -- The vocabulary is the "closed" silver.issues uses, its open half split into the two
 -- states a history has to tell apart.

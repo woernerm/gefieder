@@ -1,10 +1,9 @@
 # The dropzones Arrow Flight endpoint, published by the pod on FLIGHT_PORT (see main.pod).
 #
-# It runs the crudman image in its "flight" role: a small Arrow Flight server that
-# authenticates uploaders against the dropzones and feeds every committed upload into
-# the same pipeline the browser, API and SFTP uploads use. Ordering after crudman (plus
-# the entrypoint's own wait) makes sure the database migrations are applied first.
-# Notify=healthy marks the service started only once the port answers.
+# The crudman image in its "flight" role: an Arrow Flight server that authenticates
+# uploaders against the dropzones and feeds every committed upload into the pipeline the
+# browser, API and SFTP uploads use. Ordering after crudman, plus the entrypoint's own
+# wait, applies the migrations first. Notify=healthy waits for the port to answer.
 [Unit]
 Description=${APP_NAME} flight (dropzones Arrow Flight endpoint)
 After=crudman.service
@@ -15,8 +14,7 @@ Pod=main.pod
 Image=${REGISTRY}/crudman:${IMAGE_TAG}
 Exec=/crudman/entrypoint.sh flight
 Notify=healthy
-# An init at PID 1 forwards the stop signal to the whole process tree and reaps it; see
-# crudman.container.
+# An init at PID 1 forwards the stop signal to the process tree; see crudman.container.
 RunInit=true
 Environment=APP_NAME=${APP_NAME}
 # SERVER_NAME and DEBUG come from the operator's runtime.env; see crudman.container.
@@ -25,13 +23,12 @@ Environment=POSTGRES_HOST=localhost
 Environment=POSTGRES_PORT=5432
 Environment=POSTGRES_DB=${PG_DATABASE}
 Environment=POSTGRES_USER=${CRUDMAN_DB_USER}
-# Unlike SFTP this endpoint keeps no state of its own — uploads in progress live in the
-# container's temporary directory and are deliberately lost on a restart, because an
-# upload that was never committed is incomplete.
+# Unlike SFTP this endpoint keeps no state: an upload in progress lives in the container's
+# temporary directory and is deliberately lost on a restart, being incomplete.
 Environment=UPLOADS_DIR=/var/lib/app/uploads
 Volume=uploads_data.volume:/var/lib/app/uploads:z
-# The names of the secrets mounted below, so the code that reads a file back out of
-# /run/secrets looks for the same name podman put there (see SECRET_* in buildtime.env).
+# So the code reading a file back out of /run/secrets looks for the name podman put
+# there (see SECRET_* in buildtime.env).
 Environment=SECRET_DJANGO_KEY=${SECRET_DJANGO_KEY}
 Environment=SECRET_CRUDMAN_PASSWORD=${SECRET_CRUDMAN_PASSWORD}
 Secret=${SECRET_DJANGO_KEY}
@@ -40,10 +37,8 @@ HealthCmd=python -c 'import os, socket; socket.create_connection(("127.0.0.1", i
 HealthInterval=10s
 HealthTimeout=5s
 HealthRetries=10
-# The same probe again as a startup healthcheck, polled every second instead of every ten,
-# for the reason sftp.container gives: it waits for the database and for crudman's
-# migrations, so it can come up at any point between two of the regular polls while
-# Notify=healthy holds the unit "starting".
+# The same probe every second at startup, for the reason sftp.container gives: it waits for
+# the database and for crudman's migrations, so it can come up between two regular polls.
 HealthStartupCmd=python -c 'import os, socket; socket.create_connection(("127.0.0.1", int(os.environ["FLIGHT_PORT"])), 5).close()'
 HealthStartupInterval=1s
 HealthStartupTimeout=5s

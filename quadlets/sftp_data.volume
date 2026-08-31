@@ -1,6 +1,5 @@
-# The sftp data volume. It holds the SSH host key the dropzones SFTP endpoint generates
-# on its first start, so the server identity survives restarts and updates (a changed
-# host key would make SFTP clients refuse to reconnect). It survives stopping the
-# stack; remove it explicitly to discard the data.
+# The sftp data volume, holding the SSH host key the endpoint generates on its first start:
+# a changed one would make SFTP clients refuse to reconnect. It survives stopping the
+# stack; remove it to discard the data.
 [Volume]
 VolumeName=sftp_data

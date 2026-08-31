@@ -1,8 +1,7 @@
 # The PostgreSQL database holding the engineering, analytics and application data.
 #
-# The image is the one install.sh loaded from the release (REGISTRY/IMAGE_TAG names it).
-# Notify=healthy ties "service started" to the healthcheck below, so units ordered after
-# this one wait for the database to actually accept connections.
+# The image install.sh loaded from the release. Notify=healthy ties "service started" to
+# the healthcheck below, so units ordered after this one wait for real connections.
 [Unit]
 Description=${APP_NAME} PostgreSQL database
 

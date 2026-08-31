@@ -1,5 +1,5 @@
-# The proxy data volume. It currently holds only visits.log, the structured page-visit log
-# nginx writes for the server-statistics collector to drain, but it is a general data volume
-# for the service. It survives stopping the stack; remove it explicitly to discard the data.
+# The proxy data volume, currently holding only visits.log, the page-visit log nginx writes
+# for the collector to drain. It survives stopping the stack; remove it to discard the
+# data.
 [Volume]
 VolumeName=proxy_data

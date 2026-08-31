@@ -1,8 +1,7 @@
 # The SQLMesh analytics engine, running models on their cron schedules.
 #
-# The image is the one install.sh loaded from the release. The entrypoint waits for the
-# database itself. The "running" healthcheck below gates Notify=healthy so systemd marks
-# the service started only once it is up.
+# The image install.sh loaded from the release. The entrypoint waits for the database
+# itself, and the healthcheck below gates Notify=healthy.
 [Unit]
 Description=${APP_NAME} SQLMesh analytics engine
 After=postgresql.service
@@ -12,29 +11,25 @@ ContainerName=sqlmesh
 Pod=main.pod
 Image=${REGISTRY}/sqlmesh:${IMAGE_TAG}
 Notify=healthy
-# An init at PID 1 forwards the stop signal to the whole process tree; see
-# crudman.container.
+# An init at PID 1 forwards the stop signal to the process tree; see crudman.container.
 RunInit=true
-# Run on the host's timezone rather than the image's UTC. SQLMesh stamps every log record
-# with its own clock using a hardcoded format no setting overrides, so the record lands in
-# the journal next to journald's stamp; on UTC the two read hours apart and the line looks
-# wrong. Matching the host makes the second stamp agree with the first.
+# The host's timezone rather than the image's UTC: SQLMesh stamps every record with a
+# hardcoded format no setting overrides, and on UTC that stamp reads hours off journald's.
 Timezone=local
 Environment=POSTGRES_HOST=localhost
 Environment=POSTGRES_PORT=5432
 Environment=POSTGRES_DB=${PG_DATABASE}
 Environment=POSTGRES_USER=${SQLMESH_DB_USER}
 Environment=SQLMESH_RUN_INTERVAL=10
-# The dropzones uploads, read-only: analytics models open the files whose paths the
-# crudman.dropzones_upload rows carry, under the same mount point crudman writes to.
+# Read-only, at the same mount point crudman writes to, so models open the files whose
+# paths the crudman.dropzones_upload rows carry.
 Volume=uploads_data.volume:/var/lib/app/uploads:ro,z
-# The names of the secrets mounted below, so the code that reads a file back out of
-# /run/secrets looks for the same name podman put there (see SECRET_* in buildtime.env).
+# So the code reading a file back out of /run/secrets looks for the name podman put
+# there (see SECRET_* in buildtime.env).
 Environment=SECRET_SQLMESH_PASSWORD=${SECRET_SQLMESH_PASSWORD}
 Secret=${SECRET_SQLMESH_PASSWORD}
-# The slim image has no pgrep and psycopg2 lives in the uv venv, not the system python,
-# so check liveness with a stdlib-only TCP connect to the database the engine needs.
-# Single-quoted to avoid the HealthCmd quote-mangling of a double-quoted -c argument.
+# The slim image has no pgrep and psycopg2 lives in the uv venv, so liveness is a
+# stdlib-only TCP connect. Single-quoted, quadlet mangling a double-quoted -c argument.
 HealthCmd=python -c 'import socket; socket.create_connection(("localhost",5432),3).close()'
 HealthInterval=30s
 HealthTimeout=5s

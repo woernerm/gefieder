@@ -1,14 +1,13 @@
 -- Bronze for the "Project A" tenant.
 --
--- In a real deployment a bronze model is a VIEW over a shared raw source schema (jira,
--- sap, alm, github, ...) that selects only the columns this tenant needs and filters to
--- the rows that belong to it -- so the raw data is officially present in the tenant's
--- bronze schema without being copied. A bronze model can also be a real table when the
--- tenant has a bespoke source nobody else uses. See models/bronze/README.md.
+-- In a real deployment a bronze model is a VIEW over a shared raw source schema, selecting
+-- the columns this tenant needs and filtering to its rows, so the raw data is present in
+-- its bronze schema without being copied. It can also be a real table where the tenant has
+-- a bespoke source. See models/bronze/README.md.
 --
--- This example uses a SEED instead, so the pipeline has data out of the box without any
--- external source. Note the Jira-flavoured raw column names; "Project B" looks completely
--- different, which is why the bronze -> silver transform is kept per tenant.
+-- This example uses a SEED instead, so the pipeline has data out of the box. The raw
+-- column names are Jira-flavoured, where "Project B" looks completely different, which is
+-- why the bronze -> silver transform is kept per tenant.
 MODEL (
   name bronze_project_a.issues,
   kind SEED (
