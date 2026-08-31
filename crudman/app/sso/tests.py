@@ -1024,7 +1024,9 @@ class DatabaseAccessSwitchTests(TestCase):
         for name in (VIEWER, EDITOR, ADMIN):
             Group.objects.get_or_create(name=name)
         self.client.force_login(User.objects.create_superuser("root"))
-        self.user = User.objects.create_user("jdoe", password="x")
+        # Staff, because the switch is read-only without it: the password is handed over
+        # at sign-in here, so an account for someone who cannot sign in is unusable.
+        self.user = User.objects.create_user("jdoe", password="x", is_staff=True)
         self.user.groups.add(Group.objects.get(name=EDITOR))
 
         # The form asks PostgreSQL whether the derived role name is already taken. The
@@ -1049,6 +1051,7 @@ class DatabaseAccessSwitchTests(TestCase):
             "last_name": "",
             "email": "",
             "is_active": "on",
+            "is_staff": "on",
             "groups": [str(group.pk) for group in self.user.groups.all()],
             "user_permissions": [],
             "last_login_0": "",
@@ -1151,6 +1154,28 @@ class DatabaseAccessSwitchTests(TestCase):
 
         conn.cursor.assert_not_called()
         self.assertFalse(DatabaseUser.objects.filter(user=self.user).exists())
+
+    def test_a_user_without_staff_status_cannot_be_switched_on(self):
+        """They never reach the admin, which is where the password is handed over, so
+        the account would exist with a password nobody is ever shown."""
+        self.user.is_staff = False
+        self.user.save()
+
+        with patch("dbusers.utils.connection") as conn:
+            self._post(database_access="on", is_staff="")
+
+        conn.cursor.assert_not_called()
+        self.assertFalse(DatabaseUser.objects.filter(user=self.user).exists())
+
+    def test_granting_staff_status_opens_the_switch_on_the_next_save(self):
+        self.user.is_staff = False
+        self.user.save()
+
+        with patch("dbusers.utils.connection"):
+            self._post()
+            self._post(database_access="on")
+
+        self.assertTrue(DatabaseUser.objects.filter(user=self.user).exists())
 
     def test_a_database_failure_does_not_lose_the_user_edit(self):
         # The admin logs the failure it recovers from, so muffle the traceback the

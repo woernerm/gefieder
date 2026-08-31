@@ -126,7 +126,17 @@ class UserWithDatabaseAccessForm(UserChangeForm):
             self.fields["database_access"].initial = True
             self.fields["database_access"].disabled = True
             self.fields["database_access"].help_text = (
-                f'User "{existing}" is the database superuser. It cannot be removed."
+                f'User "{existing}" is the database superuser. It cannot be removed.'
+            )
+            return
+
+        # The password is handed over on the next sign-in here, so someone who cannot
+        # reach the admin would be given an account they never learn the password to.
+        # Staff status first, saved, and only then the switch.
+        if not user.is_staff:
+            self.fields["database_access"].disabled = True
+            self.fields["database_access"].help_text = (
+                "The user needs staff status first."
             )
             return
 
