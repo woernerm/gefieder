@@ -33,13 +33,14 @@ Environment=POSTGRES_HOST=localhost
 Environment=POSTGRES_PORT=5432
 Environment=POSTGRES_DB=${PG_DATABASE}
 Environment=POSTGRES_USER=${CRUDMAN_DB_USER}
-# The prefix on the roles crudman provisions for administrators, so the names it builds
-# match the group roles the database created (see DB_ROLE_PREFIX in buildtime.env).
-Environment=DB_ROLE_PREFIX=${DB_ROLE_PREFIX}
-# The prefix on the Django groups a provider rank grants, and the one on the per-tenant
-# bronze schemas, which is how the admin finds tenants in the catalog. Only this container
-# needs either: the sftp and flight roles neither sign anyone in nor onboard a tenant.
-Environment=SSO_GROUP_PREFIX=${SSO_GROUP_PREFIX}
+# The prefix on the login roles crudman provisions for administrators (see DB_USER_PREFIX
+# in buildtime.env).
+Environment=DB_USER_PREFIX=${DB_USER_PREFIX}
+# The prefix on the rank names -- the Django group a provider rank grants and the database
+# group role behind it -- and the one on the per-tenant bronze schemas, which is how the
+# admin finds tenants in the catalog. Only this container needs either: the sftp and flight
+# roles neither sign anyone in nor onboard a tenant.
+Environment=ROLE_PREFIX=${ROLE_PREFIX}
 Environment=BRONZE_SCHEMA_PREFIX=${BRONZE_SCHEMA_PREFIX}
 # The dropzones uploads. Shared read-only with the sqlmesh container at the same path,
 # so the file paths stored in the database resolve there too.

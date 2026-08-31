@@ -17,8 +17,7 @@ from sso.roles import GROUP_FOR_RANK
 from .backends import ScramBackend, get_backend
 from .models import DatabaseUser
 from .utils import (
-    GROUP_TO_DB_ROLE,
-    ROLE_PREFIX,
+    USER_PREFIX,
     db_role_for_user,
     enroll,
     issue_credential,
@@ -26,20 +25,49 @@ from .utils import (
     reset,
     role_name_for,
     sync,
+    unmanaged_role,
 )
 
-# The names the configured DB_ROLE_PREFIX produces, rather than the ones it happens to
-# produce at its default: what these tests are about is the derivation, so pinning the
-# literals here would only assert that buildtime.env is unchanged.
-VIEWER = GROUP_TO_DB_ROLE[GROUP_FOR_RANK["viewer"]]
-EDITOR = GROUP_TO_DB_ROLE[GROUP_FOR_RANK["editor"]]
-ADMIN = GROUP_TO_DB_ROLE[GROUP_FOR_RANK["admin"]]
-JDOE = f"{ROLE_PREFIX}jdoe"
+# The names the configured prefixes produce, rather than the ones they happen to produce
+# at their defaults: what these tests are about is the derivation, so pinning the literals
+# here would only assert that buildtime.env is unchanged. A group role and its Django group
+# are one name, both built from ROLE_PREFIX.
+VIEWER = VIEWER_GROUP = GROUP_FOR_RANK["viewer"]
+EDITOR = EDITOR_GROUP = GROUP_FOR_RANK["editor"]
+ADMIN = ADMIN_GROUP = GROUP_FOR_RANK["admin"]
+JDOE = f"{USER_PREFIX}jdoe"
 
-# The Django groups those ranks come from, named the way sso.roles builds them.
-VIEWER_GROUP = GROUP_FOR_RANK["viewer"]
-EDITOR_GROUP = GROUP_FOR_RANK["editor"]
-ADMIN_GROUP = GROUP_FOR_RANK["admin"]
+
+class UnmanagedRoleTests(TestCase):
+    """Whether the name a user would be provisioned under is already somebody else's.
+
+    The switch on the user page reports access it cannot manage rather than offering to
+    create a role that create_db_user would refuse -- the deployment's superuser being a
+    Django account and a PostgreSQL role at once.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user("jdoe")
+
+    def test_a_free_name_is_not_reported(self):
+        with patch("dbusers.utils.connection") as conn:
+            conn.cursor.return_value.__enter__.return_value.fetchone.return_value = None
+            self.assertIsNone(unmanaged_role(self.user))
+
+    def test_a_name_taken_by_another_role_is_reported(self):
+        with patch("dbusers.utils.connection") as conn:
+            conn.cursor.return_value.__enter__.return_value.fetchone.return_value = (1,)
+            self.assertEqual(unmanaged_role(self.user), role_name_for("jdoe"))
+
+    def test_an_account_this_app_provisioned_is_not_reported(self):
+        """Its own row answers the question, so the database is not asked at all."""
+        DatabaseUser.objects.create(user=self.user, role_name=role_name_for("jdoe"),
+                                    group_role=GROUP_FOR_RANK["viewer"])
+
+        with patch("dbusers.utils.connection") as conn:
+            self.assertIsNone(unmanaged_role(self.user))
+
+        conn.cursor.assert_not_called()
 
 
 class RoleNameTests(TestCase):
@@ -53,7 +81,7 @@ class RoleNameTests(TestCase):
         PostgreSQL will not accept as one."""
         self.assertEqual(
             role_name_for("John.Doe@example.com"),
-            f"{ROLE_PREFIX}john_doe_example_com",
+            f"{USER_PREFIX}john_doe_example_com",
         )
 
     def test_name_is_capped_to_the_identifier_limit(self):
@@ -61,7 +89,7 @@ class RoleNameTests(TestCase):
         self.assertLessEqual(len(role_name_for("x" * 200)), 50)
 
     def test_prefix_keeps_the_name_from_starting_with_a_digit(self):
-        self.assertTrue(role_name_for("1st.analyst").startswith(ROLE_PREFIX))
+        self.assertTrue(role_name_for("1st.analyst").startswith(USER_PREFIX))
 
 
 class RankTests(TestCase):

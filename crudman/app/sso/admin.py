@@ -12,7 +12,7 @@ asks "who may reach the database", which is a column here, not a list elsewhere.
 """
 import logging
 
-from dbusers.utils import db_role_for_user, enroll, remove
+from dbusers.utils import db_role_for_user, enroll, remove, unmanaged_role
 from django import forms
 from django.conf import settings
 from django.contrib import admin, messages
@@ -101,8 +101,8 @@ class UserWithDatabaseAccessForm(UserChangeForm):
         required=False,
         widget=UnfoldBooleanSwitchWidget,
         help_text=(
-            "A PostgreSQL login role of their own, with the privileges of their rank. "
-            "The password is shown to them, once, the next time they sign in here."
+            "Designates whether the user gets a PostgreSQL login role. "
+            "A random password is shown to them, once, the next time they sign in."
         ),
     )
 
@@ -114,15 +114,30 @@ class UserWithDatabaseAccessForm(UserChangeForm):
             user.pk is not None and hasattr(user, "database_user")
         )
 
+        if user.pk is None:
+            return
+
+        # A role of that name may exist without being ours -- the deployment's superuser
+        # is the plain case. The person reaches the database through it, so the switch
+        # tells the truth by being on, and is read-only because the provisioning functions
+        # refuse a role they did not create.
+        existing = unmanaged_role(user)
+        if existing:
+            self.fields["database_access"].initial = True
+            self.fields["database_access"].disabled = True
+            self.fields["database_access"].help_text = (
+                f'User "{existing}" is the database superuser. It cannot be removed."
+            )
+            return
+
         # Without a rank there is no privilege set to grant, so the switch would promise
         # an account that enroll() would refuse; saying so beats failing on save. A
         # superuser is exempt: with single sign-on off nobody carries a role group, and
         # the local administrator is then the one person who must still get an account.
-        if user.pk is not None and db_role_for_user(user) is None and not user.is_superuser:
+        if db_role_for_user(user) is None and not user.is_superuser:
             self.fields["database_access"].disabled = True
             self.fields["database_access"].help_text = (
-                "Unavailable: this user holds none of the roles that carry database "
-                "privileges. Add them to one of the role groups below first."
+                "This user has insufficient privileges."
             )
 
 

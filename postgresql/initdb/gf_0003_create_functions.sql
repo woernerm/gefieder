@@ -78,6 +78,12 @@ DECLARE
 BEGIN
     PERFORM public.validate_identifier(tenant_name, 'tenant_name');
 
+    -- The reverse of the check in create_db_user: a person's login role must not be
+    -- turned into a tenant, the branch below ALTERing an existing role's password.
+    IF is_db_user(tenant_name) THEN
+        RAISE EXCEPTION 'refusing to use %, which is a provisioned user role', tenant_name;
+    END IF;
+
     -- Check tenant_password is not empty
     IF tenant_password IS NULL OR tenant_password = '' THEN
         RAISE EXCEPTION 'tenant_password cannot be empty';
@@ -373,6 +379,34 @@ AS $$
 $$;
 
 
+-- Whether a role is one crudman provisioned for a person.
+--
+-- Membership of the ${ROLE_PREFIX}person marker gf_0008 creates, which create_db_user
+-- grants and nothing revokes. A recorded fact rather than a name pattern: the login roles
+-- share their namespace with the tenants, whose role is the bare tenant name, so no prefix
+-- can be relied on to tell them apart -- DB_USER_PREFIX is readability, not a boundary.
+--
+-- Not the rank membership, which would be the obvious marker: delete_db_user strips those
+-- to lock someone out, and a disabled account still has to be droppable.
+--
+-- pg_auth_members rather than pg_has_role, which is transitive and true of every superuser.
+CREATE OR REPLACE FUNCTION is_db_user(role_name text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = pg_catalog
+AS $$
+    SELECT EXISTS (
+        SELECT 1
+        FROM pg_auth_members m
+        JOIN pg_roles member ON member.oid = m.member
+        JOIN pg_roles marker ON marker.oid = m.roleid
+        WHERE member.rolname = role_name
+          AND marker.rolname = '${ROLE_PREFIX}person'
+    );
+$$;
+
+
 -- Per-administrator database users.
 --
 -- An administrator who develops SQLMesh models or runs ad-hoc SQL gets a login role of
@@ -404,8 +438,20 @@ BEGIN
     -- Only the three group roles are assignable. Without this check the function would be
     -- a way for crudman to grant itself membership of any role in the cluster, superusers
     -- included, which is exactly what SECURITY DEFINER makes dangerous.
-    IF group_role NOT IN ('${DB_ROLE_PREFIX}viewer', '${DB_ROLE_PREFIX}editor', '${DB_ROLE_PREFIX}admin') THEN
-        RAISE EXCEPTION 'group_role must be one of ${DB_ROLE_PREFIX}viewer, ${DB_ROLE_PREFIX}editor, ${DB_ROLE_PREFIX}admin';
+    IF group_role NOT IN ('${ROLE_PREFIX}viewer', '${ROLE_PREFIX}editor', '${ROLE_PREFIX}admin') THEN
+        RAISE EXCEPTION 'group_role must be one of ${ROLE_PREFIX}viewer, ${ROLE_PREFIX}editor, ${ROLE_PREFIX}admin';
+    END IF;
+
+    -- The name may be free or already ours, nothing else: the branch below ALTERs an
+    -- existing role, which for a tenant would reset its password and hand the person its
+    -- bronze schema. Only the marker says which, the two sharing one namespace.
+    IF public.is_protected_role(user_name) THEN
+        RAISE EXCEPTION 'refusing to modify the service role %', user_name;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = user_name)
+       AND NOT public.is_db_user(user_name) THEN
+        RAISE EXCEPTION 'refusing to take over %, which is not a provisioned user role', user_name;
     END IF;
 
     -- A password is optional: with an external identity provider the role authenticates
@@ -437,10 +483,13 @@ BEGIN
 
     -- Exactly one rank at a time: the old membership is dropped before the new one is
     -- granted, so a demotion actually removes rights instead of adding a second rank.
-    EXECUTE format('REVOKE ${DB_ROLE_PREFIX}viewer FROM %I', user_name);
-    EXECUTE format('REVOKE ${DB_ROLE_PREFIX}editor FROM %I', user_name);
-    EXECUTE format('REVOKE ${DB_ROLE_PREFIX}admin FROM %I', user_name);
+    EXECUTE format('REVOKE ${ROLE_PREFIX}viewer FROM %I', user_name);
+    EXECUTE format('REVOKE ${ROLE_PREFIX}editor FROM %I', user_name);
+    EXECUTE format('REVOKE ${ROLE_PREFIX}admin FROM %I', user_name);
     EXECUTE format('GRANT %I TO %I', group_role, user_name);
+
+    -- The marker that makes this role droppable later; see is_db_user.
+    EXECUTE format('GRANT ${ROLE_PREFIX}person TO %I', user_name);
 
     -- What this person creates while developing must stay usable by the deployed engine,
     -- which runs as the analytics role and cannot otherwise touch a table another owns.
@@ -464,7 +513,8 @@ $$;
 -- their name on their objects; they simply cannot connect any more.
 --
 -- public is on the search_path of this and the two functions below only so they can
--- resolve is_protected_role, which lives there; the same reason create_tenant carries it.
+-- resolve is_protected_role and is_db_user, which live there; the same reason create_tenant
+-- carries it.
 -- Nothing else they reference is unqualified, and CREATE on public is not granted to the
 -- provisioned roles, so this does not reopen the shadowing the pinned path prevents.
 CREATE OR REPLACE FUNCTION delete_db_user(user_name text)
@@ -482,10 +532,14 @@ BEGIN
     END IF;
 
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = user_name) THEN
+        IF NOT is_db_user(user_name) THEN
+            RAISE EXCEPTION 'refusing to modify %, which is not a provisioned user role', user_name;
+        END IF;
+
         EXECUTE format('ALTER ROLE %I NOLOGIN', user_name);
-        EXECUTE format('REVOKE ${DB_ROLE_PREFIX}viewer FROM %I', user_name);
-        EXECUTE format('REVOKE ${DB_ROLE_PREFIX}editor FROM %I', user_name);
-        EXECUTE format('REVOKE ${DB_ROLE_PREFIX}admin FROM %I', user_name);
+        EXECUTE format('REVOKE ${ROLE_PREFIX}viewer FROM %I', user_name);
+        EXECUTE format('REVOKE ${ROLE_PREFIX}editor FROM %I', user_name);
+        EXECUTE format('REVOKE ${ROLE_PREFIX}admin FROM %I', user_name);
         RAISE NOTICE 'Database user % disabled', user_name;
     END IF;
 END;
@@ -518,6 +572,10 @@ BEGIN
     END IF;
 
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = user_name) THEN
+        IF NOT is_db_user(user_name) THEN
+            RAISE EXCEPTION 'refusing to modify %, which is not a provisioned user role', user_name;
+        END IF;
+
         EXECUTE format('ALTER ROLE %I PASSWORD NULL', user_name);
         RAISE NOTICE 'Password cleared for database user %', user_name;
     END IF;
@@ -549,15 +607,14 @@ BEGIN
         RAISE EXCEPTION 'refusing to drop the service role %', user_name;
     END IF;
 
-    -- Refuse anything that is not a provisioned personal account. Without this the
-    -- function would drop a tenant role -- and its bronze schema with it -- for a caller
-    -- who passed the wrong name. The group roles share the prefix, so they are named out.
-    IF user_name !~ '^${DB_ROLE_PREFIX}'
-       OR user_name IN ('${DB_ROLE_PREFIX}viewer', '${DB_ROLE_PREFIX}editor', '${DB_ROLE_PREFIX}admin') THEN
-        RAISE EXCEPTION 'refusing to drop %, which is not a provisioned user role', user_name;
-    END IF;
-
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = user_name) THEN
+        -- Refuse anything that is not a provisioned personal account. Without this the
+        -- function would drop a tenant role -- and its bronze schema with it -- for a
+        -- caller who passed the wrong name.
+        IF NOT is_db_user(user_name) THEN
+            RAISE EXCEPTION 'refusing to drop %, which is not a provisioned user role', user_name;
+        END IF;
+
         EXECUTE format('DROP OWNED BY %I CASCADE', user_name);
         EXECUTE format('DROP ROLE %I', user_name);
         RAISE NOTICE 'Database user % dropped', user_name;

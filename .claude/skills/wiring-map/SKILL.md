@@ -119,7 +119,8 @@ what `tests/test_access_control.py` and `tests/test_db_users.py` assert.
 
 The init scripts are templates, not the files that reach the image: `postgresql/render.sh`
 substitutes the role names from `buildtime.env` (`CRUDMAN_DB_USER`, `SQLMESH_DB_USER`,
-`GRAFANA_DB_USER`, `DB_ROLE_PREFIX`) into `postgresql/.initdb/`, which the Dockerfile COPYs.
+`GRAFANA_DB_USER`, `DB_USER_PREFIX`, `ROLE_PREFIX`) into `postgresql/.initdb/`, which the
+Dockerfile COPYs.
 The medallion schemas ride along: `BRONZE_SCHEMA_PREFIX`, `SILVER_SCHEMA`, `GOLD_SCHEMA`.
 The silver staging layer is not among them — nothing outside the SQLMesh models names it, so
 `tests/conftest.py` derives it from `SILVER_SCHEMA`. So a role or
@@ -139,11 +140,11 @@ ending in `_` would otherwise be read as a single-character wildcard.
 
 ## Identity-provider rank
 
-The three ranks (`viewer`, `editor`, `admin`) are named once, in `sso.roles.RANKS`, and each
-system puts its own prefix in front: `SSO_GROUP_PREFIX` makes the Django group that carries
-the permissions, `DB_ROLE_PREFIX` makes the database group role `gf_0008` creates. Both
-prefixes are in `buildtime.env`; `crudman.container` passes them in, dev included.
-`dbusers/utils.py` is where the two meet, and it re-lists neither.
+The three ranks (`viewer`, `editor`, `admin`) are named once, in `sso.roles.RANKS`, and
+`ROLE_PREFIX` goes in front of all of them: it names the Django group that carries the
+permissions and the database group role `gf_0008` creates, which is why the two are spelled
+the same. `DB_USER_PREFIX` is unrelated — it prefixes the login role of a person.
+Both are in `buildtime.env`; `crudman.container` passes them in, dev included.
 
 `GROUP_ACTIONS` in `sso/roles.py` is what a rank may do, so adding a rank is an edit there
 and in `gf_0008` — not a configuration change.

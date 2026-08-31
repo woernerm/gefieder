@@ -18,7 +18,8 @@ import pytest
 
 from conftest import (
     CRUDMAN_DB_USER,
-    DB_ROLE_PREFIX,
+    DB_USER_PREFIX,
+    ROLE_PREFIX,
     GRAFANA_DB_USER,
     PG_DATABASE,
     SILVER_SCHEMA,
@@ -28,15 +29,24 @@ from conftest import (
 
 # The three ranks gf_0008 created, spelled from the configured prefix rather than listed:
 # a hardcoded name would pass against a deployment that has no such role.
-VIEWER_ROLE = f"{DB_ROLE_PREFIX}viewer"
-EDITOR_ROLE = f"{DB_ROLE_PREFIX}editor"
-ADMIN_ROLE = f"{DB_ROLE_PREFIX}admin"
+VIEWER_ROLE = f"{ROLE_PREFIX}viewer"
+EDITOR_ROLE = f"{ROLE_PREFIX}editor"
+ADMIN_ROLE = f"{ROLE_PREFIX}admin"
+
+# The marker every provisioned account holds, which is what the functions check before
+# they modify or drop one -- the name is only readability, DB_USER_PREFIX being optional.
+MARKER_ROLE = f"{ROLE_PREFIX}person"
 
 # Throwaway account names, carrying the personal-account prefix crudman derives
-# (dbusers.utils) — which is what drop_db_user checks before it drops anything.
-VIEWER = f"{DB_ROLE_PREFIX}itest_viewer"
-EDITOR = f"{DB_ROLE_PREFIX}itest_editor"
+# (dbusers.utils).
+VIEWER = f"{DB_USER_PREFIX}itest_viewer"
+EDITOR = f"{DB_USER_PREFIX}itest_editor"
 PASSWORD = "itest-password-long-enough"
+
+# A throwaway tenant, to stand in for the roles that share the namespace without being
+# personal accounts. Its own lifecycle is tests/test_tenants.py.
+TENANT = "itest_dbuser_tenant"
+TENANT_PASSWORD = "itest-tenant-password"
 
 
 def role_exists(conn, name):
@@ -74,7 +84,7 @@ def cleanup(admin_db):
 
     def drop():
         with admin_db.cursor() as cur:
-            for name in (VIEWER, EDITOR):
+            for name in (VIEWER, EDITOR, TENANT):
                 cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (name,))
                 if cur.fetchone():
                     # DROP OWNED BY clears the grants the functions handed out; without it
@@ -88,8 +98,8 @@ def cleanup(admin_db):
 
 
 def test_group_roles_exist(admin_db):
-    """The three ranks are created at first start and carry no login of their own."""
-    for name in (VIEWER_ROLE, EDITOR_ROLE, ADMIN_ROLE):
+    """The three ranks and the marker are created at first start, none of them a login."""
+    for name in (VIEWER_ROLE, EDITOR_ROLE, ADMIN_ROLE, MARKER_ROLE):
         assert role_exists(admin_db, name), f"{name} is missing"
         assert not can_login(admin_db, name), f"{name} must not be a login role"
 
@@ -102,6 +112,69 @@ def test_create_db_user_provisions_role(crudman_db, admin_db, cleanup):
     assert role_exists(admin_db, VIEWER)
     assert can_login(admin_db, VIEWER)
     assert VIEWER_ROLE in memberships(admin_db, VIEWER)
+    assert MARKER_ROLE in memberships(admin_db, VIEWER), "the account must be marked as ours"
+
+
+@pytest.fixture
+def tenant(crudman_db, cleanup):
+    """A tenant role, created the way the admin creates one."""
+    with crudman_db.cursor() as cur:
+        cur.execute("SELECT create_tenant(%s, %s)", (TENANT, TENANT_PASSWORD))
+    yield TENANT
+    with crudman_db.cursor() as cur:
+        cur.execute("SELECT delete_tenant(%s)", (TENANT,))
+
+
+def test_a_tenant_role_shall_not_be_taken_over(crudman_db, admin_db, tenant):
+    """create_db_user refuses a name already held by something that is not an account.
+
+    The name alone cannot say: tenants are the bare tenant name and share the namespace,
+    so without this a mistyped provisioning would reset a tenant's password and hand the
+    person its bronze schema.
+    """
+    with crudman_db.cursor() as cur:
+        with pytest.raises(psycopg2.errors.RaiseException):
+            cur.execute(
+                "SELECT create_db_user(%s, %s, %s)", (tenant, PASSWORD, VIEWER_ROLE)
+            )
+
+    assert MARKER_ROLE not in memberships(admin_db, tenant)
+
+
+def test_a_tenant_role_shall_not_be_dropped_or_disabled(crudman_db, tenant):
+    """The destructive functions refuse it too, for the same reason.
+
+    drop_db_user takes the bronze schema with the role, so this is the one that would
+    destroy data rather than merely confuse the admin.
+    """
+    for function in ("drop_db_user", "delete_db_user", "clear_db_user_password"):
+        with crudman_db.cursor() as cur:
+            with pytest.raises(psycopg2.errors.RaiseException):
+                cur.execute(f"SELECT {function}(%s)", (tenant,))
+
+
+def test_a_provisioned_account_shall_not_become_a_tenant(crudman_db, cleanup):
+    """And the reverse: create_tenant refuses a name a person already holds."""
+    with crudman_db.cursor() as cur:
+        cur.execute("SELECT create_db_user(%s, %s, %s)", (VIEWER, PASSWORD, VIEWER_ROLE))
+
+    with crudman_db.cursor() as cur:
+        with pytest.raises(psycopg2.errors.RaiseException):
+            cur.execute("SELECT create_tenant(%s, %s)", (VIEWER, TENANT_PASSWORD))
+
+
+def test_a_disabled_account_shall_stay_droppable(crudman_db, admin_db, cleanup):
+    """The marker survives offboarding, which strips the rank memberships.
+
+    Were the rank the marker, an account disabled by delete_db_user could never be
+    removed afterwards -- and disable-then-remove is the ordinary way someone leaves.
+    """
+    with crudman_db.cursor() as cur:
+        cur.execute("SELECT create_db_user(%s, %s, %s)", (VIEWER, PASSWORD, VIEWER_ROLE))
+        cur.execute("SELECT delete_db_user(%s)", (VIEWER,))
+        cur.execute("SELECT drop_db_user(%s)", (VIEWER,))
+
+    assert not role_exists(admin_db, VIEWER)
 
 
 def test_rank_change_replaces_membership(crudman_db, admin_db, cleanup):
@@ -116,7 +189,8 @@ def test_rank_change_replaces_membership(crudman_db, admin_db, cleanup):
         # credential; the person keeps the password they already have.
         cur.execute("SELECT create_db_user(%s, %s, %s)", (EDITOR, None, EDITOR_ROLE))
 
-    assert memberships(admin_db, EDITOR) == {EDITOR_ROLE}
+    # The marker is not a rank and is not touched by re-ranking; see is_db_user.
+    assert memberships(admin_db, EDITOR) == {EDITOR_ROLE, MARKER_ROLE}
     assert can_login(admin_db, EDITOR), "re-ranking must not lock the account out"
 
 
@@ -141,7 +215,9 @@ def test_delete_db_user_disables_without_dropping(crudman_db, admin_db, cleanup)
 
     assert role_exists(admin_db, VIEWER), "the role must survive so its objects keep an owner"
     assert not can_login(admin_db, VIEWER)
-    assert memberships(admin_db, VIEWER) == set(), "privileges are revoked on offboarding"
+    # Everything but the marker, which has to outlive offboarding for the role to stay
+    # droppable afterwards.
+    assert memberships(admin_db, VIEWER) == {MARKER_ROLE}, "privileges are revoked on offboarding"
 
 
 # The roles the provisioning functions must refuse. The superuser is named by

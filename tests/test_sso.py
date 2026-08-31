@@ -22,7 +22,7 @@ import pytest
 
 from conftest import (
     APP_CONFIG_DIR, BASE_URL, CRUDMAN_LOGIN, CRUDMAN_PATH, GRAFANA_PATH, OIDC_ISSUER,
-    RESTART_TIMEOUT, SECRETS, SSO_GROUP_PREFIX, VERIFY_TLS, inspect_container, podman,
+    RESTART_TIMEOUT, SECRETS, ROLE_PREFIX, VERIFY_TLS, inspect_container, podman,
 )
 
 # The host name the stack was started with, which Grafana has to be told about: its own
@@ -35,7 +35,7 @@ SSO_CONTAINERS = ["crudman", "grafana"]
 # The person the stand-in provider describes, and the role it grants them. Editor is the
 # middle of the three, so both a granted and a withheld permission can be asserted.
 SSO_USER = "kim"
-SSO_ROLE_GROUP = f"{SSO_GROUP_PREFIX}editor"
+SSO_ROLE_GROUP = f"{ROLE_PREFIX}editor"
 
 
 def _django(script):
@@ -281,7 +281,7 @@ class TestSigningIn:
             "from django.contrib.auth.models import User;"
             f"print(sorted(g.name for g in User.objects.get(username='{SSO_USER}').groups.all()))"
         )
-        # Sorted, so the expectation follows SSO_GROUP_PREFIX rather than assuming the
+        # Sorted, so the expectation follows ROLE_PREFIX rather than assuming the
         # rank group still sorts after a locally granted one.
         assert groups == str(sorted(["project-b-analysts", SSO_ROLE_GROUP]))
 

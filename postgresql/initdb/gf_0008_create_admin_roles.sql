@@ -6,26 +6,39 @@
 -- three group roles below, which carry the privileges. That indirection is the point --
 -- changing what an editor may do is one GRANT here, not a loop over every person.
 --
--- The three names mirror the single sign-on groups in crudman/app/sso/roles.py
--- (sso-viewer, sso-editor, sso-admin), so the rank the identity provider sends decides
--- the database rights too, and there is one place where that mapping is written down.
+-- The three names are the single sign-on group names of crudman/app/sso/roles.py, both
+-- built from ROLE_PREFIX, so the rank the identity provider sends decides the
+-- database rights too and there is one place where that mapping is written down.
 --
 -- NOINHERIT is deliberately NOT set: a member should get the group's rights simply by
 -- connecting, without having to SET ROLE.
+--
+-- A fourth role rides along, <prefix>person, which grants nothing: it is the marker
+-- create_db_user puts on every account it provisions, and the only thing that tells a
+-- personal role from a tenant or a service role. See is_db_user in gf_0003.
 
 -- CREATE ROLE has no IF NOT EXISTS, and these scripts re-run on every start (see the
 -- postgresql entrypoint), so create each role only when it is absent. The rights below
 -- are re-granted either way, which is what lets a re-run repair a tampered grant.
 DO $$
 DECLARE
-    rank text;
+    group_role text;
 BEGIN
-    FOREACH rank IN ARRAY ARRAY['${DB_ROLE_PREFIX}viewer',
-                                '${DB_ROLE_PREFIX}editor',
-                                '${DB_ROLE_PREFIX}admin']
+    FOREACH group_role IN ARRAY ARRAY['${ROLE_PREFIX}viewer',
+                                      '${ROLE_PREFIX}editor',
+                                      '${ROLE_PREFIX}admin',
+                                      '${ROLE_PREFIX}person']
     LOOP
-        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = rank) THEN
-            EXECUTE format('CREATE ROLE %I NOLOGIN', rank);
+        -- A name already somebody's login role would be handed out by create_db_user as
+        -- if it were one of ours -- and an unprefixed "admin" is the cluster superuser.
+        -- Refusing to start is the only safe answer.
+        IF EXISTS (SELECT 1 FROM pg_roles
+                   WHERE rolname = group_role AND (rolsuper OR rolcanlogin)) THEN
+            RAISE EXCEPTION '% is a login role already -- change ROLE_PREFIX', group_role;
+        END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = group_role) THEN
+            EXECUTE format('CREATE ROLE %I NOLOGIN', group_role);
         END IF;
     END LOOP;
 END;
@@ -39,20 +52,20 @@ $$;
 -- grants mirror grafana's in gf_0005 -- deliberately, because "what a dashboard may
 -- read" and "what a person may read" are the same question here.
 --------------------------------------------------------------------
-GRANT USAGE ON SCHEMA ${SILVER_SCHEMA}, ${GOLD_SCHEMA} TO ${DB_ROLE_PREFIX}viewer;
-GRANT SELECT ON ALL TABLES IN SCHEMA ${SILVER_SCHEMA}, ${GOLD_SCHEMA} TO ${DB_ROLE_PREFIX}viewer;
-ALTER DEFAULT PRIVILEGES FOR ROLE ${SQLMESH_DB_USER} IN SCHEMA ${SILVER_SCHEMA} GRANT SELECT ON TABLES TO ${DB_ROLE_PREFIX}viewer;
-ALTER DEFAULT PRIVILEGES FOR ROLE ${SQLMESH_DB_USER} IN SCHEMA ${GOLD_SCHEMA} GRANT SELECT ON TABLES TO ${DB_ROLE_PREFIX}viewer;
+GRANT USAGE ON SCHEMA ${SILVER_SCHEMA}, ${GOLD_SCHEMA} TO ${ROLE_PREFIX}viewer;
+GRANT SELECT ON ALL TABLES IN SCHEMA ${SILVER_SCHEMA}, ${GOLD_SCHEMA} TO ${ROLE_PREFIX}viewer;
+ALTER DEFAULT PRIVILEGES FOR ROLE ${SQLMESH_DB_USER} IN SCHEMA ${SILVER_SCHEMA} GRANT SELECT ON TABLES TO ${ROLE_PREFIX}viewer;
+ALTER DEFAULT PRIVILEGES FOR ROLE ${SQLMESH_DB_USER} IN SCHEMA ${GOLD_SCHEMA} GRANT SELECT ON TABLES TO ${ROLE_PREFIX}viewer;
 
 -- The crudman schema, minus the tables that hold credentials or secret tokens. The same
 -- exclusions as grafana's: Django's own auth_/django_ tables and the dropzone table with
 -- its upload-link tokens.
-GRANT USAGE ON SCHEMA crudman TO ${DB_ROLE_PREFIX}viewer;
+GRANT USAGE ON SCHEMA crudman TO ${ROLE_PREFIX}viewer;
 
 -- Editors and admins read everything a viewer reads, so they are made members of it
 -- rather than repeating the grants. A rank is therefore cumulative by construction.
-GRANT ${DB_ROLE_PREFIX}viewer TO ${DB_ROLE_PREFIX}editor;
-GRANT ${DB_ROLE_PREFIX}editor TO ${DB_ROLE_PREFIX}admin;
+GRANT ${ROLE_PREFIX}viewer TO ${ROLE_PREFIX}editor;
+GRANT ${ROLE_PREFIX}editor TO ${ROLE_PREFIX}admin;
 
 --------------------------------------------------------------------
 -- Write access for SQLMesh development.
@@ -67,7 +80,7 @@ GRANT ${DB_ROLE_PREFIX}editor TO ${DB_ROLE_PREFIX}admin;
 -- separate the two without a state and physical layer per person, costing a full backfill
 -- each. The accepted control is that production is deployed from CI on merge.
 --------------------------------------------------------------------
-GRANT CREATE ON DATABASE ${PG_DATABASE} TO ${DB_ROLE_PREFIX}editor;
+GRANT CREATE ON DATABASE ${PG_DATABASE} TO ${ROLE_PREFIX}editor;
 
 -- SQLMesh's schemas do not exist yet at first start (the engine creates them on its first
 -- plan) and new ones appear whenever a model lands in a new schema. An event trigger
@@ -96,12 +109,12 @@ BEGIN
                   AND NOT starts_with(obj.object_identity, '${GOLD_SCHEMA}')
                   AND NOT starts_with(obj.object_identity, '${BRONZE_SCHEMA_PREFIX}');
 
-        EXECUTE format('GRANT ALL ON SCHEMA %I TO ${DB_ROLE_PREFIX}editor', obj.object_identity);
+        EXECUTE format('GRANT ALL ON SCHEMA %I TO ${ROLE_PREFIX}editor', obj.object_identity);
         EXECUTE format(
-            'GRANT ALL ON ALL TABLES IN SCHEMA %I TO ${DB_ROLE_PREFIX}editor', obj.object_identity
+            'GRANT ALL ON ALL TABLES IN SCHEMA %I TO ${ROLE_PREFIX}editor', obj.object_identity
         );
         EXECUTE format(
-            'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT ALL ON TABLES TO ${DB_ROLE_PREFIX}editor',
+            'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT ALL ON TABLES TO ${ROLE_PREFIX}editor',
             (SELECT nspowner::regrole FROM pg_namespace WHERE nspname = obj.object_identity),
             obj.object_identity
         );
@@ -117,7 +130,7 @@ CREATE EVENT TRIGGER developer_write_on_create_schema
 
 -- The two schemas that already exist at this point (created by gf_0005) predate the
 -- trigger, so they are granted directly.
-GRANT ALL ON SCHEMA ${SILVER_SCHEMA}, ${GOLD_SCHEMA} TO ${DB_ROLE_PREFIX}editor;
+GRANT ALL ON SCHEMA ${SILVER_SCHEMA}, ${GOLD_SCHEMA} TO ${ROLE_PREFIX}editor;
 
 -- The engine's own run has to be able to read and replace what a developer's plan
 -- materialised, which it cannot do for a table another role owns. Rather than making the

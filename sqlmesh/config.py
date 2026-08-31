@@ -79,9 +79,9 @@ else:
     # dbusers.utils.role_name_for), and the prefix comes from the same buildtime.env the
     # database was initialised from, so nothing has to be looked up or configured. Someone
     # whose local account is named differently overrides the whole name with SQLMESH_USER.
-    role_prefix = dotenv_values(repo_root / "buildtime.env").get("DB_ROLE_PREFIX", "gf_")
+    role_prefix = dotenv_values(repo_root / "buildtime.env").get("DB_USER_PREFIX", "gf_")
     user = os.environ.get("SQLMESH_USER") or (
-        f"{role_prefix}u_"
+        role_prefix
         + re.sub(r"[^a-z0-9]+", "_", getpass.getuser().strip().lower()).strip("_")
     )[:50]
 

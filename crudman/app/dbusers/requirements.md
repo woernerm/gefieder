@@ -42,13 +42,13 @@ PostgreSQL bridge and the login-time reconciliation.
 
 ## What it must do
 
-- Provision a login role per Django user, named `<prefix><slug>` from their
-  username, with privileges from exactly one `<prefix>`-group role. The prefix is
-  `DB_ROLE_PREFIX` in `buildtime.env` (`gf_` by default), so the names this app derives
-  and the roles the database created come from one setting.
+- Provision a login role per Django user, named `<prefix><slug>` from their username, with
+  privileges from exactly one group role. The prefix is `DB_USER_PREFIX` in `buildtime.env`
+  (`gf_` by default) and may be empty: an account is recognised by the marker role
+  `create_db_user` grants it, never by its name, so it cannot be confused with a tenant.
 - Derive the rank from the single sign-on groups in `sso/roles.py`, so the identity provider
-  stays the source of truth for who may do what. Both sides share the three rank names and
-  differ only in their prefix (`SSO_GROUP_PREFIX`, `DB_ROLE_PREFIX`), so neither set is
+  stays the source of truth for who may do what. A group role and the Django group that
+  earns it are one name, both `ROLE_PREFIX` in front of a rank, so neither set is
   listed twice.
 - Reconcile that rank on every login: a promotion or demotion in the provider reaches the
   database on the person's next sign-in.

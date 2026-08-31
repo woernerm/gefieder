@@ -22,9 +22,11 @@ here="$(dirname "$0")"
 
 # The role names the scripts create and grant on, the database gf_0008 grants CREATE on,
 # and the medallion schemas they create and the event triggers match against.
+# DB_USER_PREFIX is not among them: a personal account is recognised by the marker role
+# is_db_user tests, never by its name, so the scripts never spell the prefix out.
 # SERVER_STATS_SCHEMA is not among them: gf_0007 reads it as a shell variable from the
 # image's ENV, so it stays adjustable without a rebuild of the scripts themselves.
-VARS='${PG_DATABASE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${GRAFANA_DB_USER} ${DB_ROLE_PREFIX} ${BRONZE_SCHEMA_PREFIX} ${SILVER_SCHEMA} ${GOLD_SCHEMA} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD}'
+VARS='${PG_DATABASE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${GRAFANA_DB_USER} ${ROLE_PREFIX} ${BRONZE_SCHEMA_PREFIX} ${SILVER_SCHEMA} ${GOLD_SCHEMA} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD}'
 
 # The PostgreSQL entrypoint runs the scripts in filename order, so the names have to
 # survive the rendering unchanged -- which render_tree does, mirroring the source tree.

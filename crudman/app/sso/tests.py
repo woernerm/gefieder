@@ -38,7 +38,7 @@ from .scopes import scopes_for
 from unfold.widgets import UnfoldBooleanSwitchWidget
 
 # The group each rank grants, built the way roles.py builds it rather than spelled out, so
-# these tests follow SSO_GROUP_PREFIX instead of asserting the value it ships with.
+# these tests follow ROLE_PREFIX instead of asserting the value it ships with.
 VIEWER = GROUP_FOR_RANK["viewer"]
 EDITOR = GROUP_FOR_RANK["editor"]
 ADMIN = GROUP_FOR_RANK["admin"]
@@ -1027,6 +1027,13 @@ class DatabaseAccessSwitchTests(TestCase):
         self.user = User.objects.create_user("jdoe", password="x")
         self.user.groups.add(Group.objects.get(name=EDITOR))
 
+        # The form asks PostgreSQL whether the derived role name is already taken. The
+        # database is mocked here, so the answer is pinned to "free" and the one test
+        # about a taken name says so itself.
+        free = patch("sso.admin.unmanaged_role", return_value=None)
+        free.start()
+        self.addCleanup(free.stop)
+
     def _post(self, **overrides):
         """Save the user's change page with the switch in a given position.
 
@@ -1116,6 +1123,31 @@ class DatabaseAccessSwitchTests(TestCase):
 
         with patch("dbusers.utils.connection") as conn:
             self._post(database_access="on", groups=[])
+
+        conn.cursor.assert_not_called()
+        self.assertFalse(DatabaseUser.objects.filter(user=self.user).exists())
+
+    def test_a_role_this_app_did_not_create_is_shown_read_only(self):
+        """The deployment's superuser is a Django account and a PostgreSQL role at once.
+
+        They reach the database through that role, so reporting no access would be a lie;
+        offering to remove it would be one too, the provisioning functions refusing a role
+        without the marker they grant.
+        """
+        with patch("sso.admin.unmanaged_role", return_value="admin"):
+            page = self.client.get(
+                reverse("admin:auth_user_change", args=[self.user.pk])
+            )
+
+        field = page.context["adminform"].form.fields["database_access"]
+        self.assertTrue(page.context["adminform"].form["database_access"].value())
+        self.assertTrue(field.disabled)
+        self.assertIn("admin", field.help_text)
+
+    def test_a_role_this_app_did_not_create_is_left_alone_on_save(self):
+        with patch("sso.admin.unmanaged_role", return_value="admin"), \
+                patch("dbusers.utils.connection") as conn:
+            self._post(database_access="on")
 
         conn.cursor.assert_not_called()
         self.assertFalse(DatabaseUser.objects.filter(user=self.user).exists())

@@ -12,8 +12,8 @@ class ViewerRequiredMixin(UserPassesTestMixin):
     """Grants access from the viewer rank upwards.
 
     The rank groups are checked by the names ``sso.roles`` derives, not by the literal
-    "viewer": a deployment that sets SSO_GROUP_PREFIX would otherwise lock out exactly
-    the people the prefix was introduced for. All three ranks are accepted because they
+    "viewer": a deployment with a ROLE_PREFIX of its own would otherwise lock out
+    exactly the people the prefix was introduced for. All three ranks are accepted because they
     are increasing privilege rather than cumulative membership -- an editor holds the
     editor group alone and would fail a viewer-only test.
 

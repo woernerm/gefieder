@@ -93,12 +93,13 @@ GRAFANA_PATH = os.environ["GRAFANA_PATH"]
 CRUDMAN_DB_USER = os.environ["CRUDMAN_DB_USER"]
 SQLMESH_DB_USER = os.environ["SQLMESH_DB_USER"]
 GRAFANA_DB_USER = os.environ["GRAFANA_DB_USER"]
-DB_ROLE_PREFIX = os.environ["DB_ROLE_PREFIX"]
+DB_USER_PREFIX = os.environ["DB_USER_PREFIX"]
 
-# The Django group each identity-provider rank grants, and the medallion schemas the init
-# scripts created. Same reason: the suite has to check the configured stack, and a schema
-# name spelled out here would assert the default instead of what was built.
-SSO_GROUP_PREFIX = os.environ["SSO_GROUP_PREFIX"]
+# The prefix each identity-provider rank is named behind -- its Django group and its
+# database group role alike -- and the medallion schemas the init scripts created. Same
+# reason: the suite has to check the configured stack, and a schema name spelled out here
+# would assert the default instead of what was built.
+ROLE_PREFIX = os.environ["ROLE_PREFIX"]
 BRONZE_SCHEMA_PREFIX = os.environ["BRONZE_SCHEMA_PREFIX"]
 SILVER_SCHEMA = os.environ["SILVER_SCHEMA"]
 GOLD_SCHEMA = os.environ["GOLD_SCHEMA"]

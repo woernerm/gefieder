@@ -10,22 +10,23 @@ testable whether or not single sign-on is switched on.
 """
 import os
 
-GROUP_PREFIX = os.environ.get("SSO_GROUP_PREFIX", "")
-"""Prefix on the group names, from SSO_GROUP_PREFIX, which the crudman quadlet passes in.
+ROLE_PREFIX = os.environ.get("ROLE_PREFIX", "gf_")
+"""Prefix on the rank names, from ROLE_PREFIX, which the crudman quadlet passes in.
 
-Empty by default, so a group is named for the rank it grants. It exists to keep these
-groups clear of groups an admin already uses, which is the exception rather than the rule.
-The default is what buildtime.env ships, for a checkout run without the quadlet.
+It names both these groups and the database group roles gf_0008 creates, so the two agree
+by construction. It also keeps them clear of names already taken -- in the cluster, where
+an unprefixed "admin" is the superuser. The fallback is the value buildtime.env ships, for
+a checkout run without the quadlet.
 """
 
 RANKS = ("viewer", "editor", "admin")
 """The provider's role names, in increasing order of privilege.
 
-Not configurable: the database ranks in gf_0008 are the same three words behind
-DB_ROLE_PREFIX.
+Not configurable: the database ranks in gf_0008 are the same three words behind the same
+ROLE_PREFIX.
 """
 
-ROLE_GROUPS = tuple((rank, f"{GROUP_PREFIX}{rank}") for rank in RANKS)
+ROLE_GROUPS = tuple((rank, f"{ROLE_PREFIX}{rank}") for rank in RANKS)
 """Each rank paired with the group that carries its permissions."""
 
 GROUP_FOR_RANK = dict(ROLE_GROUPS)

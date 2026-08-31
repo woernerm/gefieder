@@ -12,29 +12,12 @@ from sso.roles import GROUP_FOR_RANK, RANKS
 
 from .backends import get_backend
 
-DB_ROLE_PREFIX = os.environ.get("DB_ROLE_PREFIX", "gf_")
-"""The prefix the database was initialised with, from DB_ROLE_PREFIX in buildtime.env.
+USER_PREFIX = os.environ.get("DB_USER_PREFIX", "gf_")
+"""Prefix every provisioned login role carries, from DB_USER_PREFIX in buildtime.env.
 
-Both sides have to agree: a role this module names is one gf_0008 created. The fallback
-is the value buildtime.env ships, for a checkout run without the quadlet.
-"""
-
-GROUP_TO_DB_ROLE = {
-    GROUP_FOR_RANK[rank]: f"{DB_ROLE_PREFIX}{rank}" for rank in RANKS
-}
-"""The database group role each single sign-on group earns.
-
-The one place the groups in sso/roles.py and the group roles in gf_0008 meet. Neither
-set is listed again: they share the three rank names behind their own prefixes, so a rank
-added to ``sso.roles.RANKS`` reaches the database rank of the same name. Viewers are
-included so read-only access is a provisioned account rather than a shared credential.
-"""
-
-ROLE_PREFIX = DB_ROLE_PREFIX
-"""Prefix every provisioned role carries.
-
-It keeps these roles apart from the service and tenant roles sharing the namespace, so a
-person called "grafana" cannot collide with the service of that name.
+Readability only, and so allowed to be empty: what makes a role a personal account is the
+marker gf_0003's create_db_user grants it, not its name. The fallback is the value
+buildtime.env ships, for a checkout run without the quadlet.
 """
 
 
@@ -52,7 +35,37 @@ def role_name_for(username: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "_", username.strip().lower()).strip("_")
     # 63 is PostgreSQL's identifier limit; the database function caps the part it is given
     # at 50, so the slug is trimmed to fit that with the prefix.
-    return f"{ROLE_PREFIX}{slug}"[:50]
+    return f"{USER_PREFIX}{slug}"[:50]
+
+
+def unmanaged_role(user) -> str | None:
+    """The role a user already reaches the database through, when it is not ours to manage.
+
+    A name derived from a username can land on a role this app did not create: the
+    deployment's superuser is the plain case, since SUPERUSER_NAME is a Django account and
+    a PostgreSQL role at once, and DB_USER_PREFIX may be empty. The person has database
+    access through it, but the provisioning functions refuse to touch a role without the
+    marker they grant, so the switch has to report the access without offering to remove
+    it.
+
+    Args:
+        user: The Django user.
+
+    Returns:
+        The role name, or None when it is free or one this app provisioned.
+    """
+    from .models import DatabaseUser
+
+    role_name = role_name_for(user.username)
+    # This table rather than the marker is_db_user tests: the same question asked of the
+    # record this app keeps, which pg_roles alone cannot answer and which is readable from
+    # any database -- the init scripts' functions live only in the deployment's own.
+    if DatabaseUser.objects.filter(role_name=role_name).exists():
+        return None
+
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", [role_name])
+        return role_name if cursor.fetchone() else None
 
 
 def db_role_for_user(user) -> str | None:
@@ -70,14 +83,15 @@ def db_role_for_user(user) -> str | None:
     """
     names = set(user.groups.values_list("name", flat=True))
     # RANKS runs from least to most privileged, so walking it backwards returns the
-    # highest the person holds.
+    # highest the person holds. The group name is the role name: both are a rank behind
+    # ROLE_PREFIX, so gf_0008 created exactly the roles sso/roles.py names.
     for rank in reversed(RANKS):
         group = GROUP_FOR_RANK[rank]
         if group in names:
-            return GROUP_TO_DB_ROLE[group]
+            return group
 
     if user.is_superuser:
-        return GROUP_TO_DB_ROLE[GROUP_FOR_RANK["admin"]]
+        return GROUP_FOR_RANK["admin"]
     return None
 
 
