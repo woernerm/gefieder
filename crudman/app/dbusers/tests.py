@@ -1,12 +1,9 @@
 """Unit tests for the provisioning logic, with the database mocked.
 
-The database functions themselves are covered against the live stack in
-tests/test_db_users.py. What is worth testing here is the part that decides *what* to ask
-the database for: the rank a person's groups earn them, the role name derived from their
-username, and the reconciliation that runs on every login.
-
-The switch that drives all this from the user page is tested in sso/tests.py, where the
-admin it lives on is.
+What is tested here is what the database is asked for: the rank a person's groups earn,
+the role name derived from their username, and the reconciliation on every login. The
+functions themselves are covered against the live stack in tests/test_db_users.py, the
+admin switch in sso/tests.py.
 """
 from unittest.mock import patch
 
@@ -28,10 +25,8 @@ from .utils import (
     unmanaged_role,
 )
 
-# The names the configured prefixes produce, rather than the ones they happen to produce
-# at their defaults: what these tests are about is the derivation, so pinning the literals
-# here would only assert that buildtime.env is unchanged. A group role and its Django group
-# are one name, both built from ROLE_PREFIX.
+# Derived from the configured prefixes, not the literals they happen to produce at their
+# defaults, which would only assert that buildtime.env is unchanged.
 VIEWER = VIEWER_GROUP = GROUP_FOR_RANK["viewer"]
 EDITOR = EDITOR_GROUP = GROUP_FOR_RANK["editor"]
 ADMIN = ADMIN_GROUP = GROUP_FOR_RANK["admin"]
@@ -41,9 +36,8 @@ JDOE = f"{USER_PREFIX}jdoe"
 class UnmanagedRoleTests(TestCase):
     """Whether the name a user would be provisioned under is already somebody else's.
 
-    The switch on the user page reports access it cannot manage rather than offering to
-    create a role that create_db_user would refuse -- the deployment's superuser being a
-    Django account and a PostgreSQL role at once.
+    The switch reports access it cannot manage rather than offering to create a role that
+    create_db_user would refuse.
     """
 
     def setUp(self):
@@ -75,10 +69,7 @@ class RoleNameTests(TestCase):
         self.assertEqual(role_name_for("jdoe"), JDOE)
 
     def test_email_username_becomes_an_identifier(self):
-        """An email-address username becomes a valid identifier.
-
-        Providers commonly send an email address as the username, which
-        PostgreSQL will not accept as one."""
+        """Providers commonly send an email address, which PostgreSQL will not accept."""
         self.assertEqual(
             role_name_for("John.Doe@example.com"),
             f"{USER_PREFIX}john_doe_example_com",
@@ -107,8 +98,7 @@ class RankTests(TestCase):
         self.assertEqual(db_role_for_user(self.user), ADMIN)
 
     def test_a_group_still_wins_for_a_superuser(self):
-        """The exemption is a floor, not an override: it only fills the gap where no
-        group speaks at all."""
+        """The exemption is a floor, not an override."""
         self.user.is_superuser = True
         self.user.groups.add(Group.objects.get(name=ADMIN_GROUP))
         self.assertEqual(db_role_for_user(self.user), ADMIN)
@@ -118,10 +108,7 @@ class RankTests(TestCase):
         self.assertEqual(db_role_for_user(self.user), EDITOR)
 
     def test_highest_rank_wins(self):
-        """The most privileged group decides the rank.
-
-        Someone may hold several groups at once, matching how
-        sso.roles.highest_role resolves the same ambiguity."""
+        """The most privileged group decides, as sso.roles.highest_role also does."""
         self.user.groups.add(Group.objects.get(name=VIEWER_GROUP))
         self.user.groups.add(Group.objects.get(name=ADMIN_GROUP))
         self.assertEqual(db_role_for_user(self.user), ADMIN)
@@ -141,10 +128,7 @@ class SyncTests(TestCase):
         )
 
     def test_person_without_an_account_is_left_alone(self):
-        """Logging in must not provision anyone.
-
-        Provisioning issues a credential, which has to be a deliberate act by an
-        administrator."""
+        """Logging in must not provision anyone: that is an administrator's act."""
         other = User.objects.create(username="someone_else")
         with patch("dbusers.utils.connection") as conn:
             sync(other)
@@ -203,19 +187,15 @@ class BackendTests(TestCase):
         self.assertNotEqual(backend.make_secret(), backend.make_secret())
 
     def test_active_backend_is_password_based(self):
-        """Guards the swap point between authentication backends.
-
-        When this changes, the admin's one-time password message goes with it.
-        See requirements.md."""
+        """Guards the swap point: the admin's one-time password message goes with it."""
         self.assertTrue(get_backend().issues_secret)
 
 
 class CredentialHandoverTests(TestCase):
     """Who gets to see the password, and when.
 
-    The point of splitting enrollment from issuing is that an administrator never learns a
-    credential belonging to someone else, and that no secret has to be stored while it
-    waits to be collected. These tests are what keep that property from being lost.
+    Splitting enrollment from issuing is what keeps an administrator from learning
+    someone else's credential, and keeps any secret from being stored while it waits.
     """
 
     def setUp(self):
@@ -250,8 +230,7 @@ class CredentialHandoverTests(TestCase):
         with patch("dbusers.utils.connection"):
             enroll(self.user)
             self.assertIsNotNone(issue_credential(self.user))
-            # A second login must not mint a new password, or every sign-in would
-            # invalidate the one the person already saved.
+            # A new password on every sign-in would invalidate the saved one.
             self.assertIsNone(issue_credential(self.user))
 
     def test_nothing_is_stored_anywhere(self):
@@ -279,8 +258,7 @@ class CredentialHandoverTests(TestCase):
 
         cursor = conn.cursor.return_value.__enter__.return_value
         sql, params = cursor.execute.call_args[0]
-        # Cleared straight away, so a leaked password stops working now rather than at the
-        # person's next sign-in.
+        # Cleared straight away, so a leaked password stops working now.
         self.assertIn("clear_db_user_password", sql)
         self.assertEqual(params, [JDOE])
         self.assertTrue(DatabaseUser.objects.get(user=self.user).awaiting_credential)
@@ -300,7 +278,7 @@ class NonStaffTests(TestCase):
     """A database account does not depend on reaching the admin.
 
     Someone may query the warehouse without administering anything, so the rank groups
-    are what decide the account and is_staff is not consulted at all.
+    decide and is_staff is not consulted.
     """
 
     def setUp(self):

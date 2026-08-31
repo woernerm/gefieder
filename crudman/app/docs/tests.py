@@ -113,7 +113,7 @@ class DocumentationPagesTest(TestCase):
         self.assertIn("bronze_project_a.issues", page)
         self.assertIn("Project A&#x27;s raw issues.", page)
         self.assertIn("issue_key", page)
-        # Highlighted rather than escaped: the SQL reaches the page as markup.
+        # Highlighted rather than escaped.
         self.assertIn('<span class="k">SELECT</span>', page)
 
     def test_an_unknown_layer_is_not_found(self):
@@ -144,8 +144,8 @@ class ExportShapeTest(TestCase):
     """The contract between the exporter and these pages: plain text, no markup."""
 
     def test_the_export_carries_no_markup(self):
-        # What the exporter writes is what the templates read; keeping it JSON-encodable
-        # and free of HTML is what lets the same file feed anything else later.
+        # Keeping the export JSON-encodable and free of HTML lets the same file feed
+        # anything else later.
         encoded = json.dumps(DOCS)
         self.assertNotIn("<span", encoded)
         self.assertNotIn("<div", encoded)
@@ -182,12 +182,11 @@ class LineageTest(TestCase):
                 }
             ],
         )
-        # Sankey lays the columns out itself, so no coordinates are given.
+        # Sankey lays the columns out itself.
         self.assertNotIn("x", series["data"][0])
 
     def test_a_model_may_read_several_others(self):
-        # The reason this is a sankey and not a tree: silver unions one bronze model per
-        # tenant, and a tree series allows a node only one parent.
+        # Why a sankey and not a tree: a tree allows a node only one parent.
         models = [
             {"name": "bronze_a.issues", "depends_on": [], "layer": "bronze"},
             {"name": "bronze_b.issues", "depends_on": [], "layer": "bronze"},
@@ -205,8 +204,8 @@ class LineageTest(TestCase):
         self.assertEqual(len(series["data"]), 3)
 
     def test_a_node_keeps_its_full_name_and_link(self):
-        # Sankey identifies a node by its name, so the name is the full one and the
-        # template shortens it for display.
+        # Sankey identifies a node by name, so it is the full one and the template
+        # shortens it.
         option = lineage.chart(self._models(), lambda model: f"/docs/{model['layer']}/")
         node = next(
             n for n in option["series"][0]["data"] if n["name"] == "silver.issues"
@@ -214,18 +213,18 @@ class LineageTest(TestCase):
         self.assertEqual(node["url"], "/docs/silver/")
 
     def test_a_dependency_outside_the_project_is_left_out(self):
-        # Bronze reads source schemas the project does not define; the graph is about the
-        # models themselves, so such an edge has nowhere to start.
+        # Bronze reads source schemas the project does not define, so such an edge has
+        # nowhere to start.
         models = [dict(model) for model in self._models()]
         downstream = next(m for m in models if m["name"] == "silver.issues")
         downstream["depends_on"] = ["jira.issues"]
         option = lineage.chart(models, lambda model: "/docs/")
         self.assertEqual(option["series"][0]["links"], [])
-        # The model itself is still drawn; only the edge to nowhere is dropped.
+        # Only the edge is dropped, not the model.
         self.assertEqual(len(option["series"][0]["data"]), 2)
 
     def test_the_last_column_is_labelled_on_its_own_side(self):
-        # A label to the right of the rightmost bar would run off the edge of the box.
+        # A label right of the rightmost bar would run off the edge.
         series = lineage.chart(self._models(), lambda model: "/docs/")["series"][0]
         placed = {
             node["name"]: node.get("label", {}).get("position")
@@ -235,13 +234,12 @@ class LineageTest(TestCase):
         self.assertIsNone(placed["bronze_project_a.issues"])
 
     def test_the_colours_are_named_theme_tokens_not_values(self):
-        # The graph names Unfold's custom properties and the page resolves them, so a
-        # palette change reaches the graph and no colour is written down twice.
+        # The graph names Unfold's custom properties and the page resolves them.
         option = lineage.chart(self._models(), lambda model: "/docs/")
         self.assertEqual(option["themeColors"], lineage.THEME_COLORS)
         for property_name in option["themeColors"].values():
             self.assertTrue(property_name.startswith("--color-"))
-        # Nothing is painted server-side; the template does it from those names.
+        # Nothing is painted server-side.
         self.assertNotIn("itemStyle", option["series"][0])
 
     def test_nothing_to_draw_is_not_an_error(self):
@@ -257,5 +255,5 @@ class LineageTest(TestCase):
             page = self.client.get(reverse("docs:index")).content.decode()
         self.assertIn("lineage-data", page)
         self.assertIn("echarts", page)
-        # The library is served from the image, never fetched from a CDN.
+        # Served from the image, never a CDN.
         self.assertNotIn("unpkg.com", page)

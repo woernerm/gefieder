@@ -1,38 +1,30 @@
-# Allow unsigned and community extensions for all future sessions. However, this only
-# takes effect after restarting PostgreSQL or reloading the configuration.
+# Allow unsigned and community extensions, from the next reload on.
 echo "duckdb.allow_unsigned_extensions = true" >> "$PGDATA/postgresql.conf"
 echo "duckdb.allow_community_extensions = true" >> "$PGDATA/postgresql.conf"
 
-# Read the DuckDB extensions from the image instead of the default location inside
-# $PGDATA. The image ships them pre-downloaded (see the Dockerfile), so the server never
-# needs internet access to fetch one, and a fresh data volume starts out complete.
+# From the image rather than the default location inside $PGDATA, so the server never
+# needs internet access and a fresh data volume starts out complete.
 echo "duckdb.extension_directory = '/opt/duckdb-extensions'" >> "$PGDATA/postgresql.conf"
 
-# Load pg_stat_statements so the server records per-query execution statistics (calls,
-# total time, rows, shared-buffer hits/reads). The collector snapshots these to find the
-# queries worth optimising, e.g. a frequent sequential scan that an index would fix.
-# The base image hard-sets shared_preload_libraries='pg_duckdb' in postgresql.conf; this
-# later line wins, so it must re-list pg_duckdb to keep DuckDB loaded. Both the preload
-# and pg_stat_statements only take effect after the server restart that initdb performs
-# before opening for connections, so the reload below does not yet activate them.
+# pg_stat_statements records the per-query statistics the collector snapshots to find the
+# queries worth optimising. The base image hard-sets shared_preload_libraries='pg_duckdb',
+# and this later line wins, so it re-lists pg_duckdb. Both take effect at the restart initdb
+# performs before opening for connections, not at the reload below.
 echo "shared_preload_libraries = 'pg_duckdb,pg_stat_statements'" >> "$PGDATA/postgresql.conf"
-# Track statements nested inside functions and procedures too (the default 'top' misses
-# them), so SQLMesh models wrapped in calls still show up individually.
+# The default 'top' misses statements nested in functions, so a SQLMesh model wrapped in a
+# call would not show up.
 echo "pg_stat_statements.track = all" >> "$PGDATA/postgresql.conf"
 
-# Log to the container's stderr (the server default, so logging_collector stays off),
-# which podman forwards to journald like every other service. journald rotates and
-# size-caps the log; a file under $PGDATA/log did not, and grew unbounded next to the
-# data. log_min_messages stays at the server default.
+# To stderr, which podman forwards to journald; journald rotates and size-caps the log,
+# where a file under $PGDATA/log grew unbounded next to the data.
 #
-# The default stderr format is kept rather than jsonlog: journald records each entry with
-# its own reception timestamp, so a multi-line statement detail no longer leaves
-# untimestamped continuation lines on disk, which was the reason jsonlog was chosen.
+# The default stderr format rather than jsonlog: journald stamps each entry on reception,
+# so a multi-line statement detail leaves no untimestamped continuation lines, which is
+# what jsonlog was chosen for.
 #
-# The prefix carries the backend pid but no "%m": journald stamps every entry already, and
-# unlike SQLMesh's, PostgreSQL's own stamp can be configured away. It costs the server's
-# millisecond emission time; journald records reception, the same moment for this log.
+# The prefix carries the backend pid but no "%m", journald stamping every entry already.
+# It costs the server's millisecond emission time for journald's reception time.
 echo "log_line_prefix = '[%p] '" >> "$PGDATA/postgresql.conf"
 
-# Reload PostgreSQL configuration to apply the new settings.
+# Apply the new settings.
 pg_ctl reload -D "$PGDATA" || true  # || true ignores error if not running yet

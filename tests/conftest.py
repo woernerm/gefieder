@@ -1,8 +1,8 @@
 """Shared fixtures for the integration tests.
 
-The tests run against a throwaway stack that run-tests.sh has already started. The
-stack is reached over the published ports; which ports and protocol depend on the
-profile (dev = plain HTTP, production = HTTPS), passed in via environment variables.
+The tests run against a throwaway stack run-tests.sh has already started, reached over
+its published ports. Which ports and protocol depend on the profile (dev = plain HTTP,
+production = HTTPS), passed in through the environment.
 """
 import json
 import os
@@ -24,10 +24,9 @@ def podman(*args):
 def inspect_container(name):
     """Return the `podman inspect` object for a container, or None if it does not exist.
 
-    Scoped to containers with an explicit --type: bare `podman inspect` falls back to
-    images when no container matches, and every service here shares its name with its
-    image, so a container that is mid-recreate would otherwise return the image manifest
-    (which has no "State") instead of signalling absence.
+    Scoped with --type: bare `podman inspect` falls back to images, and every service
+    shares its name with its image, so a container mid-recreate would return the image
+    manifest instead of signalling absence.
     """
     result = subprocess.run(
         ["podman", "inspect", "--type", "container", name],
@@ -72,10 +71,9 @@ SQLMESH_PASSWORD = os.environ["TEST_SQLMESH_PASSWORD"]
 APP_NAME = os.environ["APP_NAME"]
 SUPERUSER_NAME = os.environ["SUPERUSER_NAME"]
 
-# The names of the podman secrets, keyed by the component whose credential they hold. The
-# suite reads them from the environment for the same reason it reads the role names: a
-# deployment that had to rename one around a secret the host already held is still the
-# stack these tests are pointed at.
+# The podman secrets, keyed by the component whose credential they hold. Read from the
+# environment for the same reason as the role names: a deployment that renamed one around
+# a secret the host already held is still the stack these tests point at.
 SECRETS = {
     "superuser": os.environ["SECRET_SUPERUSER_PASSWORD"],
     "crudman": os.environ["SECRET_CRUDMAN_PASSWORD"],
@@ -88,33 +86,29 @@ CRUDMAN_PATH = os.environ["CRUDMAN_PATH"]
 GRAFANA_PATH = os.environ["GRAFANA_PATH"]
 
 # The database login roles the init scripts created, and the prefix on the roles that
-# belong to people. The access-control checks connect as these and assert their boundary,
-# so they have to be the configured names rather than the ones buildtime.env ships with.
+# belong to people. The access-control checks connect as these, so they have to be the
+# configured names rather than the ones buildtime.env ships with.
 CRUDMAN_DB_USER = os.environ["CRUDMAN_DB_USER"]
 SQLMESH_DB_USER = os.environ["SQLMESH_DB_USER"]
 GRAFANA_DB_USER = os.environ["GRAFANA_DB_USER"]
 DB_USER_PREFIX = os.environ["DB_USER_PREFIX"]
 
-# The prefix each identity-provider rank is named behind -- its Django group and its
-# database group role alike -- and the medallion schemas the init scripts created. Same
-# reason: the suite has to check the configured stack, and a schema name spelled out here
-# would assert the default instead of what was built.
+# The prefix each rank is named behind -- Django group and database group role alike --
+# and the medallion schemas. Same reason: a name spelled out here would assert the default
+# rather than what was built.
 ROLE_PREFIX = os.environ["ROLE_PREFIX"]
 BRONZE_SCHEMA_PREFIX = os.environ["BRONZE_SCHEMA_PREFIX"]
 SILVER_SCHEMA = os.environ["SILVER_SCHEMA"]
 GOLD_SCHEMA = os.environ["GOLD_SCHEMA"]
 
-# The staging layer each tenant's silver transform writes to before the thin UNION ALL into
-# SILVER_SCHEMA. Not a build-time setting, because nothing in the deployment names it: the
-# init scripts grant on it through the SILVER_SCHEMA prefix match, and the only place it is
-# written out is the SQLMesh models. So it is derived here, where the two tests that care
-# about it live — test_access_control asserts grafana cannot see it, and
-# test_medallion_schemas asserts a shipped model still writes to it, which is what catches
-# the derivation going stale.
+# The staging layer each tenant's silver transform writes to before the UNION ALL into
+# SILVER_SCHEMA. Not a build-time setting: the init scripts grant on it through the
+# SILVER_SCHEMA prefix match, and only the SQLMesh models write it out. Derived here, and
+# test_medallion_schemas is what catches the derivation going stale.
 SILVER_STAGING_SCHEMA = f"{SILVER_SCHEMA}_staging"
 
-# The server-statistics schema name and the host-side collector run-tests.sh installed,
-# so the server-stats tests can trigger a real sample and read its rows back.
+# The server-statistics schema and the host-side collector run-tests.sh installed, so the
+# tests can trigger a real sample and read its rows back.
 SERVER_STATS_SCHEMA = os.environ.get("TEST_SERVER_STATS_SCHEMA", "server_stats")
 COLLECTOR = os.environ.get("TEST_COLLECTOR", "")
 
@@ -122,8 +116,8 @@ COLLECTOR = os.environ.get("TEST_COLLECTOR", "")
 CRUDMAN_LOGIN = f"/{CRUDMAN_PATH}/login/"
 GRAFANA_LOGIN = f"/{GRAFANA_PATH}/login"
 
-# The stand-in identity provider run-tests.sh starts inside the pod, and the configuration
-# directory holding the runtime.env the services read their settings from.
+# The stand-in identity provider run-tests.sh starts inside the pod, and the directory
+# holding the runtime.env the services read their settings from.
 OIDC_ISSUER = os.environ.get("TEST_OIDC_ISSUER", "")
 OIDC_CLIENT_ID = os.environ.get("TEST_OIDC_CLIENT_ID", "")
 APP_CONFIG_DIR = os.environ.get("TEST_APP_CONFIG_DIR", "")
@@ -132,9 +126,8 @@ APP_CONFIG_DIR = os.environ.get("TEST_APP_CONFIG_DIR", "")
 CONTAINERS = ["postgresql", "crudman", "sftp", "flight", "sqlmesh", "grafana",
               "proxy"]
 
-# The systemd unit of each service, whose journal holds that service's log. Every service
-# logs to stdout/stderr only; podman forwards the stream to journald, which persists,
-# rotates and size-caps it.
+# The systemd unit of each service, whose journal holds its log. Every service logs to
+# stdout/stderr only; podman forwards the stream to journald.
 LOGGING_UNITS = [
     "postgresql", "crudman", "sftp", "flight", "sqlmesh", "grafana", "proxy",
 ]
@@ -143,10 +136,9 @@ LOGGING_UNITS = [
 # verification is disabled for the test run.
 VERIFY_TLS = False
 
-# How long to allow for a service to come back after being killed or restarted, and for
-# the whole stack to become ready at session start. The resilience checks wait on an
-# observable state change rather than on a fixed delay, so these are only upper bounds
-# for a machine that never gets there; raise TEST_RESTART_TIMEOUT on a very slow host.
+# How long a service gets to come back after a restart, and the stack to become ready at
+# session start. The checks wait on an observable state change, so these are upper bounds
+# only; raise TEST_RESTART_TIMEOUT on a very slow host.
 RESTART_TIMEOUT = int(os.environ.get("TEST_RESTART_TIMEOUT", "180"))
 STARTUP_TIMEOUT = int(os.environ.get("TEST_STARTUP_TIMEOUT", "300"))
 
@@ -159,9 +151,8 @@ def pytest_configure(config):
                 else f"({config.option.markexpr}) and not production")
 
 
-# trust_env=False on every client below: on a company network the proxy variables are set
-# in the environment, and httpx would send the requests to the company proxy rather than to
-# the stack on localhost, unless no_proxy happens to name it.
+# trust_env=False on every client below: with the proxy variables set, httpx would send
+# the requests to the company proxy rather than to the stack on localhost.
 
 
 @pytest.fixture(scope="session")
@@ -201,12 +192,9 @@ def _connect(user):
 class _ReconnectingConnection:
     """A psycopg2 connection wrapper that reopens itself if the backend has gone away.
 
-    The role connections are session-scoped and shared across tests. A test that restarts
-    postgresql (test_resilience) kills every backend, so a later test reaching for one of
-    these connections would otherwise hit "server closed the connection unexpectedly".
-    This wrapper checks the connection before each ``cursor()`` call and reconnects when it
-    is closed or broken, so every holder of the same object transparently gets a live
-    connection without having to re-fetch it.
+    The role connections are session-scoped and shared, and test_resilience restarts
+    postgresql, killing every backend. Checking before each ``cursor()`` call means every
+    holder of the object gets a live connection without re-fetching it.
     """
 
     def __init__(self, user):
@@ -214,8 +202,8 @@ class _ReconnectingConnection:
         self._conn = _connect(user)
 
     def _ensure_alive(self):
-        # psycopg2 sets .closed != 0 once it notices the backend is gone; a still-open
-        # handle is probed with a trivial query so a server restart is detected eagerly.
+        # psycopg2 sets .closed once it notices the backend is gone; a still-open handle
+        # is probed so a server restart is detected eagerly.
         if self._conn.closed:
             self._reconnect()
             return
@@ -226,10 +214,8 @@ class _ReconnectingConnection:
             self._reconnect()
 
     def _reconnect(self):
-        # Retry until the freshly restarted server accepts connections again. Bounded by
-        # a deadline rather than an attempt count so the budget stays a wall-clock
-        # allowance on a slow machine, where each failing attempt itself takes longer and
-        # would otherwise burn through the attempts well before the server is back.
+        # A deadline rather than an attempt count, so the budget stays a wall-clock
+        # allowance on a slow machine, where each failing attempt itself takes longer.
         deadline = time.time() + RESTART_TIMEOUT
         while time.time() < deadline:
             try:
@@ -247,7 +233,7 @@ class _ReconnectingConnection:
         self._conn.close()
 
     def __getattr__(self, name):
-        # Delegate any other attribute access (e.g. .autocommit) to the live connection.
+        # Anything else (.autocommit, say) goes to the live connection.
         return getattr(self._conn, name)
 
 
@@ -255,8 +241,8 @@ class _ReconnectingConnection:
 def connect():
     """Factory yielding a database connection for a given role, cleaned up at the end.
 
-    Each role gets one shared, self-healing connection (see ``_ReconnectingConnection``),
-    so tests that run after a postgresql restart still receive a live connection.
+    One shared, self-healing connection per role, so a test after a postgresql restart
+    still receives a live one.
     """
     conns = {}
 
@@ -304,9 +290,8 @@ def grafana_db(connect):
 def wait_for_stack():
     """Block until both apps respond and sqlmesh has created its schema.
 
-    The apps are gated on their HTTP endpoints. The sqlmesh schema is created by the
-    engine's first `sqlmesh plan` at runtime (not by database init), so the schema and
-    access-control tests would race a slow first plan; wait for it here too.
+    The schema comes from the engine's first `sqlmesh plan` at runtime rather than from
+    database init, so the schema and access-control tests would otherwise race it.
     """
     deadline = time.time() + STARTUP_TIMEOUT
     targets = [CRUDMAN_LOGIN, GRAFANA_LOGIN]

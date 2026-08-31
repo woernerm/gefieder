@@ -11,14 +11,11 @@ from sso.roles import MANAGED_GROUPS
 class ViewerRequiredMixin(UserPassesTestMixin):
     """Grants access from the viewer rank upwards.
 
-    The rank groups are checked by the names ``sso.roles`` derives, not by the literal
-    "viewer": a deployment with a ROLE_PREFIX of its own would otherwise lock out
-    exactly the people the prefix was introduced for. All three ranks are accepted because they
-    are increasing privilege rather than cumulative membership -- an editor holds the
-    editor group alone and would fail a viewer-only test.
-
-    Staff and superusers pass without a group, so the documentation stays reachable on a
-    system where single sign-on is off and nobody has been assigned a rank yet.
+    The groups are checked by the names ``sso.roles`` derives, so a deployment with a
+    ROLE_PREFIX of its own still works. All three ranks are accepted because they are
+    increasing privilege rather than cumulative membership -- an editor holds the editor
+    group alone. Staff and superusers pass without a group, so the pages stay reachable
+    where single sign-on is off.
     """
 
     def test_func(self) -> bool:
@@ -34,9 +31,8 @@ class ViewerRequiredMixin(UserPassesTestMixin):
     def handle_no_permission(self):
         """Sign an anonymous visitor in; refuse one who is already signed in.
 
-        Sending someone who holds no rank back to the login page would loop them through
-        a form that cannot change the outcome, so only the anonymous case redirects. The
-        same split as the dropzone upload page.
+        Sending someone who holds no rank to the login form cannot change the outcome.
+        The same split as the dropzone upload page.
         """
         if not self.request.user.is_authenticated:
             return redirect_to_login(

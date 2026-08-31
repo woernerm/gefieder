@@ -5,15 +5,13 @@
 #
 #   curl -fsSL ${REPO}/releases/latest/download/uninstall.sh | bash
 #
-# It removes what install.sh installed: the systemd units and the pod they run, the
-# loaded images, the server-statistics collector, the helpfile and the io-delegation
-# drop-in. The data volumes and the podman secrets are the two things that cannot be
-# recreated, so it asks about each before touching them.
+# It removes what install.sh installed: the systemd units and the pod they run, the loaded
+# images, the collector, the helpfile and the io-delegation drop-in. The data volumes and
+# the podman secrets cannot be recreated, so it asks about each first.
 #
-# Nothing here is hardcoded from install.sh's lists. The installed files are the
-# inventory: the quadlet directory names the units and (through VolumeName=) the volumes,
-# the *.container files name the images, and manifest.env recorded APP_NAME. A service
-# added to install.sh is therefore removed by this script without a matching edit here.
+# Nothing here repeats install.sh's lists. The installed files are the inventory: the
+# quadlet directory names the units and, through VolumeName=, the volumes; the *.container
+# files name the images. A service added to install.sh needs no edit here.
 set -e
 
 QUADLET_DIR="$HOME/.config/containers/systemd"
@@ -21,12 +19,10 @@ SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 
 step() { echo; echo "==> $*"; }
 
-# Prompts read from the terminal rather than stdin, because the documented way to run
-# this is piped from curl -- there stdin is the script itself, and `read` would consume
-# it. With no terminal at all there is no safe default for "delete the data or not", so
-# the run stops instead of guessing. The test opens /dev/tty rather than checking its
-# permissions: the device node exists and looks readable even in a session that has no
-# controlling terminal, where opening it is what actually fails.
+# Prompts read from the terminal rather than stdin: piped from curl, stdin is the script
+# itself and `read` would consume it. With no terminal there is no safe default for
+# "delete the data or not", so the run stops. The test opens /dev/tty rather than checking
+# its permissions, the node looking readable even where opening it fails.
 if (: >/dev/tty) 2>/dev/null; then
   ask() { printf '%s' "$1" >/dev/tty; read -r REPLY </dev/tty; }
 else
@@ -43,10 +39,9 @@ fi
 command -v podman >/dev/null || { echo "podman is not installed." >&2; exit 1; }
 
 # --- discover the deployment ----------------------------------------------------------
-# APP_NAME names the pod, the config directory and the helpfile. install.sh took it from
-# the release manifest and wrote the config directory named after it; recover it from
-# there so this script needs no release download. The glob resolves to the single
-# directory holding a serverstats/ subdirectory, which is what install.sh creates.
+# APP_NAME names the pod, the config directory and the helpfile. Recovered from the config
+# directory install.sh named after it, so this script needs no release download: the glob
+# resolves to the one directory holding a serverstats/ subdirectory.
 step "Looking for an installed deployment"
 CONFIG_HOME="$HOME/.config"
 APP_NAME=""
@@ -55,26 +50,23 @@ for d in "$CONFIG_HOME"/*/serverstats; do
   APP_NAME="$(basename "$(dirname "$d")")"
 done
 
-# The pod name is the fallback when the config directory is already gone: quadlet names
-# the generated unit after main.pod regardless of PodName, so ask systemd's generator
-# output instead -- the pod is whatever main-pod.service runs.
+# The fallback when the config directory is gone. Quadlet names the generated unit after
+# main.pod regardless of PodName, so the pod is whatever main-pod.service runs.
 if [ -z "$APP_NAME" ] && [ -f "$QUADLET_DIR/main.pod" ]; then
   APP_NAME="$(sed -n 's/^PodName=//p' "$QUADLET_DIR/main.pod" | head -n 1)"
 fi
 
 echo "  application name: ${APP_NAME:-unknown}"
 
-# The units are the quadlet files themselves: <name>.container becomes <name>.service.
-# Reading the directory rather than a list means units from a newer release are stopped
-# too, even ones this script predates.
+# <name>.container becomes <name>.service. Reading the directory rather than a list stops
+# units from a newer release too.
 UNITS=""
 for f in "$QUADLET_DIR"/*.container; do
   [ -e "$f" ] || continue
   UNITS="$UNITS $(basename "$f" .container).service"
 done
 
-# The volumes come from the VolumeName= line of each *.volume quadlet -- the same line
-# podman itself uses, so the names always match what was created.
+# From the VolumeName= line of each *.volume quadlet, the line podman itself uses.
 VOLUMES=""
 for f in "$QUADLET_DIR"/*.volume; do
   [ -e "$f" ] || continue
@@ -82,22 +74,16 @@ for f in "$QUADLET_DIR"/*.volume; do
   VOLUMES="$VOLUMES ${name:-$(basename "$f" .volume)}"
 done
 
-# The images are the Image= lines of the container quadlets, deduplicated: several
-# containers (crudman, sftp, flight) share one image.
+# The Image= lines, deduplicated: crudman, sftp and flight share one image.
 IMAGES="$(sed -n 's/^Image=//p' "$QUADLET_DIR"/*.container 2>/dev/null | sort -u)"
 
-# The secrets are the Secret= lines of the same files, deduplicated the same way: most are
-# named by more than one container. Their names come from buildtime.env and were rendered
-# into the quadlets at build time, so reading them back is the only way to learn what a
-# deployment that renamed one actually created -- and it keeps this script's promise that
-# nothing here is a second copy of install.sh's list.
+# The Secret= lines, likewise deduplicated. Their names were rendered in at build time, so
+# reading them back is the only way to learn what a deployment that renamed one created.
 SECRETS="$(sed -n 's/^Secret=//p' "$QUADLET_DIR"/*.container 2>/dev/null | sort -u)"
 
-# Leftovers outlive the unit files: a previous run may have kept the volumes or secrets,
-# and the config directory alone is enough to recover APP_NAME. So "nothing to uninstall"
-# means none of them are present -- checking only the quadlet directory would march
-# through the whole removal with nothing to remove, and checking only APP_NAME would miss
-# a deployment whose config directory is already gone.
+# Leftovers outlive the unit files: a previous run may have kept the volumes or secrets.
+# So "nothing to uninstall" means none of them are present; the quadlet directory alone
+# would march through a removal with nothing to remove.
 LEFTOVERS=""
 for s in $SECRETS; do
   podman secret exists "$s" 2>/dev/null && LEFTOVERS="found"
@@ -115,12 +101,10 @@ if [ -z "$UNITS" ] && [ -z "$VOLUMES" ] && [ -z "$LEFTOVERS" ] && [ ! -f "$QUADL
 fi
 
 # --- stop the services ----------------------------------------------------------------
-# Stop the whole stack in one go, the order run-tests.sh tears its stack down in. Quadlet
-# binds every container unit to main-pod.service, so stopping the pod takes them down
-# together, and a stop systemd ordered is not a failure -- Restart=always does not fire.
-# Unit by unit would stop the database first and leave the rest running against a gone
-# dependency: those fail their healthcheck and exit, which Restart=always *does* answer.
-# The per-unit stops below only confirm what is gone, and catch a unit that outlived the pod.
+# In one go, as run-tests.sh tears its stack down. Quadlet binds every container unit to
+# main-pod.service, so stopping the pod takes them down together and Restart=always does
+# not fire. Unit by unit would stop the database first and leave the rest failing their
+# healthcheck, which Restart=always *does* answer. The per-unit stops below only confirm.
 step "Stopping the services"
 systemctl --user stop main-pod.service >/dev/null 2>&1 || true
 for u in $UNITS; do systemctl --user stop "$u" >/dev/null 2>&1 || true; done
@@ -129,14 +113,12 @@ systemctl --user stop server-stats.service >/dev/null 2>&1 || true
 echo "  $(echo $UNITS | wc -w) service units stopped"
 
 # --- remove the pod and its containers ------------------------------------------------
-# The quadlet units are gone below, but the pod they generated outlives them; remove it
-# explicitly so a later install starts from a clean pod.
+# The pod outlives the units removed below, so a later install would inherit it.
 step "Removing the pod and its containers"
 if [ -n "$APP_NAME" ]; then
   podman pod rm -f "$APP_NAME" >/dev/null 2>&1 || true
 fi
-# Containers a partial or interrupted install left outside the pod, named after their
-# quadlets. Harmless when the pod already took them.
+# Containers an interrupted install left outside the pod, named after their quadlets.
 for u in $UNITS; do
   podman rm -f "${u%.service}" >/dev/null 2>&1 || true
 done
@@ -158,8 +140,7 @@ done
 echo "  $img_n images removed"
 
 # --- data volumes: ask, they hold everything the deployment ever collected -------------
-# Listed by name with their size, because "the database" is more abstract than a path the
-# operator can go and look at before answering.
+# By name and size: "the database" is more abstract than a path to go and look at.
 step "Data volumes"
 if [ -n "$VOLUMES" ]; then
   for vol in $VOLUMES; do
@@ -185,10 +166,9 @@ else
 fi
 
 # --- podman secrets: ask, the superuser password is not recoverable --------------------
-# Only the secrets the quadlets named are offered; other secrets on the machine are not
-# this deployment's business. Keeping them lets a reinstall skip the password prompt. A run
-# whose quadlets are already gone finds none, and says so rather than guessing at names
-# that may belong to something else.
+# Only the secrets the quadlets named; others on the machine are not this deployment's
+# business. Keeping them lets a reinstall skip the password prompt. A run whose quadlets
+# are gone finds none and says so rather than guessing at names.
 step "Secrets"
 FOUND=""
 for s in $SECRETS; do
@@ -212,8 +192,8 @@ else
 fi
 
 # --- configuration, collector and helpfile ---------------------------------------------
-# runtime.env is the operator's own tuning, so the config directory is a separate question
-# from the volumes above -- keeping it makes a reinstall come back configured.
+# runtime.env is the operator's own tuning, so keeping it makes a reinstall come back
+# configured -- a separate question from the volumes above.
 step "Configuration and collector"
 if [ -n "$APP_NAME" ] && [ -d "$CONFIG_HOME/$APP_NAME" ]; then
   echo "  ${CONFIG_HOME}/${APP_NAME} (runtime.env and the statistics collector)"
@@ -231,16 +211,15 @@ else
   echo "  none found"
 fi
 
-# The helpfile is named after the lower-cased application name, so it has to be lower-cased
-# here too: APP_NAME is recovered from the config directory, which keeps its original case.
+# The helpfile name is lower-cased; APP_NAME comes from the config directory, which keeps
+# its original case.
 if [ -n "$APP_NAME" ]; then
   rm -f "$HOME/$(printf '%s' "$APP_NAME" | tr '[:upper:]' '[:lower:]')-help.txt"
 fi
 
 # --- the io-delegation drop-in ---------------------------------------------------------
-# install.sh wrote this with sudo, so removing it needs sudo too. It is a system file that
-# affects every user slice, so only remove it without prompting for a password; an
-# operator without sudo here is told what to run instead of being asked for credentials.
+# Written with sudo, so removing it needs sudo. It affects every user slice, so an
+# operator without passwordless sudo is told what to run rather than asked for a password.
 if [ -n "$APP_NAME" ]; then
   IO_DROPIN=/etc/systemd/system/user@.service.d/10-${APP_NAME}-delegate-io.conf
   if [ -f "$IO_DROPIN" ]; then
@@ -255,8 +234,8 @@ if [ -n "$APP_NAME" ]; then
   fi
 fi
 
-# Lingering is left enabled on purpose: it is a per-user setting that other services may
-# rely on, and install.sh is not necessarily what turned it on.
+# Lingering stays: a per-user setting other services may rely on, and install.sh is not
+# necessarily what turned it on.
 step "Uninstall complete"
 echo "Lingering was left enabled for '$(id -un)'. Turn it off with:"
 echo "  loginctl disable-linger $(id -un)"

@@ -1,9 +1,8 @@
 """Server-statistics recording: the schema, the query stats and the host collector.
 
-These cover the data-recording side that sizes a future server (CPU, RAM, temp/fast
-storage, disk space, IOPS, throughput, egress) and finds queries worth an index. They
-assert that the data is collected, not how it looks; the shipped dashboard that displays
-it is checked in test_grafana.py.
+These cover the recording side that sizes a future server (CPU, RAM, storage, IOPS,
+throughput, egress) and finds queries worth an index. They assert that the data is
+collected, not how it looks; the dashboard displaying it is checked in test_grafana.py.
 """
 import hashlib
 import os
@@ -67,15 +66,13 @@ class TestQueryStatistics:
             assert row is not None, "pg_stat_statements extension is not installed"
 
     def test_pg_stat_statements_shall_be_preloaded(self, admin_db):
-        # The view only works when the library is preloaded; selecting from it proves both
-        # the preload and the extension registration took effect.
+        # Selecting from the view proves both the preload and the registration.
         with admin_db.cursor() as cur:
             cur.execute("SELECT count(*) FROM pg_stat_statements")
             assert cur.fetchone()[0] >= 0
 
     def test_duckdb_shall_still_be_preloaded(self, admin_db):
-        # The preload line re-lists pg_duckdb; assert DuckDB is still loaded so the new
-        # pg_stat_statements entry did not drop it.
+        # The preload line re-lists pg_duckdb, so check it survived.
         with admin_db.cursor() as cur:
             cur.execute("SHOW shared_preload_libraries")
             libs = cur.fetchone()[0]
@@ -98,12 +95,11 @@ class TestGrafanaAccess:
 def run_collector(**extra_env):
     """Run the host collector once, asserting it exits cleanly.
 
-    POSTGRES_USER lets it authenticate as the superuser inside the container; the schema
-    name matches what the suite was told. HOME/PATH are passed because the collector
-    resolves its state dir under them and runs podman from PATH. extra_env overrides a
-    variable for one run (e.g. forcing the disk-size probe on).
+    POSTGRES_USER authenticates as the superuser inside the container; HOME and PATH are
+    where the collector resolves its state dir and finds podman. extra_env overrides a
+    variable for one run.
 
-    Supplying the variables here means this cannot see a unit file that omits one; that is
+    Supplying the variables here means a unit file that omits one goes unnoticed; that is
     what TestCollectorUnit below is for.
     """
     if not COLLECTOR:
@@ -119,8 +115,8 @@ def run_collector(**extra_env):
 def unit_environment(unit):
     """The environment systemd resolved for a unit, as a dict.
 
-    `systemctl show -p Environment` prints the assignments space-separated on one line,
-    quoting where needed — exactly shlex's syntax.
+    `systemctl show -p Environment` prints the assignments on one line, quoted where
+    needed -- exactly shlex's syntax.
     """
     out = subprocess.run(
         ["systemctl", "--user", "show", "-p", "Environment", "--value", unit],
@@ -150,9 +146,8 @@ class TestCollectorUnit:
         )
 
     def test_starting_the_unit_shall_take_a_sample(self, admin_db):
-        # Through systemd rather than by calling the script: a oneshot start blocks until
-        # the run finishes and fails if it exited non-zero, covering the unit's ExecStart
-        # and its environment together.
+        # Through systemd, not the script: a oneshot start blocks until the run finishes
+        # and fails on a non-zero exit, covering ExecStart and the environment together.
         with admin_db.cursor() as cur:
             before = q(cur, f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.host_sample')[0]
         proc = subprocess.run(
@@ -170,8 +165,8 @@ class TestCollectorUnit:
         assert after > before, "the unit ran but inserted no host sample"
 
 
-# The collector run is the slow part (it execs into the container and probes the host), so
-# run it once per module and let several tests assert on the single sample it produced.
+# The collector run is the slow part, so it runs once per module and several tests assert
+# on the single sample it produced.
 @pytest.fixture(scope="module")
 def collected(admin_db):
     """Run the host collector once and return the timestamp of the sample it inserted."""
@@ -188,9 +183,8 @@ def collected(admin_db):
 def sized(admin_db):
     """Run the collector once with the disk-size probe forced on.
 
-    The sizes are normally probed only every SERVER_STATS_DISK_PROBE_SECONDS, so a plain run
-    may skip them; setting it to 0 makes this run take them, giving the size assertions a
-    row to check regardless of when the previous probe happened.
+    The sizes are probed only every SERVER_STATS_DISK_PROBE_SECONDS, so a plain run may
+    skip them; 0 makes this run take them whenever the previous probe happened.
     """
     run_collector(SERVER_STATS_DISK_PROBE_SECONDS="0")
 
@@ -199,8 +193,8 @@ def sized(admin_db):
 def probed(admin_db):
     """Run the collector once with the query/table snapshot forced on.
 
-    That snapshot runs on its own slow sub-cadence (SERVER_STATS_QUERY_PROBE_SECONDS), so a
-    plain run usually skips it; setting it to 0 makes this run take it.
+    That snapshot has its own slow sub-cadence (SERVER_STATS_QUERY_PROBE_SECONDS), so a
+    plain run usually skips it; 0 makes this run take it.
     """
     run_collector(SERVER_STATS_QUERY_PROBE_SECONDS="0")
 
@@ -209,12 +203,11 @@ class TestHostCollector:
     """A real collector run records the host resource counters used for sizing."""
 
     def test_a_run_shall_insert_a_host_sample(self, collected):
-        # The fixture already asserts exactly one new row landed; reaching here proves it.
+        # The fixture asserts exactly one new row landed; reaching here proves it.
         assert collected >= 1
 
     def test_the_sample_shall_carry_the_cpu_and_memory_gauges(self, admin_db, collected):
-        # CPU usage, host core count and pod memory come from the cgroup, which is present
-        # for a rootless-podman pod, so these must be non-null on a successful run.
+        # These come from the cgroup, which a rootless-podman pod always has.
         with admin_db.cursor() as cur:
             cpu, nproc, mem = q(cur,
                 f"SELECT cpu_usage_usec, host_nproc, mem_current_bytes "
@@ -224,8 +217,7 @@ class TestHostCollector:
         assert mem is not None and mem > 0, "mem_current_bytes not recorded"
 
     def test_the_sample_shall_carry_the_network_egress_counter(self, admin_db, collected):
-        # The monthly sum of tx deltas is the outgoing-traffic figure, so the counter must
-        # be present and monotonic-looking (non-negative).
+        # The monthly sum of tx deltas is the outgoing-traffic figure.
         with admin_db.cursor() as cur:
             tx = q(cur,
                 f"SELECT net_tx_bytes FROM {SERVER_STATS_SCHEMA}.host_sample "
@@ -233,8 +225,7 @@ class TestHostCollector:
         assert tx is not None and tx >= 0, "net_tx_bytes not recorded"
 
     def test_a_run_shall_snapshot_query_and_table_statistics(self, admin_db, probed):
-        # The same run also snapshots pg_stat_statements and pg_stat_user_tables; both
-        # views are non-empty on a live stack, so each snapshot must have rows.
+        # Both views are non-empty on a live stack, so each snapshot must have rows.
         with admin_db.cursor() as cur:
             queries = q(cur, f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.query_sample')[0]
             tables = q(cur, f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.table_sample')[0]
@@ -243,7 +234,7 @@ class TestHostCollector:
 
     def test_the_statement_text_shall_be_stored_once_per_query(self, admin_db, probed):
         # The text lives in query_dim, keyed by queryid, so it is written once however
-        # many samples a statement accumulates -- the whole point of the split.
+        # many samples a statement accumulates.
         with admin_db.cursor() as cur:
             texts = q(cur, f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.query_dim')[0]
             orphans = q(cur,
@@ -254,9 +245,8 @@ class TestHostCollector:
         assert orphans == 0, "query_sample rows without a query_dim text"
 
     def test_a_repeated_snapshot_shall_not_restore_unchanged_rows(self, admin_db, probed):
-        # Storing only what changed is what keeps the table small: an immediate second
-        # snapshot may add the few statements this test itself ran, but must not re-store
-        # the thousands whose counters stood still.
+        # Storing only what changed keeps the table small: a second snapshot may add the
+        # statements this test ran, but not the thousands whose counters stood still.
         with admin_db.cursor() as cur:
             before = q(cur, f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.query_sample')[0]
         run_collector(SERVER_STATS_QUERY_PROBE_SECONDS="0")
@@ -269,11 +259,9 @@ class TestHostCollector:
             "unchanged rows are being stored again"
         )
 
-    # The counter columns that a collector run must fill on any supported host: they come
-    # from the cgroup CPU/memory files and the host network interface, all readable for a
-    # rootless-podman pod. The disk IOPS/throughput columns (io_*) are deliberately excluded
-    # because they need the cgroup io controller delegated to the user slice, which some
-    # kernels (e.g. WSL2) do not provide — there those columns are legitimately NULL.
+    # The counters a run must fill on any supported host, from the cgroup CPU/memory files
+    # and the host network interface. The io_* columns are excluded: they need the cgroup
+    # io controller delegated to the user slice, which some kernels do not provide.
     PER_SAMPLE_COLUMNS = [
         "cpu_usage_usec", "host_nproc",
         "mem_current_bytes", "mem_peak_bytes", "host_mem_total_bytes",
@@ -282,8 +270,8 @@ class TestHostCollector:
 
     @pytest.mark.parametrize("column", PER_SAMPLE_COLUMNS)
     def test_the_sample_shall_carry_every_non_io_counter(self, admin_db, collected, column):
-        # Assert on the row this run inserted: each non-io counter must be recorded (non-null
-        # and non-negative), so data really is collected rather than the sample being empty.
+        # On the row this run inserted, so data really is collected rather than the
+        # sample being empty.
         with admin_db.cursor() as cur:
             value = q(cur,
                 f"SELECT {column} FROM {SERVER_STATS_SCHEMA}.host_sample "
@@ -292,18 +280,16 @@ class TestHostCollector:
         assert value >= 0, f"{column} is negative ({value})"
 
     def test_the_disk_and_volume_sizes_shall_be_collected(self, admin_db, sized):
-        # The database, volume and temp/spill sizes are the disk-space sizing inputs. They
-        # are probed on a slower sub-cadence (SERVER_STATS_DISK_PROBE_SECONDS); the `sized`
-        # fixture forces that probe on, so a row carrying them exists. Assert over the whole
-        # table so it does not matter which row got the probe. This does NOT depend on the
-        # io controller, so unlike IOPS it must work everywhere.
+        # The disk-space sizing inputs, probed on a slower sub-cadence that the `sized`
+        # fixture forces on. Asserted over the whole table, so it does not matter which
+        # row got the probe. Unlike IOPS this needs no io controller.
         with admin_db.cursor() as cur:
             db_size, vol_size, temp_size = q(cur,
                 f"SELECT max(db_size_bytes), max(volume_size_bytes), max(temp_size_bytes) "
                 f"FROM {SERVER_STATS_SCHEMA}.host_sample")
         assert db_size is not None and db_size > 0, "db_size_bytes never collected"
         assert vol_size is not None and vol_size > 0, "volume_size_bytes never collected"
-        # Temp/spill can legitimately be 0 (no query has spilled), so only require non-null.
+        # Temp/spill may legitimately be 0, so only require non-null.
         assert temp_size is not None, "temp_size_bytes never collected"
 
 
@@ -311,15 +297,15 @@ class TestRollup:
     """The rollup folds raw samples into the long-term hourly table used for sizing."""
 
     def test_rollup_shall_populate_the_hourly_table(self, admin_db, collected):
-        # The collector calls rollup_and_prune() each tick, so after a run the current hour
-        # bucket exists. Call it again directly to prove it is idempotent and re-runnable.
+        # The collector calls rollup_and_prune() each tick, so the current hour bucket
+        # exists; calling it again proves it idempotent.
         with admin_db.cursor() as cur:
             cur.execute(f"SELECT {SERVER_STATS_SCHEMA}.rollup_and_prune()")
             rows = q(cur, f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.host_hourly')[0]
         assert rows >= 1, "rollup did not produce an hourly bucket"
 
     def test_rollup_shall_be_idempotent(self, admin_db, collected):
-        # Running it twice must not change the bucket count (ON CONFLICT updates in place).
+        # ON CONFLICT updates in place, so the bucket count must not change.
         with admin_db.cursor() as cur:
             cur.execute(f"SELECT {SERVER_STATS_SCHEMA}.rollup_and_prune()")
             first = q(cur, f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.host_hourly')[0]
@@ -328,8 +314,8 @@ class TestRollup:
         assert first == second, "rollup is not idempotent"
 
 
-# A unique dashboard uid and session cookie per test run, so the assertions match exactly
-# the visits this test generated and never a leftover row from earlier traffic.
+# Unique per test run, so the assertions match the visits this test generated and never a
+# leftover row from earlier traffic.
 VISIT_UID = uuid.uuid4().hex[:12]
 VISIT_COOKIE = "sess-" + uuid.uuid4().hex
 
@@ -338,9 +324,9 @@ VISIT_COOKIE = "sess-" + uuid.uuid4().hex
 def visits(admin_db):
     """Generate page visits through the proxy, then drain them with one collector run.
 
-    The proxy logs the request regardless of how Grafana/crudman answer it (even a redirect
-    to login), so the pipeline can be tested without authenticating. Noise requests (API,
-    assets, a POST) are sent too and must NOT appear, proving the nginx filter holds.
+    The proxy logs the request however Grafana or crudman answer it, so the pipeline can
+    be tested without authenticating. Noise requests (API, assets, a POST) are sent too and
+    must NOT appear, proving the nginx filter holds.
     """
     nav_dashboard = f"/{GRAFANA_PATH}/d/{VISIT_UID}/probe"
     with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS, follow_redirects=False,
@@ -351,8 +337,8 @@ def visits(admin_db):
         c.get(f"/{CRUDMAN_PATH}/")                     # crudman page nav -> logged
         c.post(f"/{CRUDMAN_PATH}/login/")              # POST -> skipped
 
-    # nginx buffers the access log; a tiny pause lets the lines flush before the collector
-    # reads the file. The collector then drains visits.log into dashboard_visit.
+    # nginx buffers the access log, so a pause lets the lines flush before the collector
+    # drains visits.log into dashboard_visit.
     time.sleep(1)
     run_collector()
     return nav_dashboard
@@ -370,7 +356,7 @@ class TestDashboardVisits:
         assert row[0] == "grafana" and row[1] == VISIT_UID
 
     def test_a_crudman_page_visit_shall_be_recorded(self, admin_db, visits):
-        # crudman views ride the same pipeline; assert at least one landed for this app.
+        # crudman views ride the same pipeline.
         with admin_db.cursor() as cur:
             cnt = q(cur,
                 f"SELECT count(*) FROM {SERVER_STATS_SCHEMA}.dashboard_visit "
@@ -378,8 +364,8 @@ class TestDashboardVisits:
         assert cnt >= 1, "no crudman page visit was recorded"
 
     def test_api_and_asset_requests_shall_not_be_recorded(self, admin_db, visits):
-        # The noise requests share the unique uid in their path but are API/asset/POST, so
-        # the only row carrying this uid must be the one dashboard navigation.
+        # The noise requests carry the same uid but are API/asset/POST, so the only row
+        # with it must be the one dashboard navigation.
         with admin_db.cursor() as cur:
             paths = [r[0] for r in _all(cur,
                 f"SELECT url_path FROM {SERVER_STATS_SCHEMA}.dashboard_visit "
@@ -388,8 +374,7 @@ class TestDashboardVisits:
             f"noise requests leaked into visits: {paths}"
 
     def test_the_session_cookie_shall_be_hashed_not_stored(self, admin_db, visits):
-        # The raw cookie must never be stored; the session_hash is its md5, so it equals
-        # md5(cookie) and never contains the cookie value itself.
+        # The raw cookie must never be stored: session_hash is its md5.
         expected = hashlib.md5(VISIT_COOKIE.encode()).hexdigest()
         with admin_db.cursor() as cur:
             row = q(cur,

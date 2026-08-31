@@ -4,16 +4,14 @@ from django.db import models
 class Tenant(models.Model):
     """A tenant of the analytics platform.
 
-    PostgreSQL is the source of truth: each tenant is a role owning a ``bronze_<name>``
-    schema, created by the ``create_tenant`` database function. This table is only a
-    cache the admin keeps in sync with those schemas, so the changelist has a real
-    queryset to search, sort and paginate. Creating, editing and deleting a tenant goes
-    through the database functions, not ``save()`` / ``delete()``.
+    PostgreSQL is the source of truth: a tenant is a role owning a ``bronze_<name>``
+    schema, created by the ``create_tenant`` function. This table is only a cache, so the
+    changelist has a real queryset to search, sort and paginate; every change goes through
+    the database functions rather than ``save()`` / ``delete()``.
     """
 
-    # The role/schema name doubles as the primary key so the admin can build per-object
-    # URLs without a synthetic id column. TenantCreationForm derives it from the display
-    # name, so the user never has to know the slugging rules.
+    # The role and schema name doubles as the primary key, so the admin can build
+    # per-object URLs without a synthetic id column.
     name = models.CharField(
         "slug",
         max_length=50,
@@ -21,8 +19,8 @@ class Tenant(models.Model):
         help_text="Identifier used for the database role and bronze schema, e.g. project_a.",
     )
 
-    # Tenants created outside crudman, such as the seeded examples, carry no display name
-    # in the database, so sync_tenants falls back to the slug for those.
+    # Tenants created outside crudman carry none, and sync_tenants falls back to the
+    # slug.
     display_name = models.CharField(
         "name",
         max_length=100,
@@ -36,8 +34,8 @@ class Tenant(models.Model):
     UNLIMITED_SIZE = "0"
     """PostgreSQL's "no limit" sentinel for the size and time limits.
 
-    The limit fields default to these sentinels, so a freshly opened add form already
-    means "no limit"; a blank field means the same.
+    The limit fields default to it, so a freshly opened add form already means "no limit",
+    and so does a blank field.
     """
 
     connection_limit = models.IntegerField(

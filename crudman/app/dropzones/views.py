@@ -28,9 +28,9 @@ def upload(request, token):
         token: The dropzone's secret token from the URL.
 
     Returns:
-        The rendered page, or a redirect after an accepted upload. A disabled dropzone
-        or one whose method is not the browser upload answers 404, exactly like an
-        unknown token, so the page never reveals whether a link exists.
+        The rendered page, or a redirect after an accepted upload. A disabled dropzone or
+        one of another method answers 404, like an unknown token, so nothing reveals
+        whether a link exists.
     """
     dropzone = get_object_or_404(
         Dropzone, token=token, enabled=True, upload_method=Dropzone.Method.BROWSER
@@ -53,21 +53,20 @@ def upload(request, token):
                     user=request.user if request.user.is_authenticated else None,
                 )
             except UploadError as error:
-                # The checker/converter verdict; shown as a form-wide error so the
-                # uploader can fix the files and try again.
+                # A form-wide error, so the uploader can fix the files and retry.
                 form.add_error(None, str(error))
             else:
                 messages.success(
                     request,
                     f"Upload accepted, {result.files.count()} file(s) stored.",
                 )
-                # Redirect after POST, so refreshing cannot re-submit the files.
+                # So refreshing cannot re-submit the files.
                 return redirect(request.path)
     return render(
         request,
         "dropzones/upload.html",
-        # APP_NAME (from buildtime.env) is the page's headline, like everywhere else
-        # in the system; the dropzone name becomes the subheading.
+        # APP_NAME is the page's headline as everywhere else; the dropzone name is the
+        # subheading.
         {"dropzone": dropzone, "form": form, "app_name": settings.APP_NAME},
     )
 
@@ -76,8 +75,8 @@ def download(request, pk):
     """Stream a stored file to a logged-in admin user.
 
     There is no public MEDIA_URL, so this is the only way a stored file leaves the
-    uploads volume over HTTP. Restricted to staff because uploading through a secret
-    link must not imply permission to read what others uploaded.
+    volume over HTTP. Staff only: uploading through a secret link must not imply
+    permission to read what others uploaded.
 
     Args:
         request: The HTTP request.
@@ -110,13 +109,12 @@ def _bearer_token(request):
 def _api_validity(post, default):
     """Turn the API's validity fields into the ``(valid_from, valid_until)`` pair.
 
-    Mirrors ``UploadForm.clean``, so the API rejects bad input the way the browser form
-    does.
+    Mirrors ``UploadForm.clean``, so the API rejects bad input as the browser form does.
 
     Args:
-        post: The POST data, carrying ``validity`` — one of ``until_replaced`` (starts
-            now), ``always`` (both bounds open) or ``period`` (optional ``valid_from``
-            and ``valid_until`` as ISO 8601, an empty start meaning now).
+        post: The POST data, carrying ``validity``: ``until_replaced`` (starts now),
+            ``always`` (both bounds open) or ``period`` (optional ISO 8601
+            ``valid_from`` and ``valid_until``, an empty start meaning now).
         default: The dropzone's default validity, used when no mode was sent.
 
     Returns:
@@ -140,7 +138,7 @@ def _api_validity(post, default):
         value = parse_datetime(raw)
         if value is None:
             raise UploadError(f"'{field}' is not a valid ISO 8601 date-time.")
-        # A naive value is read in the server's timezone, as the browser form does.
+        # A naive value is read in the server's timezone, as the form does.
         return value if timezone.is_aware(value) else timezone.make_aware(value)
 
     start = parse("valid_from") or timezone.now()
@@ -154,8 +152,8 @@ def _api_validity(post, default):
 def api_upload(request, token):
     """Accept an upload over HTTP POST for a dropzone whose method is the API endpoint.
 
-    CSRF is exempt because the caller is a script authenticated by a bearer token, not
-    a browser carrying cookies.
+    CSRF is exempt: the caller is a script authenticated by a bearer token, not a
+    browser carrying cookies.
 
     Args:
         request: The POST, carrying the files under ``files``, the optional validity
@@ -164,8 +162,7 @@ def api_upload(request, token):
 
     Returns:
         JSON describing the stored upload (201), or an error (400, 401, 405). A
-        disabled dropzone or one whose method is not the API answers 404, exactly like
-        an unknown token, so the endpoint never reveals whether a link exists.
+        disabled dropzone or one of another method answers 404, like an unknown token.
     """
     dropzone = get_object_or_404(
         Dropzone, token=token, enabled=True, upload_method=Dropzone.Method.API
@@ -177,7 +174,7 @@ def api_upload(request, token):
     files = request.FILES.getlist("files")
     try:
         valid_from, valid_until = _api_validity(request.POST, dropzone.default_validity)
-        # API uploads carry no user, like a secret-link browser upload.
+        # No user, as with a secret-link browser upload.
         upload = process_upload(
             dropzone, files, valid_from=valid_from, valid_until=valid_until
         )
@@ -198,15 +195,14 @@ def api_upload(request, token):
 WEBHOOK_MAX_PARAMS = 100
 """Most query parameters one webhook call may carry.
 
-Real devices send a handful of readings, so anything past this is a misdirected or
-malicious request, not data.
+A device sends a handful of readings, so anything past this is not data.
 """
 
 WEBHOOK_MAX_VALUE_LENGTH = 1000
 """Longest value one webhook query parameter may carry."""
 
-# Parameter names become CSV column names read by analytics code, so only names that
-# stay unremarkable in Polars and SQL are accepted.
+# The names become CSV column names read by analytics code, so only ones that stay
+# unremarkable in Polars and SQL are accepted.
 _WEBHOOK_NAME = re.compile(r"[A-Za-z0-9_]+")
 
 
@@ -217,9 +213,9 @@ def _webhook_file(query):
         query: The call's query parameters.
 
     Returns:
-        A CSV file whose header is the sorted parameter names — so the column order
-        does not depend on how the device arranges its URL — and whose single row holds
-        the values exactly as they arrived.
+        A CSV file whose header is the sorted parameter names, so the column order does
+        not depend on how the device arranges its URL, and whose single row holds the
+        values as they arrived.
 
     Raises:
         UploadError: The parameters could not have come from a well-configured device.
@@ -253,10 +249,9 @@ def _webhook_file(query):
 def webhook_upload(request, token):
     """Accept readings as query parameters of an HTTP GET and store them as one CSV.
 
-    Made for devices that can only call a URL with measured values substituted into it,
-    e.g. a Shelly relay reporting a temperature. A GET with a side effect is deliberate:
-    it is the only verb such devices speak. CSRF is exempt so that a stray POST gets a
-    405 rather than a misleading CSRF error.
+    Made for devices that can only call a URL with measured values substituted into it.
+    A GET with a side effect is deliberate, being the only verb such devices speak. CSRF
+    is exempt so a stray POST gets a 405 rather than a misleading CSRF error.
 
     Args:
         request: The GET, its query parameters carrying the readings and its optional
@@ -274,9 +269,8 @@ def webhook_upload(request, token):
         return JsonResponse({"error": "Use GET with query parameters."}, status=405)
     if not dropzone.api_secret_matches(_bearer_token(request)):
         return JsonResponse({"error": "Invalid or missing API token."}, status=401)
-    # The query string is payload, so a call carries no validity fields; the dropzone's
-    # default applies, exactly like an SFTP upload: "always" keeps both bounds open,
-    # everything else is "from now on until replacement".
+    # The query string is payload, so a call carries no validity fields and the
+    # dropzone's default applies, as for an SFTP upload.
     valid_from = (
         None
         if dropzone.default_validity == Dropzone.Validity.ALWAYS

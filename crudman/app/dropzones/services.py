@@ -1,9 +1,8 @@
 """The upload pipeline, shared by every upload method.
 
-``process_upload`` takes no request object so that the browser view and the SFTP and
-Flight endpoints all feed the same pipeline: spool the incoming files to a temporary
-directory, run the dropzone's checker and converter, then store the resulting files and
-the Upload row all-or-nothing.
+``process_upload`` takes no request object, so the browser view and the SFTP and Flight
+endpoints feed the same pipeline: spool the incoming files to a temporary directory, run
+the dropzone's checker and converter, then store files and Upload row all-or-nothing.
 """
 
 import hashlib
@@ -37,8 +36,8 @@ def process_upload(dropzone, files, valid_from=None, valid_until=None, user=None
         The stored Upload.
 
     Raises:
-        UploadError: The files were empty, or the checker or converter rejected them;
-            nothing is stored in that case.
+        UploadError: No files, or the checker or converter rejected them. Nothing is
+            stored in that case.
     """
     if not files:
         raise UploadError("The upload contains no files.")
@@ -48,8 +47,8 @@ def process_upload(dropzone, files, valid_from=None, valid_until=None, user=None
         in_dir.mkdir()
         out_dir.mkdir()
         in_paths = _spool(files, in_dir)
-        # Hash the files as uploaded, before any conversion, so the hash identifies the
-        # source data and stays stable when a converter changes later.
+        # Hashed as uploaded, so the digest identifies the source data and survives a
+        # later change to the converter.
         digest = _combined_hash(in_paths)
         _run_checker(dropzone, in_paths)
         stored_paths = _run_converter(dropzone, in_paths, out_dir)
@@ -59,7 +58,7 @@ def process_upload(dropzone, files, valid_from=None, valid_until=None, user=None
 def _spool(files, in_dir):
     """Write the incoming file objects to disk.
 
-    The check and convert functions work on real paths rather than streams.
+    The check and convert functions work on paths rather than streams.
 
     Args:
         files: The incoming Django ``File`` objects.
@@ -70,8 +69,8 @@ def _spool(files, in_dir):
     """
     paths = []
     for file in files:
-        # Strip any client-supplied directory parts; a name collision within one upload
-        # is kept apart with a numeric suffix.
+        # Client-supplied directory parts are stripped, and a collision within one
+        # upload is kept apart with a numeric suffix.
         name = Path(file.name or "upload").name
         target = in_dir / name
         counter = 0
@@ -114,8 +113,8 @@ def _run_checker(dropzone, in_paths):
     try:
         check(list(in_paths))
     except Exception as error:
-        # Any exception means rejection, per the checker contract; its message is what
-        # the uploading user gets to see.
+        # Any exception means rejection, per the checker contract, and its message is
+        # what the uploader sees.
         raise UploadError(str(error) or "The files were rejected.") from error
 
 
@@ -158,8 +157,8 @@ def _store(dropzone, paths, digest, valid_from, valid_until, user):
             _clip_replaced(upload)
         return upload
     except Exception:
-        # The FileField writes happen while the transaction is still open, so a
-        # failure rolls back the rows but would leave the files behind — remove them.
+        # The FileField writes happen inside the transaction, so a rollback takes the
+        # rows but would leave the files behind.
         remove_upload_directory(directory)
         raise
 
@@ -167,8 +166,8 @@ def _store(dropzone, paths, digest, valid_from, valid_until, user):
 def _clip_replaced(upload):
     """Shorten previously open-ended uploads to end where the new upload starts.
 
-    "Always valid" uploads (no start) stay untouched: they act as a fallback and are
-    superseded by the newest-wins ordering of ``UploadQuerySet.valid_at`` instead.
+    "Always valid" uploads (no start) stay untouched: they are a fallback, superseded by
+    the newest-wins ordering of ``UploadQuerySet.valid_at``.
 
     Args:
         upload: The newly stored upload.

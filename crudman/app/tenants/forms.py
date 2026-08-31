@@ -7,9 +7,8 @@ from .utils import slugify_tenant_name
 class TenantCreationForm(forms.ModelForm):
     """Form for creating a tenant in the admin.
 
-    The user types a human name like "Project A" and ``clean`` derives the slug used for
-    the role and bronze schema, so the slug field is not shown here. The password the
-    role needs is not stored on the model; it lives in PostgreSQL only.
+    ``clean`` derives the slug for the role and bronze schema from the human name, so the
+    slug field is not shown. The password is not stored on the model, only in PostgreSQL.
     """
 
     password = forms.CharField(
@@ -33,8 +32,7 @@ class TenantCreationForm(forms.ModelForm):
         display_name = cleaned.get("display_name", "")
         slug = slugify_tenant_name(display_name)
         if not slug:
-            # Everything was stripped away, so there is no valid identifier left for the
-            # role and schema.
+            # Nothing left to name the role and schema with.
             self.add_error(
                 "display_name", "Could not derive a valid identifier from this name."
             )
@@ -43,7 +41,7 @@ class TenantCreationForm(forms.ModelForm):
                 "display_name", f"A tenant with the identifier '{slug}' already exists."
             )
         else:
-            # name is the model's primary key (the slug); set it so save() persists it.
+            # The slug is the model's primary key, so save() needs it set here.
             cleaned["name"] = slug
             self.instance.name = slug
         return cleaned
@@ -52,8 +50,8 @@ class TenantCreationForm(forms.ModelForm):
 class TenantChangeForm(forms.ModelForm):
     """Form for editing an existing tenant.
 
-    The slug identifies the role and schema and cannot be changed, so it is read-only.
-    The human name and the resource limits are editable; the password is not.
+    The slug names the role and schema and so is read-only; the human name and the
+    resource limits are editable, the password is not.
     """
 
     class Meta:

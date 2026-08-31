@@ -1,15 +1,13 @@
 #!/bin/sh
-# Build the five service images with docker, the same way CI does, so a local build and
-# the release build stay identical. The CI workflow calls this script too.
+# Build the five service images with docker. The CI workflow calls this script too, so a
+# local build and the release build stay identical.
 #
 #   ./build.sh
 #
-# Settings come from buildtime.env: REGISTRY/IMAGE_TAG name the images
-# (REGISTRY/<svc>:IMAGE_TAG, matching the Image= lines in the quadlets), the
-# HTTP(S)_PROXY/NO_PROXY values are passed as --build-arg so package installs work from
-# behind a company proxy, PYTHON_INDEX adds a company PyPI mirror for uv, the *_MIRROR
-# values name the registries the base images are pulled from, and DUCKDB_EXTENSIONS and
-# GRAFANA_PLUGINS select what is baked into the PostgreSQL and Grafana images.
+# Settings come from buildtime.env: REGISTRY and IMAGE_TAG name the images to match the
+# quadlets' Image= lines, the proxy values let package installs through a company proxy,
+# PYTHON_INDEX adds a PyPI mirror, the *_MIRROR values name the base image registries, and
+# DUCKDB_EXTENSIONS and GRAFANA_PLUGINS select what is baked in.
 set -e
 
 cd "$(dirname "$0")"
@@ -22,8 +20,8 @@ set +a
 
 render_build_templates
 
-# The entrypoints are committed executable and the Dockerfiles use plain COPY, so the
-# build needs no BuildKit-only features and works on any docker (classic or BuildKit).
+# The entrypoints are committed executable and the Dockerfiles use plain COPY, so this
+# needs no BuildKit-only features.
 for svc in $SERVICES; do
   build_image docker "$svc"
 done

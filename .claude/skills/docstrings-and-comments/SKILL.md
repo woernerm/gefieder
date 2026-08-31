@@ -49,3 +49,8 @@ the git history). Correct that information (if not true or obsolete) or remove i
 if obsolete). Do not consider other comments, docstrings and readme files as source of 
 truth. Just code and third-party documentation are valid sources of truth.
 
+# Style
+- Keep gramatically correct sentences in docstrings and full-line comments.
+- Only shorten one line comments by removing fill words. Not content.
+- Only shorten docstrings which already have only three lines or less by removing fill words. Not content.  
+- Focus on why something is done (design decision rationale). Now how something is done.

@@ -6,8 +6,7 @@ class DropzonesConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
 
     def ready(self):
-        # New functions only arrive with a rebuilt image, so discovering them once at
-        # startup is sufficient.
+        # New functions arrive only with a rebuilt image, so once at startup is enough.
         from . import registry
 
         registry.autodiscover()

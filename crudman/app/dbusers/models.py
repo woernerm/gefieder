@@ -5,16 +5,13 @@ from django.db import models
 class DatabaseUser(models.Model):
     """A person's own PostgreSQL login role.
 
-    Unlike ``Tenant``, a real table rather than a cache over the catalog: the catalog
-    knows a role exists but not which Django account it belongs to, and that link is what
-    lets a rank change reach the database and makes a query traceable back to a person.
-
-    The credential itself is deliberately absent, so a lost password is re-provisioned
-    rather than recovered; see :mod:`dbusers.backends`.
+    Unlike ``Tenant``, a real table rather than a cache over the catalog: only this row
+    records which Django account a role belongs to. The credential is deliberately absent,
+    so a lost password is re-provisioned rather than recovered.
     """
 
-    # The Django account is the source of truth for who exists and what rank they hold;
-    # deleting it takes the row with it, and the pre_delete receiver disables the role.
+    # The Django account decides who exists and what rank they hold; deleting it takes
+    # the row with it, and the pre_delete receiver disables the role.
     user = models.OneToOneField(
         User,
         on_delete=models.CASCADE,
@@ -22,8 +19,8 @@ class DatabaseUser(models.Model):
         verbose_name="administrator",
     )
 
-    # Stored rather than derived on the fly (see utils.role_name_for) because the
-    # username may later change and the role it created must still be findable.
+    # Stored rather than derived (utils.role_name_for) so a later username change leaves
+    # the role it created findable.
     role_name = models.CharField(
         "database role",
         max_length=63,
@@ -32,8 +29,8 @@ class DatabaseUser(models.Model):
         help_text="The PostgreSQL login role, derived from the username.",
     )
 
-    # Mirrored here so the admin can show the rank without querying the catalog on every
-    # page load; the database stays authoritative, and re-provisioning rewrites both.
+    # Mirrored so the admin can show the rank without querying the catalog; the database
+    # stays authoritative and re-provisioning rewrites both.
     group_role = models.CharField(
         "rank",
         max_length=32,
@@ -41,8 +38,8 @@ class DatabaseUser(models.Model):
         help_text="The gf_* group role carrying this user's privileges.",
     )
 
-    # Set to False by delete_db_user rather than dropping the role, so objects the person
-    # created keep their owner and the audit trail survives their departure.
+    # delete_db_user clears this rather than dropping the role, so what the person
+    # created keeps its owner.
     is_enabled = models.BooleanField(
         "enabled",
         default=True,
@@ -51,8 +48,7 @@ class DatabaseUser(models.Model):
     )
 
     # An administrator enrolls someone, but the credential is generated on that person's
-    # next sign-in and shown to them alone, so no administrator learns a password that is
-    # not theirs. Until then the role exists with no password and cannot connect.
+    # next sign-in and shown to them alone. Until then the role cannot connect.
     awaiting_credential = models.BooleanField(
         "awaiting credential",
         default=True,

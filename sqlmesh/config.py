@@ -1,10 +1,8 @@
 """SQLMesh project configuration.
 
-Python rather than YAML, because the same project is loaded from two places with
-different connection settings and a Python config is evaluated when SQLMesh reads it: it
-works out for itself where it is running, so `sqlmesh plan` does the right thing both in
-the container and on a developer's machine. YAML holds a single config, so selecting
-between two needs `--config`, which its loader rejects outright.
+Python rather than YAML: the same project is loaded from two places with different
+connection settings, and a Python config is evaluated when SQLMesh reads it, so
+`sqlmesh plan` does the right thing both in the container and on a developer's machine.
 
 SQLMesh loads at most one config per directory and refuses to start if a config.yaml sits
 next to this file. Do not reintroduce one.
@@ -35,34 +33,31 @@ IN_CONTAINER = SECRET_PATH.exists()
 """Whether this is the deployed engine rather than a developer's checkout.
 
 The secret is mounted only in the container, so unlike a hostname or an environment
-variable its presence cannot accidentally be true in the wrong place.
+variable its presence cannot accidentally be true elsewhere.
 """
 
 if IN_CONTAINER:
-    # The quadlet sets these; the pod shares one network namespace, so the database is on
-    # localhost. The password comes from the secret rather than the environment so that
-    # `podman exec sqlmesh sqlmesh ...` works too — that shell never sees the export
-    # entrypoint.sh does for its own connection check.
+    # The quadlet sets these; the pod shares one network namespace, so the database is
+    # on localhost. The password comes from the secret rather than the environment, so
+    # `podman exec sqlmesh sqlmesh ...` works too.
     host = os.environ.get("POSTGRES_HOST", "localhost")
     port = int(os.environ.get("POSTGRES_PORT", "5432"))
     database = os.environ.get("POSTGRES_DB", "postgres")
     password = SECRET_PATH.read_text().strip()
-    # The deployed engine owns production, so it keeps the shared service role, named by
-    # SQLMESH_DB_USER in buildtime.env and passed in by sqlmesh.container.
+    # The deployed engine owns production, so it keeps the shared service role.
     user = os.environ.get("POSTGRES_USER", "sqlmesh")
 else:
-    # On a developer's machine the database is reached over the network, on the port the
-    # pod publishes. SERVER_NAME is already the right address, and it names a local
-    # development stack as well as a server, so no separate setting is needed.
+    # Over the network on a developer's machine, on the port the pod publishes.
+    # SERVER_NAME names a local development stack as well as a server.
     repo_root = Path(__file__).resolve().parent.parent
     runtime_env = dotenv_values(repo_root / "runtime.env")
     host = runtime_env["SERVER_NAME"]
     port = 5432
-    # A build-time setting, so it comes from the other file; the deployed engine gets the
-    # same value from POSTGRES_DB above, which the quadlet fills from it.
+    # A build-time setting, so it comes from the other file; the quadlet fills
+    # POSTGRES_DB from the same value.
     database = dotenv_values(repo_root / "buildtime.env")["PG_DATABASE"]
-    # SQLMesh loads sqlmesh/.env into the environment before importing this file, so this
-    # picks up either an exported variable or the gitignored file.
+    # SQLMesh loads sqlmesh/.env before importing this file, so an exported variable and
+    # the gitignored file both work.
     password = os.environ.get("SQLMESH_PASSWORD")
     if not password:
         raise ValueError(
@@ -72,13 +67,10 @@ else:
         )
 
     # Developers connect as themselves, so the shared sqlmesh secret never leaves the
-    # server: that is what makes a query traceable to a person and a departure a matter of
-    # disabling one role.
-    #
-    # The name is derived exactly as crudman derives it when provisioning (see
-    # dbusers.utils.role_name_for), and the prefix comes from the same buildtime.env the
-    # database was initialised from, so nothing has to be looked up or configured. Someone
-    # whose local account is named differently overrides the whole name with SQLMESH_USER.
+    # server, a query stays traceable to a person and a departure is one role disabled.
+    # The name is derived as crudman derives it when provisioning (dbusers.utils.
+    # role_name_for), from the buildtime.env the database was initialised from. Someone
+    # whose local account is named differently overrides it with SQLMESH_USER.
     role_prefix = dotenv_values(repo_root / "buildtime.env").get("DB_USER_PREFIX", "gf_")
     user = os.environ.get("SQLMESH_USER") or (
         role_prefix
@@ -88,8 +80,8 @@ else:
 def attach_path(**settings: object) -> str:
     """Build the libpq connection string DuckDB attaches PostgreSQL with.
 
-    Two layers of quoting have to survive each other, and skipping either works right up
-    until a password is not a tame hex string.
+    Two layers of quoting have to survive each other, and skipping either works until a
+    password is not a tame hex string.
 
     Args:
         **settings: The libpq keywords and their values, e.g. dbname, host, password.
@@ -108,8 +100,8 @@ def attach_path(**settings: object) -> str:
     return conninfo.replace("'", "''")
 
 
-# Read back from the image rather than listed again, so the gateway loads exactly what is
-# on disk. Empty on a developer's machine, where DuckDB downloads what a model asks for.
+# Read back from the image rather than listed again, so the gateway loads what is on
+# disk. Empty on a developer's machine, where DuckDB downloads what a model asks for.
 duckdb_extensions = [e for e in os.environ.get("DUCKDB_EXTENSIONS", "").split(",") if e]
 
 config = Config(
@@ -123,16 +115,14 @@ config = Config(
                 password=password,
             )
         ),
-        # DuckDB as the compute engine, PostgreSQL as the storage: it attaches the same
-        # database over the same connection and, being the only catalog, makes it
-        # DuckDB's default, so a model on this gateway reads and writes PostgreSQL tables
-        # like any other and nothing downstream learns which engine built it.
+        # DuckDB as the compute engine, PostgreSQL as the storage: the same database is
+        # attached as DuckDB's only catalog, so a model here reads and writes PostgreSQL
+        # tables like any other.
         #
-        # What it buys is DuckDB's *grammar* — ASOF JOIN, QUALIFY, PIVOT — which pg_duckdb
-        # cannot offer however hard it accelerates execution, PostgreSQL parsing the
-        # statement long before DuckDB sees it. What it costs is a second engine and a
-        # round trip per row, so it earns its place for a query the grammar makes simpler
-        # or faster, not as a default. The worked example is
+        # It buys DuckDB's *grammar* -- ASOF JOIN, QUALIFY, PIVOT -- which pg_duckdb
+        # cannot offer, PostgreSQL parsing the statement long before DuckDB sees it. It
+        # costs a second engine and a round trip per row, so it is for a query the
+        # grammar makes simpler or faster, not a default. Worked example:
         # models/silver/project_b/issue_risk_history.sql.
         "duckdb": GatewayConfig(
             connection=DuckDBConnectionConfig(
@@ -153,9 +143,8 @@ config = Config(
         ),
     },
     default_gateway="postgres",
-    # The deployed engine maintains production; a developer's machine defaults to "dev",
-    # so the command easiest to type is the safe one and reaching production takes a
-    # deliberate `sqlmesh plan prod`.
+    # A developer's machine defaults to "dev", so the command easiest to type is the
+    # safe one and production takes a deliberate `sqlmesh plan prod`.
     default_target_environment="prod" if IN_CONTAINER else "dev",
     model_defaults=ModelDefaultsConfig(
         dialect="postgres",

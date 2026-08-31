@@ -18,9 +18,8 @@ class Dropzone(models.Model):
 
     A dropzone describes the expected format of a set of files, who may upload them and
     what happens on upload: an optional checker rejects bad files, an optional converter
-    transforms them, and the result is stored on the uploads volume as an
-    :class:`Upload`. The unguessable token forms the upload URL, so a link can be handed
-    out without creating an account (``require_login`` off).
+    transforms them, and the result is stored as an :class:`Upload`. The unguessable
+    token forms the upload URL, so a link can be handed out without an account.
     """
 
     class Method(models.TextChoices):
@@ -88,9 +87,8 @@ class Dropzone(models.Model):
         editable=False,
         help_text="Unguessable part of the upload URL.",
     )
-    # One credential field serves the unattended methods because a dropzone has exactly
-    # one upload method: an API or webhook dropzone never needs an SFTP password and
-    # vice versa.
+    # One credential field serves every unattended method, a dropzone having exactly one
+    # upload method.
     secret = models.CharField(
         blank=True,
         max_length=64,
@@ -140,8 +138,8 @@ class Dropzone(models.Model):
             view: Name of the view within the ``dropzones`` URL namespace.
 
         Returns:
-            The URL, its scheme following DEBUG exactly as the proxy's choice of
-            template does, so an uploader gets the address their client will reach.
+            The URL, its scheme following DEBUG as the proxy's choice of template does,
+            so an uploader gets the address their client will reach.
         """
         scheme = "http" if settings.DEBUG else "https"
         path = reverse(f"dropzones:{view}", kwargs={"token": self.token})
@@ -166,8 +164,8 @@ class Dropzone(models.Model):
     def flight_address(self):
         """The Arrow Flight address to hand to an uploader.
 
-        Plain ``grpc://``: the endpoint is published straight from the pod like the
-        SFTP port, so nothing terminates TLS in front of it.
+        Plain ``grpc://``: the endpoint is published straight from the pod, so nothing
+        terminates TLS in front of it.
         """
         return f"grpc://{settings.SERVER_NAME}:{settings.FLIGHT_PORT}"
 
@@ -189,9 +187,8 @@ class Dropzone(models.Model):
         """A ready-to-run example for this dropzone's upload method.
 
         Returns:
-            The method's template from :mod:`dropzones.examples` with this dropzone's
-            address, name and secret filled in, or "" for a method without a template.
-            A dropzone with no secret yet shows a ``<secret>`` marker in its place.
+            The method's template from :mod:`dropzones.examples`, filled in, or "" for a
+            method without one. A dropzone with no secret shows a ``<secret>`` marker.
         """
         template = examples.TEMPLATES.get(self.upload_method)
         if template is None:
@@ -201,7 +198,7 @@ class Dropzone(models.Model):
             if self.upload_method == self.Method.FLIGHT
             else settings.SFTP_PORT
         )
-        # Every placeholder is supplied; each template uses only the ones it needs.
+        # Every placeholder is supplied; a template uses only the ones it needs.
         return template.format(
             url=self.upload_address(),
             address=self.upload_address(),
@@ -224,8 +221,8 @@ class Dropzone(models.Model):
         """Whether ``presented`` authorizes an API or webhook upload to this dropzone.
 
         Without a login requirement the URL token alone authorizes the upload, so an
-        empty secret accepts any client. With one, an empty secret rejects every client
-        rather than silently opening the endpoint.
+        empty secret accepts any client; with one, it rejects every client rather than
+        silently opening the endpoint.
 
         Args:
             presented: The secret the client sent.
@@ -243,7 +240,7 @@ class Dropzone(models.Model):
         """Whether ``presented`` is this dropzone's password, for SFTP and Flight.
 
         Neither protocol carries an unguessable URL token, so an empty secret rejects
-        every login rather than opening the server.
+        every login.
 
         Args:
             presented: The password the client sent.
@@ -260,15 +257,13 @@ class UploadQuerySet(models.QuerySet):
     def valid_at(self, timestamp):
         """The uploads whose validity period covers ``timestamp``, newest first.
 
-        An open bound (NULL) never excludes an upload, so "always valid" and "valid
-        until replacement" behave as their names promise.
+        An open bound (NULL) never excludes an upload.
 
         Args:
             timestamp: The point in time the uploads must be valid at.
 
         Returns:
-            The matching uploads, newest first so that the newest wins where periods
-            overlap; callers wanting exactly one take ``.first()``.
+            The matching uploads, newest first, so the newest wins where periods overlap.
         """
         covers_start = Q(valid_from__isnull=True) | Q(valid_from__lte=timestamp)
         covers_end = Q(valid_until__isnull=True) | Q(valid_until__gt=timestamp)
@@ -291,8 +286,8 @@ class Upload(models.Model):
           AND (u.valid_until IS NULL OR @ts < u.valid_until)
         ORDER BY u.uploaded_at DESC
 
-    ``f.file`` already contains ``directory``, so the absolute path is the uploads
-    volume mount point plus ``f.file``.
+    ``f.file`` already contains ``directory``, so the absolute path is the volume's
+    mount point plus ``f.file``.
     """
 
     dropzone = models.ForeignKey(
@@ -339,8 +334,7 @@ class Upload(models.Model):
 
 
 def upload_file_path(instance, filename):
-    # The per-upload directory was chosen by the pipeline; the storage backend
-    # sanitizes the file name part.
+    # The pipeline chose the directory; the storage backend sanitizes the file name.
     return instance.upload.directory + filename
 
 
@@ -355,8 +349,7 @@ class UploadFile(models.Model):
         verbose_name_plural = "uploaded files"
 
     def __str__(self):
-        # The bare name: the directory is Upload-level information, and the admin
-        # shows this string wherever the file is mentioned.
+        # The bare name: the directory is Upload-level information.
         return Path(self.file.name).name if self.file else "(no file)"
 
 
@@ -365,7 +358,7 @@ def remove_upload_directory(directory):
 
     Args:
         directory: The directory, relative to MEDIA_ROOT. Guarded so that only a real
-            subdirectory of MEDIA_ROOT can be removed, even if this is malformed.
+            subdirectory of it can be removed, however malformed this is.
     """
     if not directory:
         return
@@ -377,13 +370,12 @@ def remove_upload_directory(directory):
 
 @receiver(post_delete, sender=UploadFile)
 def _delete_stored_file(sender, instance, **kwargs):
-    # Deleting the row (directly or via its upload) removes the file from the volume;
-    # Django deliberately does not do this on its own.
+    # Django deliberately leaves the file on the volume when its row goes.
     instance.file.delete(save=False)
 
 
 @receiver(post_delete, sender=Upload)
 def _delete_upload_directory(sender, instance, **kwargs):
-    # The files are gone by now (the cascade deleted the UploadFile rows first); this
-    # removes the then-empty per-upload directory, which FileField.delete leaves behind.
+    # The cascade deleted the files already; FileField.delete leaves the now-empty
+    # per-upload directory behind.
     remove_upload_directory(instance.directory)

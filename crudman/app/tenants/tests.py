@@ -22,14 +22,13 @@ class TenantModelTests(TestCase):
         self.assertEqual(str(Tenant(name="acme", display_name="Acme")), "Acme")
 
     def test_str_falls_back_to_slug_without_display_name(self):
-        # Tenants created outside crudman (e.g. the seeded example tenants) have no display
-        # name, so the slug stands in for it.
+        # Tenants created outside crudman have no display name.
         self.assertEqual(str(Tenant(name="project_a")), "project_a")
 
 
 class SlugifyTenantNameTests(TestCase):
     def test_lowercases_and_replaces_spaces(self):
-        # The headline case: "Project A" must become a valid PostgreSQL identifier.
+        # The headline case: a valid PostgreSQL identifier out of a human name.
         self.assertEqual(utils.slugify_tenant_name("Project A"), "project_a")
 
     def test_collapses_separators_and_strips_edges(self):
@@ -119,8 +118,7 @@ class GetTenantsUtilTests(TestCase):
         self.assertEqual(acme.work_mem, "256MB")
         self.assertEqual(acme.temp_file_limit, "1GB")
 
-        # PostgreSQL's unlimited sentinels (-1 and "0") are kept as-is, the same
-        # representation the add form and set_tenant_limits use for "no limit".
+        # The sentinels are kept as they are, the same the add form uses.
         globex = tenants[1]
         self.assertEqual(globex.connection_limit, Tenant.UNLIMITED_COUNT)
         self.assertEqual(globex.statement_timeout, Tenant.UNLIMITED_SIZE)
@@ -199,9 +197,7 @@ class TenantFormTests(TestCase):
 
 
 class TenantAdminTests(TestCase):
-    """The admin drives PostgreSQL via the database functions.
-
-    The cache row is only written once the database side has succeeded."""
+    """The admin drives PostgreSQL, caching a row only once that has succeeded."""
 
     def setUp(self):
         from django.contrib import admin
@@ -274,9 +270,7 @@ class TenantAdminTests(TestCase):
 
 
 class TenantAdminLimitDisplayTests(TestCase):
-    """The changelist renders the "no limit" sentinels as "infinite".
-
-    Real limits are shown unchanged."""
+    """The changelist renders the "no limit" sentinels as "infinite"."""
 
     def setUp(self):
         from django.contrib import admin
@@ -311,9 +305,7 @@ class TenantAdminLimitDisplayTests(TestCase):
 
 
 class TenantAdminViewTests(TestCase):
-    """The admin pages render, end to end.
-
-    The database functions, not the ORM, drive create, edit and delete."""
+    """The admin pages render, end to end, driven by the database functions."""
 
     def setUp(self):
         admin_user = User.objects.create_superuser("admin", "a@example.com", "password")
@@ -321,7 +313,7 @@ class TenantAdminViewTests(TestCase):
 
     @patch("tenants.admin.sync_tenants")
     def test_changelist_syncs_and_lists_tenants(self, sync):
-        # sync_tenants would normally populate the table from PostgreSQL; seed it directly.
+        # Seeded directly, in place of the sync from PostgreSQL.
         Tenant.objects.create(name="acme")
         response = self.client.get(reverse("admin:tenants_tenant_changelist"))
         self.assertEqual(response.status_code, 200)
@@ -343,7 +335,7 @@ class TenantAdminViewTests(TestCase):
             },
         )
         self.assertEqual(response.status_code, 302)
-        # The slug derived from "Project A" reaches create_tenant along with the human name.
+        # The derived slug reaches create_tenant along with the human name.
         create.assert_called_once_with("project_a", "supersecret", "Project A")
         self.assertTrue(Tenant.objects.filter(name="project_a").exists())
 

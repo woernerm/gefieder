@@ -1,29 +1,26 @@
--- The schema is named after the component, the role after CRUDMAN_DB_USER in
--- buildtime.env (postgresql/render.sh substituted it): a role shares one namespace with
--- every other role in the cluster and may have to dodge a collision, a schema does not.
--- The same split applies to the sqlmesh and grafana roles below.
+-- The schema is named after the component, the role after CRUDMAN_DB_USER: a role shares
+-- one namespace with every other in the cluster and may have to dodge a collision, a
+-- schema does not. The same split applies to sqlmesh and grafana below.
 CREATE SCHEMA IF NOT EXISTS crudman AUTHORIZATION ${CRUDMAN_DB_USER};
 
 GRANT ALL PRIVILEGES ON SCHEMA crudman TO ${CRUDMAN_DB_USER};
 ALTER DEFAULT PRIVILEGES IN SCHEMA crudman GRANT ALL ON TABLES TO ${CRUDMAN_DB_USER};
 ALTER DEFAULT PRIVILEGES IN SCHEMA crudman GRANT ALL ON SEQUENCES TO ${CRUDMAN_DB_USER};
 
--- The analytics role may read, but not write, the crudman schema. The default privileges
--- name the schema's owner in their FOR ROLE, because that is what creates the tables.
+-- Read, not write. The default privileges name the schema's owner in their FOR ROLE,
+-- that being what creates the tables.
 GRANT USAGE ON SCHEMA crudman TO ${SQLMESH_DB_USER};
 GRANT SELECT ON ALL TABLES IN SCHEMA crudman TO ${SQLMESH_DB_USER};
 ALTER DEFAULT PRIVILEGES FOR ROLE ${CRUDMAN_DB_USER} IN SCHEMA crudman GRANT SELECT ON TABLES TO ${SQLMESH_DB_USER};
 
--- Grafana reads, but never writes, the analytics data: the per-tenant bronze schemas
--- (bronze_<tenant>), the standardized silver schema and the materialized gold schema.
--- It must NOT see sqlmesh's internals: the physical schemas behind the virtual layer
--- (sqlmesh__*), the per-tenant silver staging schema (silver_staging) and the state
--- schema (sqlmesh) all hold versioned, churning objects that are not meant to be queried.
+-- Grafana reads, never writes, the analytics data: the per-tenant bronze schemas, silver
+-- and gold. It must not see sqlmesh's internals -- the physical schemas behind the virtual
+-- layer, the staging schema and the state schema -- which hold churning objects not meant
+-- to be queried.
 --
--- The bronze schemas are created later by create_tenant, so an event trigger grants
--- grafana read access as each one appears -- but only for bronze_<tenant> schemas, so the
--- sqlmesh__bronze_* physical schemas (and every other sqlmesh-created schema) are skipped.
--- silver and gold are created explicitly below and granted directly.
+-- create_tenant creates the bronze schemas later, so an event trigger grants each as it
+-- appears, and only bronze_<tenant>, skipping sqlmesh__bronze_* and everything else
+-- sqlmesh creates. silver and gold are created below and granted directly.
 CREATE OR REPLACE FUNCTION grant_grafana_read()
 RETURNS event_trigger
 LANGUAGE plpgsql
@@ -36,10 +33,9 @@ BEGIN
         FROM pg_event_trigger_ddl_commands()
         WHERE command_tag = 'CREATE SCHEMA'
     LOOP
-        -- Only the tenant bronze schemas are visible to grafana, and not sqlmesh's
-        -- physical mirror of them (sqlmesh__bronze_*), which is internal. starts_with
-        -- rather than LIKE because the prefix is configurable and ends in an
-        -- underscore, which LIKE would read as a single-character wildcard.
+        -- The tenant bronze schemas, not sqlmesh's internal mirror of them. starts_with
+        -- rather than LIKE: the configurable prefix ends in an underscore, which LIKE
+        -- would read as a wildcard.
         CONTINUE WHEN NOT starts_with(obj.object_identity, '${BRONZE_SCHEMA_PREFIX}')
                    OR starts_with(obj.object_identity, 'sqlmesh__');
 
@@ -62,10 +58,9 @@ CREATE EVENT TRIGGER grafana_read_on_create_schema
     WHEN TAG IN ('CREATE SCHEMA')
     EXECUTE FUNCTION grant_grafana_read();
 
--- The standardized silver schema and the materialized gold schema are owned by
--- sqlmesh, which writes its models there. Grant grafana read on them directly (the event
--- trigger above only handles the bronze schemas). The default privileges are set FOR
--- sqlmesh so grafana can also read tables and views sqlmesh adds to them later.
+-- Owned by sqlmesh, which writes its models there, and granted directly since the trigger
+-- above handles only bronze. The default privileges are FOR sqlmesh, so grafana also reads
+-- what it adds later.
 CREATE SCHEMA IF NOT EXISTS ${SILVER_SCHEMA} AUTHORIZATION ${SQLMESH_DB_USER};
 CREATE SCHEMA IF NOT EXISTS ${GOLD_SCHEMA} AUTHORIZATION ${SQLMESH_DB_USER};
 
@@ -74,11 +69,9 @@ GRANT SELECT ON ALL TABLES IN SCHEMA ${SILVER_SCHEMA}, ${GOLD_SCHEMA} TO ${GRAFA
 ALTER DEFAULT PRIVILEGES FOR ROLE ${SQLMESH_DB_USER} IN SCHEMA ${SILVER_SCHEMA} GRANT SELECT ON TABLES TO ${GRAFANA_DB_USER};
 ALTER DEFAULT PRIVILEGES FOR ROLE ${SQLMESH_DB_USER} IN SCHEMA ${GOLD_SCHEMA} GRANT SELECT ON TABLES TO ${GRAFANA_DB_USER};
 
--- Grafana may also read the crudman model tables, but not the Django-internal tables
--- (user, session, migration, ... tables, recognisable by their auth_/django_ prefix)
--- which hold credentials and framework state. The crudman schema already exists, so
--- grafana is granted USAGE here and an event trigger grants SELECT on every model
--- table crudman creates afterwards.
+-- Grafana also reads the crudman model tables, but not Django's own auth_/django_ ones,
+-- which hold credentials and framework state. The schema already exists, so USAGE is
+-- granted here and an event trigger grants SELECT on every model table created later.
 GRANT USAGE ON SCHEMA crudman TO ${GRAFANA_DB_USER};
 
 CREATE OR REPLACE FUNCTION grant_grafana_read_crudman()
@@ -94,9 +87,8 @@ BEGIN
         WHERE command_tag = 'CREATE TABLE'
           AND schema_name = 'crudman'
     LOOP
-        -- Skip Django's own tables, and the dropzone table because it holds the
-        -- secret upload-link tokens (grafana keeps read access to the upload/file
-        -- tables, which are the ones dashboards need).
+        -- Django's own tables, and the dropzone table for its upload-link tokens; the
+        -- upload and file tables the dashboards need stay readable.
         IF obj.object_identity LIKE 'crudman.auth\_%'
            OR obj.object_identity LIKE 'crudman.django\_%'
            OR obj.object_identity = 'crudman.dropzones_dropzone' THEN

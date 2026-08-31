@@ -1,22 +1,18 @@
 """What a sign-in asks the provider for.
 
-The three standard OpenID Connect scopes carry every claim this project reads. The
-profile picture is the exception: some providers keep it behind their own API and want a
-permission of their own before parting with it.
-
-Which permission cannot be discovered — Entra ID's document advertises neither User.Read
-(a Microsoft Graph permission rather than a scope) nor the ``picture`` claim its userinfo
-endpoint returns — so the provider is recognised by its configured issuer instead.
-Asking everywhere is not an option: a provider refuses an authorization request naming a
-scope it has never heard of, so a misplaced scope costs the sign-in, not just a picture.
+The three standard OpenID Connect scopes carry every claim this project reads, except the
+profile picture: some providers keep it behind their own API and want a permission of
+their own. Which permission cannot be discovered — Entra ID's document advertises neither
+User.Read nor the ``picture`` claim — so the provider is recognised by its issuer instead.
+Asking everywhere would cost the sign-in, a provider refusing an authorization request
+naming a scope it has never heard of.
 """
 from urllib.parse import urlparse
 
 STANDARD_SCOPES = ("openid", "profile", "email")
 """What this project needs to know who somebody is. Universal, and enough on its own."""
 
-# Domains rather than whole host names, because every tenant has an issuer of its own
-# beneath them.
+# Domains rather than host names: every tenant has an issuer of its own beneath them.
 PICTURE_SCOPES = (
     ("microsoftonline.com", "User.Read"),  # Entra ID, worldwide
     ("microsoftonline.us", "User.Read"),  # Entra ID, US government
@@ -31,9 +27,8 @@ def scopes_for(issuer, override=""):
 
     Args:
         issuer: The configured issuer URL, whose host picks the picture scope.
-        override: Space-separated scopes to ask for instead. There for the tenant that
-            will not grant the extra permission, whose sign-in then fails outright
-            rather than merely losing the picture.
+        override: Space-separated scopes to ask for instead, for the tenant that will
+            not grant the extra permission.
 
     Returns:
         The scope names to send with the authorization request.
@@ -44,8 +39,8 @@ def scopes_for(issuer, override=""):
     host = (urlparse(issuer).hostname or "").lower()
     return [
         *STANDARD_SCOPES,
-        # A dot before the domain, so only a host truly beneath it matches and not
-        # merely one whose name ends in the same letters.
+        # A dot before the domain, so a lookalike name ending in the same letters does
+        # not match.
         *(
             scope
             for domain, scope in PICTURE_SCOPES

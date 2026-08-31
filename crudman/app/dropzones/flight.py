@@ -1,18 +1,14 @@
 """The dropzones Arrow Flight endpoint (run by ``manage.py flightserver``).
 
 Arrow Flight sends tables, not files, so every table is written to one parquet file and
-the set is handed to the same pipeline the other upload methods use. A client names each
-table in the flight descriptor (``<dropzone>/<table>``).
+the set handed to the same pipeline the other methods use. A client names each table in
+the flight descriptor (``<dropzone>/<table>``).
 
-One upload spans several ``DoPut`` calls, tied together by the bearer token minted
-during authentication: unguessable, bound to the authenticated dropzone and stable for
-the life of the connection, so no separate session handshake is needed. The client ends
-the upload with a ``commit`` action; a client that dies beforehand stores nothing.
-
-The commit is explicit rather than inferred from the disconnect because a client killed
-mid-transfer looks exactly like one that finished: the socket closes and the batch
-stream simply ends. ``ServerCallContext.is_cancelled`` tells the two apart, so it guards
-every table, and a session that saw a truncated table refuses to commit.
+One upload spans several ``DoPut`` calls, tied together by the bearer token minted during
+authentication, and ends with a ``commit`` action. The commit is explicit rather than
+inferred from the disconnect because a client killed mid-transfer looks exactly like one
+that finished. ``ServerCallContext.is_cancelled`` tells the two apart, so it guards every
+table and a session that saw a truncated one refuses to commit.
 """
 
 import logging
@@ -33,9 +29,8 @@ from .services import UploadError
 
 logger = logging.getLogger(__name__)
 
-# The open upload sessions, keyed by the bearer token minted at authentication. Guarded
-# by _lock because Flight serves calls on a thread pool, so two DoPuts of one upload can
-# run at the same time.
+# The open upload sessions, keyed by the bearer token minted at authentication. _lock
+# because Flight serves calls on a thread pool, so two DoPuts can run at once.
 _sessions = {}
 _lock = threading.Lock()
 
@@ -65,8 +60,8 @@ class Session:
 class AuthMiddleware(flight.ServerMiddleware):
     """Carries the session token of the call it belongs to.
 
-    ``sending_headers`` hands a freshly minted token back to the client, which then
-    presents it as a bearer token on the rest of the upload.
+    ``sending_headers`` hands a freshly minted token back to the client, which presents it
+    as a bearer token on the rest of the upload.
 
     Attributes:
         token: The session token of this call's upload.
@@ -82,8 +77,8 @@ class AuthMiddleware(flight.ServerMiddleware):
 class AuthMiddlewareFactory(flight.ServerMiddlewareFactory):
     """Authenticates every call and opens the upload session on the first one.
 
-    ``Basic`` credentials (the dropzone's name and secret) open a session and mint its
-    token; every later call of the same upload presents that token as ``Bearer``.
+    ``Basic`` credentials open a session and mint its token; every later call of the same
+    upload presents that token as ``Bearer``.
     """
 
     def start_call(self, info, headers):
@@ -106,7 +101,7 @@ class AuthMiddlewareFactory(flight.ServerMiddlewareFactory):
 
     def _open_session(self, credentials):
         # pyarrow's authenticate_basic_token sends unpadded base64, which the standard
-        # decoder rejects; the padding is re-added rather than decoded leniently.
+        # decoder rejects.
         import base64
 
         try:
@@ -152,13 +147,13 @@ class FlightEndpoint(flight.FlightServerBase):
             FlightServerError: The table broke off mid-transfer.
         """
         _, session = self._session(context)
-        # The descriptor path is <dropzone>/<table>; only the table name matters here,
-        # and its bare form keeps a client from writing outside the session directory.
+        # The descriptor path is <dropzone>/<table>; the bare table name keeps a client
+        # from writing outside the session directory.
         table_name = Path(descriptor.path[-1].decode()).name
         table = reader.read_all()
         if context.is_cancelled():
-            # The client vanished mid-table. The stream ends without an error in that
-            # case, so only this flag distinguishes a truncated table from a whole one.
+            # The client vanished mid-table, which ends the stream without an error, so
+            # only this flag tells a truncated table from a whole one.
             session.truncated = True
             logger.warning(
                 "Dropzone '%s': table '%s' broke off mid-transfer",
@@ -203,8 +198,8 @@ class FlightEndpoint(flight.FlightServerBase):
                     sorted(p for p in session.directory.iterdir() if p.is_file()),
                 )
             except UploadError as error:
-                # The checker/converter verdict; unlike SFTP the uploader is still
-                # connected, so the rejection reaches them instead of only the log.
+                # Unlike SFTP the uploader is still connected, so the checker's verdict
+                # reaches them instead of only the log.
                 logger.warning(
                     "Dropzone '%s': upload rejected: %s", session.name, error
                 )
@@ -223,8 +218,7 @@ class FlightEndpoint(flight.FlightServerBase):
 def _sweep(timeout):
     """Discard sessions whose client never committed.
 
-    Nothing is stored for them: committing an abandoned upload would turn a client crash
-    into a silently partial upload.
+    Nothing is stored: committing one would turn a client crash into a partial upload.
 
     Args:
         timeout: Seconds of inactivity after which a session is abandoned.
@@ -255,9 +249,8 @@ def serve(port, timeout=None):
     timeout = settings.FLIGHT_SESSION_TIMEOUT if timeout is None else timeout
     server = FlightEndpoint(
         location=f"grpc://0.0.0.0:{port}",
-        # The handshake pyarrow's authenticate_basic_token performs is only offered
-        # when an auth handler is installed; the credentials themselves are checked by
-        # the middleware, which sees every later call too.
+        # The handshake authenticate_basic_token performs is offered only with an auth
+        # handler installed; the middleware does the checking, on every call.
         auth_handler=NoOpAuthHandler(),
         middleware={"auth": AuthMiddlewareFactory()},
     )

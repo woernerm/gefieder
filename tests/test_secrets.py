@@ -1,11 +1,9 @@
-"""Secrets hygiene CLAUDE.md implies.
+"""Passwords and keys are podman secrets, never values in a unit file or an image.
 
-Passwords and keys are podman secrets, so their values never appear in the rendered
-quadlet units or the images.
-
-The quadlets reference secrets by name (Secret=...) and the images receive them at
-runtime via /run/secrets, so neither the unit files nor the image config/history should
-contain any secret value."""
+The quadlets reference them by name (Secret=...) and the images receive them at runtime
+under /run/secrets, so neither the units nor the image config and history may carry a
+secret value.
+"""
 import json
 import os
 
@@ -13,7 +11,7 @@ import pytest
 
 from conftest import CONTAINERS, SECRETS, SUPERUSER_NAME, inspect_container, podman
 
-# The actual secret values, from the same env the suite uses for its DB connections.
+# The values themselves, from the env the suite uses for its database connections.
 SECRET_VALUES = {
     SECRETS["superuser"]: os.environ["TEST_SUPERUSER_PASSWORD"],
     SECRETS["crudman"]: os.environ["TEST_CRUDMAN_PASSWORD"],
@@ -21,11 +19,9 @@ SECRET_VALUES = {
     SECRETS["grafana"]: os.environ["TEST_GRAFANA_PASSWORD"],
 }
 
-# Config values the quadlets are meant to contain in plain text. The dev profile sets the
-# superuser password equal to the (public) superuser name "admin", so that value appears
-# legitimately wherever the name is rendered. A secret whose value equals one of these is
-# indistinguishable from the legitimate token by a substring scan, so it is excluded from
-# the leak check below; the production profile uses a random password and is unaffected.
+# Config values the quadlets legitimately contain in plain text. The dev profile sets the
+# superuser password equal to the public superuser name, and a substring scan cannot tell
+# the two apart, so such a value is excluded below. Production uses a random password.
 PUBLIC_TOKENS = {SUPERUSER_NAME}
 
 
@@ -42,9 +38,9 @@ QUADLET_DIR = os.path.join(
 def _image_text(container):
     """All env values and layer-creating commands of a container's image, as one string.
 
-    These are where a baked-in secret would surface: an ENV line, or a RUN/COPY that
-    embedded the value. Read from the image (not the container) so a runtime-only
-    /run/secrets mount is not mistaken for a baked-in value.
+    Where a baked-in secret would surface: an ENV line, or a RUN/COPY that embedded the
+    value. Read from the image, so a runtime-only /run/secrets mount is not mistaken for
+    one.
     """
     image = inspect_container(container)["ImageName"]
     cfg = json.loads(podman("image", "inspect", image))[0]
@@ -74,13 +70,12 @@ class TestSecretsNotInQuadlets:
         for name, value in _leakable(SECRET_VALUES).items():
             assert value not in blob, f"{name} value is present in a rendered quadlet"
 
-    # oidc_client_secret carries no value worth scanning for — the installer fills it with
-    # a placeholder until an operator sets the real one — but it must exist all the same,
-    # because the containers referencing it will not start otherwise.
+    # oidc_client_secret holds only the installer's placeholder until an operator sets the
+    # real one, but it must exist: the containers referencing it will not start otherwise.
     @pytest.mark.parametrize(
         "name", list(SECRET_VALUES) + [SECRETS["django_key"], SECRETS["oidc_client"]]
     )
     def test_secrets_shall_exist_as_podman_secrets(self, name):
-        # The credentials are managed as podman secrets, not inline config.
+        # Credentials are podman secrets, not inline config.
         names = podman("secret", "ls", "--format", "{{.Name}}").split()
         assert name in names, f"{name} is not a podman secret"

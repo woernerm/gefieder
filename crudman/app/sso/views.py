@@ -13,8 +13,8 @@ from .avatars import PICTURE_MAX_AGE, stored_picture
 LOCAL_LOGIN_PARAM = "local"
 """Query parameter that reaches the local login form while single sign-on is on.
 
-The way back in for the superuser when the provider is unreachable or misconfigured, so
-it is named in the README. Grafana's equivalent is /login?disableAutoLogin.
+The way back in for the superuser when the provider is unreachable, so it is named in the
+README. Grafana's equivalent is /login?disableAutoLogin.
 """
 
 
@@ -25,9 +25,8 @@ def login(request):
     page at all, which is the point of doing this instead of offering a button.
 
     Args:
-        request: The HTTP request. A POST is always the local form submitting itself,
-            which posts back to this URL without the query string, so treating POST as
-            local is what keeps the escape hatch usable.
+        request: The HTTP request. The local form posts back here without the query
+            string, so a POST counts as local or the escape hatch would be unusable.
 
     Returns:
         The admin's login page, or a redirect to the provider.
@@ -49,13 +48,12 @@ def login(request):
 def logout(request):
     """End the session here, then send the browser on to end the provider's.
 
-    Without the second half, signing out achieves nothing visible: the provider still
-    holds its session and ``login`` hands it straight back on the next page view.
+    Without the second half the provider still holds its session, and ``login`` hands it
+    straight back on the next page view.
 
     Args:
-        request: The HTTP request. Anything but a POST is left to the admin, which
-            answers a GET with "method not allowed" so another site cannot sign someone
-            out from a link.
+        request: The HTTP request. Anything but a POST is left to the admin, which answers
+            a GET with "method not allowed" so a link cannot sign someone out.
 
     Returns:
         A redirect to the provider's logout URL, or the admin's own logout response.
@@ -72,9 +70,8 @@ def avatar(request):
     """Serve the profile picture the login downloaded, out of the session holding it.
 
     Only for providers whose picture a browser cannot fetch for itself; see
-    :mod:`sso.avatars`. The answer is built from the requester's own session, so nothing
-    here is anyone else's to see. Cached privately so the browser asks once per session
-    and no shared cache keeps one person's face for the next.
+    :mod:`sso.avatars`. Built from the requester's own session, and cached privately so no
+    shared cache keeps one person's face for the next.
 
     Args:
         request: The HTTP request, whose session carries the picture.

@@ -1,7 +1,6 @@
-# Create the server-statistics schema, which holds what is needed to size a future server
-# and to find queries worth an index. The schema name comes from SERVER_STATS_SCHEMA and is
-# interpolated here because psql cannot template an identifier inside a plain .sql file;
-# every identifier goes through %I/quote_ident so the configured name cannot inject SQL.
+# The server-statistics schema: what is needed to size a future server and find queries
+# worth an index. A shell script because psql cannot template an identifier inside a .sql
+# file; every identifier goes through %I/quote_ident, so the configured name cannot inject.
 #
 # Five raw tables are filled by the collector:
 #   host_sample     -- host/cgroup/network counters (the sizing inputs)
@@ -9,15 +8,12 @@
 #   query_dim       -- the statement text behind query_sample.queryid, stored once
 #   table_sample    -- a pg_stat_user_tables / pg_statio snapshot (which table needs an index)
 #   dashboard_visit -- the page visits drained from the proxy's visits.log
-# host_sample is one row per tick; the two snapshot tables store only what changed since the
-# previous snapshot, and dashboard_visit gets one row per visit.
-# The host, IO and network values are monotonic counters stored raw, so a rate is a delta
-# between two rows. That is restart-safe — a reset shows up as one ignored negative delta —
-# and lets the display pick any window.
+# host_sample gets one row per tick and dashboard_visit one per visit; the snapshot tables
+# store only what changed. The counters are stored raw, so a rate is a delta between two
+# rows: restart-safe, a reset showing up as one ignored negative delta.
 #
-# rollup_and_prune(), called each tick, aggregates the raw rows into hourly buckets and
-# drops raw rows past the retention window, so the raw tables stay small over months while
-# the hourly history remains for the long sizing horizon.
+# rollup_and_prune(), called each tick, folds the raw rows into hourly buckets and drops
+# raw rows past the retention window, so the hourly history outlives them.
 set -e
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
@@ -29,34 +25,30 @@ CREATE SCHEMA IF NOT EXISTS :"schema";
 --------------------------------------------------------------------------------
 -- Raw host/resource counters: one row per collector tick.
 --------------------------------------------------------------------------------
--- Every *_bytes / *_usec / *_ios column is a monotonic counter read from the pod's
--- cgroup (cpu.stat, memory.current/peak, io.stat) or the host network interface. The
--- *_size_bytes columns are absolute sizes (disk space, temp spill), not counters. A rate
--- is the difference between two consecutive rows divided by their time difference.
+-- Every *_bytes / *_usec / *_ios column is a monotonic counter from the pod's cgroup or
+-- the host network interface, so a rate is the difference between two rows over their time
+-- difference. The *_size_bytes columns are absolute sizes, not counters.
 CREATE TABLE IF NOT EXISTS :"schema".host_sample (
     sampled_at          timestamptz NOT NULL DEFAULT now() PRIMARY KEY,
-    -- CPU: cumulative CPU time the pod has used, in microseconds (cgroup cpu.stat
-    -- usage_usec). delta / interval gives the average number of vCPUs busy. nproc is the
-    -- host core count, the ceiling to size against.
+    -- Cumulative CPU time the pod has used; delta over interval is the average vCPUs
+    -- busy. nproc is the host core count, the ceiling to size against.
     cpu_usage_usec      bigint,
     host_nproc          int,
-    -- Memory: current and peak resident bytes of the pod (cgroup memory.current/peak) and
-    -- the host total, for sizing RAM against the observed peak.
+    -- Current and peak resident bytes of the pod, and the host total, for sizing RAM.
     mem_current_bytes   bigint,
     mem_peak_bytes      bigint,
     host_mem_total_bytes bigint,
-    -- Disk I/O of the data volume's backing device (cgroup io.stat), as cumulative bytes
-    -- and operation counts; deltas give throughput (B/s) and IOPS, read and write split.
+    -- Cumulative bytes and operation counts of the data volume's backing device; the
+    -- deltas give throughput and IOPS.
     io_read_bytes       bigint,
     io_write_bytes      bigint,
     io_read_ios         bigint,
     io_write_ios        bigint,
-    -- Network egress/ingress of the pod interface (host /sys statistics), cumulative
-    -- bytes; the tx delta summed over a month is the outgoing traffic in GB/month.
+    -- Cumulative bytes on the pod interface; the tx delta over a month is the egress.
     net_tx_bytes        bigint,
     net_rx_bytes        bigint,
-    -- Absolute sizes (not counters), refreshed on the slower disk sub-cadence: total
-    -- on-disk size of the database and the temp/spill area that wants fast storage.
+    -- Absolute sizes on the slower disk sub-cadence: the database, and the temp and
+    -- spill area that wants fast storage.
     db_size_bytes       bigint,
     temp_size_bytes     bigint,
     -- Total bytes of all data volumes on disk, for sizing total disk space.
@@ -66,24 +58,20 @@ CREATE TABLE IF NOT EXISTS :"schema".host_sample (
 --------------------------------------------------------------------------------
 -- pg_stat_statements snapshot: which queries cost the most.
 --------------------------------------------------------------------------------
--- The statement text, stored once per normalised statement instead of once per snapshot.
--- It is by far the widest column and never changes for a given queryid, so repeating it in
--- every sample was what let query_sample grow to gigabytes within days.
+-- The statement text, stored once per normalised statement rather than once per snapshot:
+-- by far the widest column, and never changing for a given queryid.
 CREATE TABLE IF NOT EXISTS :"schema".query_dim (
     queryid    bigint PRIMARY KEY,
     query      text,
     first_seen timestamptz NOT NULL DEFAULT now()
 );
 
--- A snapshot of the cumulative per-query counters; the text comes from query_dim by join.
--- Compared across two rows it shows which statements grew their time / temp / shared-block
--- reads, i.e. where an index or a rewrite pays off.
+-- A snapshot of the cumulative per-query counters, the text joined from query_dim.
+-- Compared across two rows it shows where an index or a rewrite pays off.
 --
--- Only statements whose counters moved since the previous snapshot are stored:
--- pg_stat_statements holds thousands of entries of which a handful run in any given tick,
--- and a row identical to its predecessor contributes nothing to a delta. A query's history
--- is therefore sparse -- consecutive rows for one queryid can be hours apart -- which is
--- what the max()-min() aggregation over a window already expects.
+-- Only statements whose counters moved are stored: pg_stat_statements holds thousands of
+-- entries of which a handful run in a tick, and an unchanged row contributes nothing to a
+-- delta. A query's history is therefore sparse, which the max()-min() aggregation expects.
 CREATE TABLE IF NOT EXISTS :"schema".query_sample (
     sampled_at      timestamptz NOT NULL DEFAULT now(),
     queryid         bigint,
@@ -101,8 +89,8 @@ CREATE TABLE IF NOT EXISTS :"schema".query_sample (
 -- Per-table access snapshot: which table needs an index.
 --------------------------------------------------------------------------------
 -- A snapshot per tick of pg_stat_user_tables / pg_statio_user_tables. A table whose
--- seq_scan grows much faster than idx_scan while it holds many live rows is the textbook
--- candidate for a new index; the live-tuple and block-read columns size the win.
+-- seq_scan outgrows its idx_scan while holding many live rows wants an index; the
+-- live-tuple and block-read columns size the win.
 CREATE TABLE IF NOT EXISTS :"schema".table_sample (
     sampled_at       timestamptz NOT NULL,
     schemaname       text,
@@ -121,14 +109,11 @@ CREATE TABLE IF NOT EXISTS :"schema".table_sample (
 --------------------------------------------------------------------------------
 -- Dashboard/page visits: who looked at which dashboard, and when.
 --------------------------------------------------------------------------------
--- One row per page navigation, drained from the proxy's filtered visit log by the
--- collector (the proxy already discards API/asset/non-GET noise, so each row is a real
--- view). app is 'grafana' or 'crudman'; url_path is the full path, and dashboard_uid is
--- the Grafana dashboard id parsed out of /<grafana>/d/<uid>/<slug> for easy grouping
--- (NULL for crudman). session_hash is a hash of the session cookie, never the cookie
--- itself, so distinct user-sessions can be counted and dwell time estimated (by ordering a
--- session's visits by time) without storing anything that identifies a person. visited_at
--- carries the time-of-day and weekday the usage charts need; no extra columns required.
+-- One row per page navigation, drained from the proxy's filtered visit log, which already
+-- discards API, asset and non-GET noise. dashboard_uid is the Grafana dashboard id parsed
+-- out of /<grafana>/d/<uid>/<slug>, NULL for crudman. session_hash is a hash of the
+-- session cookie, never the cookie, so sessions can be counted and dwell time estimated
+-- without storing anything that identifies a person.
 CREATE TABLE IF NOT EXISTS :"schema".dashboard_visit (
     visited_at     timestamptz NOT NULL,
     app            text,
@@ -139,7 +124,7 @@ CREATE TABLE IF NOT EXISTS :"schema".dashboard_visit (
     status         int,
     user_agent     text
 );
--- Indexed by time for the time-series charts and by (session, time) for dwell estimation.
+-- By time for the charts, by (session, time) for dwell estimation.
 CREATE INDEX IF NOT EXISTS dashboard_visit_visited_at_idx
     ON :"schema".dashboard_visit (visited_at);
 CREATE INDEX IF NOT EXISTS dashboard_visit_session_idx
@@ -149,8 +134,8 @@ CREATE INDEX IF NOT EXISTS dashboard_visit_session_idx
 -- Hourly rollup of the host counters, kept long-term for the sizing horizon.
 --------------------------------------------------------------------------------
 -- One row per hour: the min/max/avg of each absolute column and the per-hour counter
--- deltas (already differenced, so summing them over a month is the monthly total). bucket
--- is the truncated hour. This is the table the sizing dashboard reads over many months.
+-- deltas, already differenced so a month's sum is the monthly total. What the sizing
+-- dashboard reads over many months.
 CREATE TABLE IF NOT EXISTS :"schema".host_hourly (
     bucket               timestamptz NOT NULL PRIMARY KEY,
     samples              int,
@@ -174,9 +159,8 @@ CREATE TABLE IF NOT EXISTS :"schema".host_hourly (
 --------------------------------------------------------------------------------
 -- Rollup + prune, called by the collector each tick.
 --------------------------------------------------------------------------------
--- raw_retention keeps two weeks of 1-minute rows for fine-grained inspection; everything
--- older is dropped after it has been folded into host_hourly. hourly rows are kept far
--- longer (pruned to ~13 months) so a full year of seasonality is available for sizing.
+-- raw_retention keeps two weeks of 1-minute rows; everything older is dropped once folded
+-- into host_hourly, which is kept ~13 months so a full year of seasonality survives.
 CREATE OR REPLACE FUNCTION :"schema".rollup_and_prune(
     raw_retention   interval DEFAULT interval '14 days',
     hourly_retention interval DEFAULT interval '13 months'
@@ -186,10 +170,9 @@ LANGUAGE plpgsql
 SET search_path = pg_catalog, :"schema"
 AS $$
 BEGIN
-    -- Recompute the rollup for every hour that still has raw rows, so the most recent
-    -- (still-filling) bucket is refreshed each call and closed buckets are idempotent.
-    -- The counter columns use a window LAG within the hour to turn the monotonic counters
-    -- into per-sample deltas, ignoring negative deltas from a counter reset (GREATEST 0).
+    -- Every hour that still has raw rows, so the still-filling bucket is refreshed each
+    -- call and closed buckets are idempotent. A window LAG within the hour turns the
+    -- counters into per-sample deltas, GREATEST 0 ignoring a counter reset.
     INSERT INTO host_hourly AS h
     SELECT
         date_trunc('hour', sampled_at)                                   AS bucket,
@@ -211,8 +194,7 @@ BEGIN
         SELECT
             sampled_at,
             mem_current_bytes, db_size_bytes, temp_size_bytes, volume_size_bytes,
-            -- CPU cores busy since the previous sample: cpu-usec delta over the wall-clock
-            -- microseconds between samples.
+            -- Cores busy since the previous sample: cpu-usec delta over wall-clock.
             GREATEST(cpu_usage_usec - lag(cpu_usage_usec) OVER w, 0)
                 / NULLIF(extract(epoch FROM sampled_at - lag(sampled_at) OVER w) * 1e6, 0)
                                                                        AS cpu_cores,
@@ -242,21 +224,19 @@ BEGIN
         net_tx_bytes_sum      = excluded.net_tx_bytes_sum,
         net_rx_bytes_sum      = excluded.net_rx_bytes_sum;
 
-    -- Drop raw rows past the retention window (they are now captured in host_hourly), and
-    -- the per-query / per-table snapshots, which are only useful for the recent window.
+    -- host_hourly now holds them; the per-query and per-table snapshots are only useful
+    -- for the recent window anyway.
     DELETE FROM host_sample  WHERE sampled_at < now() - raw_retention;
     DELETE FROM query_sample WHERE sampled_at < now() - raw_retention;
     DELETE FROM table_sample WHERE sampled_at < now() - raw_retention;
     DELETE FROM host_hourly  WHERE bucket     < now() - hourly_retention;
 
-    -- Statement texts outlive their samples only as dead weight, so drop the ones no
-    -- remaining sample refers to.
+    -- A statement text no remaining sample refers to is dead weight.
     DELETE FROM query_dim d
     WHERE NOT EXISTS (SELECT 1 FROM query_sample s WHERE s.queryid = d.queryid);
 
-    -- Visits are the point of the usage stats, not a means to an end, so they are kept on
-    -- the long horizon (like the hourly rollup) rather than the short raw window: the
-    -- time-of-day and weekday distributions need many months of history.
+    -- Kept on the long horizon rather than the raw window: the time-of-day and weekday
+    -- distributions need many months of history.
     DELETE FROM dashboard_visit WHERE visited_at < now() - hourly_retention;
 END;
 $$;

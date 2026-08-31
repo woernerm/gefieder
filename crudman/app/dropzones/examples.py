@@ -1,17 +1,14 @@
 """The ready-to-run upload examples shown on a dropzone's admin page.
 
-One template per upload method, each a complete client an uploader can copy and run
-after replacing the example payload with their own. ``Dropzone.upload_example`` fills
-the placeholders, all of them optional per template: ``{url}``, ``{address}``,
-``{name}``, ``{secret}``, ``{port}`` and ``{host}``.
+One template per upload method, each a complete client an uploader can copy and run.
+``Dropzone.upload_example`` fills the placeholders, all optional per template: ``{url}``,
+``{address}``, ``{name}``, ``{secret}``, ``{port}`` and ``{host}``.
 
-The test suite runs the examples against a live dropzone, so a template that stops
-matching its endpoint fails the build rather than misleading an uploader. Keep them
-runnable as they stand: no shell variables to fill in, no pseudo-code.
+The test suite runs them against a live dropzone, so a template that stops matching its
+endpoint fails the build. Keep them runnable as they stand: no variables to fill in.
 """
 
-# The browser upload has no client to write — the link is the whole interface — so the
-# example only says what to do with it.
+# The link is the whole interface, so there is no client to write.
 BROWSER = """\
 Open the upload link in a browser and drop the file(s) onto the page:
 
@@ -45,8 +42,8 @@ sftp> put yourfile.csv
 sftp> put anotherfile.csv
 sftp> bye"""
 
-# Arrow Flight sends tables rather than files, so the example is a real client: the
-# bearer token from the login ties the DoPuts together and the commit stores them.
+# Arrow Flight sends tables rather than files, so this is a real client: the login's
+# bearer token ties the DoPuts together and the commit stores them.
 FLIGHT = """\
 import pyarrow as pa
 import pyarrow.flight as fl

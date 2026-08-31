@@ -3,15 +3,14 @@
 # base image's entrypoint.
 #
 # The base image runs /docker-entrypoint-initdb.d/ only when the data directory is empty,
-# which makes those scripts a first-install-only step: a schema, grant or function added
-# to them afterwards never reaches a deployment that already has a volume, and anything
-# dropped by hand stays dropped. That gap is what let the crudman schema go missing and
-# surface as "permission denied for schema public" -- PostgreSQL silently ignores a
-# search_path entry naming no existing schema and falls through to the next one.
+# making those scripts a first-install-only step: a schema, grant or function added later
+# never reaches a deployment that already has a volume, and anything dropped by hand stays
+# dropped. That is what let the crudman schema go missing and surface as "permission denied
+# for schema public", PostgreSQL falling through a search_path entry naming no schema.
 #
-# So the structural scripts are written to be idempotent and run again here, against the
-# live database, every time the container starts. Re-running them is what repairs a
-# missing schema and what carries a newly added grant onto an existing deployment.
+# So the structural scripts are idempotent and run again here against the live database,
+# which is what repairs a missing schema and carries a new grant onto an existing
+# deployment.
 #
 # Two scripts are deliberately excluded, marked by "once" in their filename:
 #   gf_0001_once_configure_settings.sh    appends to postgresql.conf; re-running it would
@@ -23,40 +22,34 @@ set -e
 
 INITDB_DIR=/docker-entrypoint-initdb.d
 
-# Only for the server itself. The base entrypoint re-executes this script for its own
-# purposes (and runs other commands during initdb), and re-applying then would run against
-# a server that is not up yet.
+# Only for the server itself: the base entrypoint re-executes this script for its own
+# purposes, when the server is not up yet.
 if [ "$1" != postgres ]; then
   exec /usr/local/bin/docker-entrypoint.sh "$@"
 fi
 
-# An empty data directory means the base entrypoint is about to run initdb and will
-# execute every script itself, including the "once" ones. Doing it here as well would only
-# apply them twice, so leave the first install entirely to it.
+# On an empty data directory the base entrypoint runs initdb and executes every script
+# itself, "once" ones included, so the first install is left entirely to it.
 if [ -s "$PGDATA/PG_VERSION" ]; then
-  # The scripts talk to a running server, which there is not one of yet: the base
-  # entrypoint starts PostgreSQL only after this process execs into it. So start a
-  # temporary server bound to the unix socket only -- nothing outside the container can
-  # reach it while the structural scripts run.
-  # Whatever happens below, the temporary server must not be left running: the base
-  # entrypoint starts its own on the same PGDATA and would find the directory locked. The
+  # The scripts need a running server, and the base entrypoint starts PostgreSQL only
+  # after this process execs into it. So a temporary one is bound to the unix socket
+  # alone, unreachable from outside the container.
+  #
+  # It must not be left running, or the base entrypoint finds the same PGDATA locked. The
   # EXIT trap also covers the "set -e" exit a failing script triggers.
   stop_temporary_server() {
     pg_ctl -D "$PGDATA" -m fast -w stop >/dev/null 2>&1 || true
   }
   trap 'stop_temporary_server' EXIT
 
-  # A stop arriving during this phase has to be answered, because this shell is PID 1 and
-  # a shell neither acts on INT/TERM by default nor passes them to the temporary server,
-  # which pg_ctl started as a child rather than in this process. Left unhandled, "podman
-  # stop" (and the stop half of "podman restart") waits out its ten-second grace period
-  # and SIGKILLs the container mid-script.
+  # This shell is PID 1 and neither acts on INT/TERM by default nor passes them to the
+  # temporary server pg_ctl started as a child, so an unhandled "podman stop" waits out
+  # its grace period and SIGKILLs the container mid-script.
   #
-  # A POSIX shell runs a trap only once the current foreground command returns, so the
-  # handler cannot interrupt a running psql; it records the request and the loop below
-  # checks it between scripts. Each script is short, so the wait stays well inside the
-  # grace period. Stopping here is safe: nothing outside the container has been served
-  # yet, and the next start simply applies the scripts again.
+  # A trap runs only once the foreground command returns, so the handler cannot interrupt
+  # a running psql; it records the request and the loop checks it between scripts. Each is
+  # short, and stopping here is safe: nothing has been served, and the next start
+  # re-applies them.
   stop_requested=
   trap 'stop_requested=yes' INT TERM
 

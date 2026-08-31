@@ -35,11 +35,9 @@ from .services import UploadError, process_upload
 def setUpModule():
     """Keep the endpoints' warnings out of the test output.
 
-    Rejected logins, abandoned sessions and refused uploads are what many of the SFTP
-    and Flight tests provoke on purpose, and each one logs a warning. Nothing configures
-    a handler for them, so logging's last resort prints every one to stderr, burying the
-    actual test results. The warnings matter in a deployment, so they are silenced for
-    the run rather than removed.
+    Many SFTP and Flight tests provoke a rejected login, an abandoned session or a
+    refused upload on purpose, and logging's last resort would print each one to stderr.
+    The warnings matter in a deployment, so they are silenced rather than removed.
     """
     for logger in (sftp.logger, flight.logger):
         logger.disabled = True
@@ -53,9 +51,8 @@ def tearDownModule():
 class TempMediaMixin:
     """Route MEDIA_ROOT into a per-test throwaway directory.
 
-    Per test rather than per class because the database rolls back between tests but
-    the filesystem would not; a shared directory would leak one test's stored files
-    into another's assertions.
+    Per test rather than per class: the database rolls back between tests, the
+    filesystem does not.
     """
 
     def setUp(self):
@@ -91,8 +88,7 @@ class RegistryTests(SimpleTestCase):
             self.assertIn("test_convert", registry.converter_names())
 
     def test_duplicate_name_raises(self):
-        # Two different functions under one name (e.g. defined in two modules of the
-        # functions folder) would make a dropzone ambiguous.
+        # Two different functions under one name would make a dropzone ambiguous.
         def make_test_dup():
             def test_dup(files):
                 pass
@@ -105,7 +101,7 @@ class RegistryTests(SimpleTestCase):
                 registry.checker(make_test_dup())
 
     def test_reregistering_same_function_is_tolerated(self):
-        # A module imported twice re-runs its decorators; that must not fail.
+        # A module imported twice re-runs its decorators.
         with patch.dict(registry._checkers):
             def test_again(files):
                 pass
@@ -136,8 +132,8 @@ class RegistryTests(SimpleTestCase):
             self.assertEqual(choices["test_labeled"], "A nice label")
 
     def test_autodiscover_registered_the_default_functions(self):
-        # DropzonesConfig.ready ran autodiscover at startup, importing the modules in
-        # the functions folder; the shipped defaults must therefore be selectable.
+        # DropzonesConfig.ready ran autodiscover at startup, so the shipped defaults
+        # must be selectable.
         self.assertIn("reject_empty_files", registry.checker_names())
         for name in ("csv_to_parquet", "excel_to_parquet", "json_to_parquet"):
             self.assertIn(name, registry.converter_names())
@@ -213,8 +209,7 @@ class DropzoneModelTests(TestCase):
         self.assertFalse(zone.secret_matches(""))
 
     def test_sftp_secret_fails_closed_when_unset(self):
-        # Unlike the API there is no unguessable URL token, so an empty secret must
-        # never mean "open" — not even without a login requirement.
+        # No unguessable URL token here, so an empty secret must never mean "open".
         zone = Dropzone(require_login=False, secret="")
         self.assertFalse(zone.secret_matches(""))
         self.assertFalse(zone.secret_matches("anything"))
@@ -263,8 +258,7 @@ class UploadModelTests(TestCase):
         self.assertIn("zone", str(Upload(dropzone=self.zone)))
 
     def test_uploadfile_str_is_the_bare_file_name(self):
-        # The bare name, because the admin shows it wherever str() is used and the
-        # directory is Upload-level information.
+        # The bare name: the directory is Upload-level information.
         self.assertEqual(str(UploadFile(file="dropzones/x/y/a.csv")), "a.csv")
         self.assertEqual(str(UploadFile()), "(no file)")
 
@@ -413,8 +407,7 @@ class ProcessUploadTests(TempMediaMixin, TestCase):
         self.assertEqual([p.name for p in seen], ["a.csv", "b.csv"])
 
     def test_unknown_checker_is_rejected(self):
-        # e.g. a dropzone kept its checker name while the function was removed from a
-        # newer image.
+        # A dropzone keeping a checker name the newer image no longer registers.
         zone = Dropzone.objects.create(name="stale", checker="test_gone")
         with self.assertRaises(UploadError):
             process_upload(zone, [upload_file()])
@@ -493,8 +486,7 @@ class ProcessUploadTests(TempMediaMixin, TestCase):
         self.assertEqual(frame.shape, (2, 2))
 
     def test_failure_after_storing_files_cleans_them_up(self):
-        # If anything fails while the transaction is open, the rows roll back and the
-        # already-written files must be removed again.
+        # A rollback takes the rows; the files already written must go too.
         with patch.object(services, "_clip_replaced", side_effect=RuntimeError("boom")):
             with self.assertRaises(RuntimeError):
                 process_upload(self.zone, [upload_file()])
@@ -564,7 +556,7 @@ class ValidityClippingTests(TempMediaMixin, TestCase):
 
     def test_resolution_over_a_sequence_of_uploads(self):
         # The headline scenario: an eternal fallback, a mapping valid until replaced,
-        # and its replacement. valid_at must pick the right one for any timestamp.
+        # and its replacement.
         base = timezone.now()
         fallback = self.upload_with()
         first = self.upload_with(valid_from=base)
@@ -630,8 +622,8 @@ class UploadFormTests(SimpleTestCase):
         self.assertIsNone(form.cleaned_data["valid_until"])
 
     def test_until_replaced_ignores_a_submitted_start(self):
-        # The option reads "from now on" and hides the date fields, so a stray
-        # submitted value must not sneak in as the start.
+        # The option hides the date fields, so a stray submitted value must not sneak
+        # in as the start.
         before = timezone.now()
         form = self.form(
             {"validity": UploadForm.UNTIL_REPLACED, "valid_from": "2020-01-01T08:00"}
@@ -814,8 +806,7 @@ class UploadViewTests(TempMediaMixin, TestCase):
     def test_page_headline_is_the_app_name(self):
         from django.conf import settings as project_settings
 
-        # The headline block mirrors the Unfold login screen: the app name carries the
-        # login title's utility classes, the dropzone name sits below it.
+        # The headline block mirrors the Unfold login screen.
         response = self.client.get(self.url())
         self.assertContains(
             response,
@@ -832,10 +823,7 @@ class UploadViewTests(TempMediaMixin, TestCase):
 
 
 class APIUploadTests(TempMediaMixin, TestCase):
-    """The POST endpoint an unattended client uses.
-
-    Feeds the same pipeline as the browser upload but authenticates with a bearer
-    token instead of a session."""
+    """The POST endpoint an unattended client uses, authenticated by bearer token."""
 
     @classmethod
     def setUpTestData(cls):
@@ -883,7 +871,7 @@ class APIUploadTests(TempMediaMixin, TestCase):
         self.assertEqual(Upload.objects.count(), 0)
 
     def test_login_required_without_a_token_configured_rejects_everyone(self):
-        # A misconfiguration (require_login but no secret) must fail closed, not open.
+        # require_login without a secret must fail closed.
         zone = Dropzone.objects.create(
             name="misconfigured", upload_method=Dropzone.Method.API, require_login=True
         )
@@ -902,7 +890,7 @@ class APIUploadTests(TempMediaMixin, TestCase):
         self.assertEqual(self.post(self.open_zone).status_code, 404)
 
     def test_browser_dropzone_is_404_on_the_api_endpoint(self):
-        # The browser and API routes both key on the token but are separate methods.
+        # Both routes key on the token but are separate methods.
         zone = Dropzone.objects.create(name="browser-only", require_login=False)
         self.assertEqual(self.post(zone).status_code, 404)
 
@@ -1004,9 +992,8 @@ class APIUploadTests(TempMediaMixin, TestCase):
 class WebhookUploadTests(TempMediaMixin, TestCase):
     """The GET endpoint for devices that can only call a URL.
 
-    Made for a device substituting values into it, e.g. a Shelly relay reporting a
-    temperature. The query parameters are stored as a one-row CSV through the same
-    pipeline as every other method.
+    The query parameters are stored as a one-row CSV through the same pipeline as every
+    other method.
     """
 
     @classmethod
@@ -1031,7 +1018,7 @@ class WebhookUploadTests(TempMediaMixin, TestCase):
         return self.client.get(f"{self.url(zone)}?{query}", **headers)
 
     def stored_text(self, upload):
-        # Raw bytes, so the assertions see the csv module's \r\n line endings.
+        # Raw bytes, so the csv module's \r\n line endings are visible.
         return (self.media_root / upload.files.get().file.name).read_bytes().decode()
 
     def test_readings_are_stored_as_a_one_row_csv(self):
@@ -1041,7 +1028,7 @@ class WebhookUploadTests(TempMediaMixin, TestCase):
         self.assertEqual(response.json()["upload_id"], upload.pk)
         self.assertEqual(response.json()["files"], 1)
         self.assertIsNone(upload.uploaded_by)
-        # The header is sorted, so the column order does not depend on the device.
+        # Sorted, so the column order does not depend on the device.
         self.assertEqual(
             self.stored_text(upload), "humidity,temperature\r\n60,21.5\r\n"
         )
@@ -1107,8 +1094,7 @@ class WebhookUploadTests(TempMediaMixin, TestCase):
         self.assertIn("Duplicate", response.json()["error"])
 
     def test_an_invalid_parameter_name_is_a_400(self):
-        # The names become column names downstream, so anything beyond letters,
-        # digits and underscores is rejected.
+        # They become column names downstream.
         response = self.get(self.open_zone, query="bad-name=1")
         self.assertEqual(response.status_code, 400)
         self.assertIn("bad-name", response.json()["error"])
@@ -1160,8 +1146,8 @@ class WebhookUploadTests(TempMediaMixin, TestCase):
         self.assertIsNone(upload.valid_until)
 
     def test_a_new_reading_clips_the_previous_one(self):
-        # With the default validity, each reading is valid exactly while it is the
-        # newest, so "the reading in effect at a timestamp" is one validity query.
+        # Each reading is valid while it is the newest, so "the reading in effect at a
+        # timestamp" is one validity query.
         self.get(self.open_zone, query="temperature=20")
         self.get(self.open_zone, query="temperature=21")
         first, second = Upload.objects.order_by("uploaded_at")
@@ -1170,9 +1156,7 @@ class WebhookUploadTests(TempMediaMixin, TestCase):
 
 
 class DownloadTests(TempMediaMixin, TestCase):
-    """Stored files are downloaded through an authenticated view linked from the admin.
-
-    Bare storage paths are never served."""
+    """Downloads go through an authenticated view; bare storage paths are never served."""
 
     @classmethod
     def setUpTestData(cls):
@@ -1201,7 +1185,7 @@ class DownloadTests(TempMediaMixin, TestCase):
         self.assertIn(reverse("admin:login"), response.url)
 
     def test_non_staff_user_is_forbidden(self):
-        # Uploaders are not automatically readers; the download stays admin-side.
+        # Uploaders are not automatically readers.
         self.client.force_login(User.objects.create_user("outsider"))
         self.assertEqual(self.client.get(self.url).status_code, 403)
 
@@ -1220,9 +1204,8 @@ class DownloadTests(TempMediaMixin, TestCase):
         page = self.client.get(
             reverse("admin:dropzones_upload_change", args=[self.upload.pk])
         )
-        # A single download link per file, styled with the same text-link class Unfold
-        # uses for its own readonly links (e.g. the uploaded_by user); the full storage
-        # path appears nowhere (the directory has its own field).
+        # One download link per file, styled like Unfold's own readonly links; the full
+        # storage path appears nowhere.
         self.assertContains(
             page,
             f'<a href="{self.url}" class="text-link">Click to download ⤓</a>',
@@ -1234,8 +1217,8 @@ class DownloadTests(TempMediaMixin, TestCase):
 class SftpTests(TempMediaMixin, TestCase):
     """The database-facing pieces of the SFTP endpoint.
 
-    The SSH plumbing itself (login, chroot, disconnect handling) is exercised by the
-    integration suite."""
+    The SSH plumbing itself is exercised by the integration suite.
+    """
 
     @classmethod
     def setUpTestData(cls):
@@ -1317,8 +1300,8 @@ class SftpTests(TempMediaMixin, TestCase):
         self.assertEqual(Upload.objects.count(), 0)
 
     def test_store_session_converts_csv_to_parquet(self):
-        # The example converter, end to end: the parquet files are stored under the
-        # source names, the uploaded CSVs themselves are not kept.
+        # The example converter, end to end: parquet under the source names, the
+        # uploaded CSVs not kept.
         zone = Dropzone.objects.create(
             name="parquet-sftp",
             upload_method=Dropzone.Method.SFTP,
@@ -1332,8 +1315,7 @@ class SftpTests(TempMediaMixin, TestCase):
         )
 
     def test_store_session_is_all_or_nothing_on_rejection(self):
-        # The example checker rejects the empty file; the valid one of the same
-        # session must not be stored either.
+        # The empty file is rejected, and the valid one of the same session with it.
         zone = Dropzone.objects.create(
             name="no-empties-sftp",
             upload_method=Dropzone.Method.SFTP,
@@ -1350,11 +1332,10 @@ class SftpTests(TempMediaMixin, TestCase):
 class FlightTests(TempMediaMixin, TransactionTestCase):
     """The Arrow Flight endpoint, driven through a real client.
 
-    A server is started on an ephemeral port and talked to exactly as an uploader
-    would, because the parts worth testing — the token that ties several DoPuts into
-    one upload, and the commit that decides whether anything is stored at all — only
-    exist at that level. TransactionTestCase rather than TestCase: the server answers
-    on its own threads, which do not share the test's open transaction.
+    The parts worth testing -- the token tying several DoPuts into one upload, and the
+    commit deciding whether anything is stored -- exist only at that level.
+    TransactionTestCase, because the server answers on threads that do not share the
+    test's open transaction.
     """
 
     def setUp(self):
@@ -1376,7 +1357,7 @@ class FlightTests(TempMediaMixin, TransactionTestCase):
         self.addCleanup(flight._sessions.clear)
 
     def connect(self, name="flight-zone", secret="pw"):
-        """An authenticated client and its call options, like an uploader's first lines."""
+        """An authenticated client and its call options."""
         client = pyarrow_flight.connect(f"grpc://127.0.0.1:{self.port}")
         self.addCleanup(client.close)
         options = pyarrow_flight.FlightCallOptions(
@@ -1406,10 +1387,9 @@ class FlightTests(TempMediaMixin, TransactionTestCase):
         return sorted(str(f) for f in upload.files.all())
 
     def server_connections(self):
-        """The endpoint's own backends.
+        """The endpoint's own backends: every connection but this test's.
 
-        Every connection to the test database except the one this test asks through.
-        Postgres is the only vantage point here: the server's connections live in other
+        Postgres is the only vantage point, the server's connections living in other
         threads' thread-locals.
         """
         with connection.cursor() as cursor:
@@ -1451,14 +1431,11 @@ class FlightTests(TempMediaMixin, TransactionTestCase):
         )
 
     def test_a_disconnect_without_commit_shall_store_nothing(self):
-        """The point of the explicit commit.
-
-        An upload that was never committed is incomplete, so no row, no
-        directory and no file may survive it."""
+        """An uncommitted upload is incomplete: no row, no directory, no file."""
         client, options = self.connect()
         self.send(client, options, "issues", self.table())
         self.send(client, options, "commits", self.table())
-        # The uploader vanishes: the client goes away without ever committing.
+        # The uploader vanishes without ever committing.
         client.close()
 
         self.assertEqual(Upload.objects.count(), 0)
@@ -1472,7 +1449,7 @@ class FlightTests(TempMediaMixin, TransactionTestCase):
         directory = session.directory
         self.assertTrue(any(directory.iterdir()))
 
-        # Everything older than the timeout is abandoned; nothing is stored for it.
+        # Everything older than the timeout counts as abandoned.
         flight._sweep(timeout=-1)
 
         self.assertEqual(flight._sessions, {})
@@ -1485,7 +1462,7 @@ class FlightTests(TempMediaMixin, TransactionTestCase):
         self.send(first, first_options, "issues", self.table())
         second, second_options = self.connect()
         self.send(second, second_options, "commits", self.table())
-        # Each client commits only its own tables, even though both are open at once.
+        # Each client commits only its own tables, both being open at once.
         self.commit(first, first_options)
         self.commit(second, second_options)
 
@@ -1503,10 +1480,8 @@ class FlightTests(TempMediaMixin, TransactionTestCase):
         self.assertEqual(Upload.objects.count(), 0)
 
     def test_a_truncated_table_shall_poison_the_commit(self):
-        """A client killed mid-table ends its stream without an error.
-
-        So the cancellation flag is the only thing that keeps the partial table
-        out."""
+        """A client killed mid-table ends its stream without an error, so only the
+        cancellation flag keeps the partial table out."""
         client, options = self.connect()
         self.send(client, options, "issues", self.table())
         session = next(iter(flight._sessions.values()))
@@ -1523,7 +1498,7 @@ class FlightTests(TempMediaMixin, TransactionTestCase):
         self.zone.save()
         client, options = self.connect()
         # An empty table still writes a parquet file with a header, so the rejection
-        # is provoked with a checker that refuses everything instead.
+        # needs a checker that refuses everything.
         with patch.dict(registry._checkers):
             @registry.checker
             def flight_reject(files):
@@ -1579,8 +1554,8 @@ class FlightTests(TempMediaMixin, TransactionTestCase):
     def test_the_example_from_the_admin_shall_perform_a_real_upload(self):
         """Execute the stored template verbatim against the running endpoint.
 
-        This is what keeps the admin's example honest: it is run as an uploader would
-        run it, with only the address pointed at the test server's ephemeral port.
+        Run as an uploader would run it, with only the address pointed at the test
+        server's ephemeral port.
         """
         self.zone.secret = "pw"
         self.zone.save()
@@ -1593,7 +1568,7 @@ class FlightTests(TempMediaMixin, TransactionTestCase):
         exec(compile(example, "<flight example>", "exec"), {})
 
         upload = Upload.objects.get()
-        # The two tables the example sends, each stored as its own parquet file.
+        # The two tables the example sends, one parquet file each.
         self.assertEqual(
             sorted(str(f) for f in upload.files.all()),
             ["commits.parquet", "issues.parquet"],
@@ -1609,8 +1584,8 @@ class FlightTests(TempMediaMixin, TransactionTestCase):
     def test_a_whole_upload_shall_leave_no_connection_open_on_the_server(self):
         """The commit reports a file count, which is a query of its own.
 
-        Asked after _fresh has closed up, it would open a second connection on the gRPC
-        thread that nothing closes again. Counting the server's connections catches that.
+        Asked after ``fresh`` has closed up, it would open a second connection on the
+        gRPC thread that nothing closes again.
         """
         client, options = self.connect()
         self.send(client, options, "issues", self.table())
@@ -1633,21 +1608,17 @@ class FlightTests(TempMediaMixin, TransactionTestCase):
 class ConnectionHygieneTests(TransactionTestCase):
     """Neither endpoint may leave a database connection behind on a worker thread.
 
-    Both servers answer on threads of their own — Flight on a gRPC pool, SFTP on the
-    sync_to_async executor — and a Django connection belongs to the thread that opened
-    it. Nothing signals the end of such a call the way request_finished does for a view,
-    so a connection left open there is held until the process exits: the endpoints pile
-    up idle connections, and a test run cannot drop its test database afterwards.
+    Both answer on threads of their own, and a Django connection belongs to the thread
+    that opened it. Nothing signals the end of such a call the way request_finished does
+    for a view, so one left open is held until the process exits.
 
-    Both endpoints wrap their database calls in the one `endpoint.fresh`, so covering it
-    once covers both.
-
-    `connection.connection` is the live driver connection, and it is thread-local, so
-    checking it from inside the worker is what tells whether fresh cleaned up.
+    Both wrap their database calls in the one ``endpoint.fresh``, so covering it once
+    covers both. ``connection.connection`` is thread-local, so it has to be checked from
+    inside the worker.
     """
 
     def on_worker_thread(self, func):
-        """Run func on a fresh thread; return whether it left a connection open there."""
+        """Run func on a new thread; whether it left a connection open there."""
         left_open = []
 
         def worker():
@@ -1657,7 +1628,7 @@ class ConnectionHygieneTests(TransactionTestCase):
         thread = threading.Thread(target=worker)
         thread.start()
         thread.join(10)
-        # Without this the assertion would silently pass on a thread that died early.
+        # Otherwise the assertion would pass on a thread that died early.
         self.assertEqual(len(left_open), 1, "the worker thread did not finish")
         return left_open[0]
 
@@ -1668,14 +1639,11 @@ class ConnectionHygieneTests(TransactionTestCase):
         self.assertFalse(left_open)
 
     def test_fresh_shall_close_the_connection_when_the_call_raises(self):
-        """The rejection path matters just as much.
-
-        A checker refusing an upload is routine, not exceptional, so it must not
-        leak a connection per rejection."""
+        """A checker refusing an upload is routine, so it must not leak a connection."""
 
         def boom():
-            # Query first: a call that raises before touching the database opens no
-            # connection at all, so it would pass even with the cleanup removed.
+            # Query first: raising before touching the database opens no connection, so
+            # the test would pass even with the cleanup removed.
             Dropzone.objects.count()
             raise UploadError("rejected")
 
@@ -1700,7 +1668,7 @@ class FlightModelTests(TestCase):
         self.assertFalse(self.zone.secret_matches(""))
 
     def test_flight_secret_fails_closed_when_unset(self):
-        # Like SFTP: the dropzone name is not a secret, so no secret means no logins.
+        # As with SFTP: the dropzone name is not a secret.
         self.zone.secret = ""
         self.assertFalse(self.zone.secret_matches(""))
         self.assertFalse(self.zone.secret_matches("anything"))
@@ -1723,29 +1691,25 @@ class FlightModelTests(TestCase):
 class UploadExampleTests(TestCase):
     """The templates themselves: filled in correctly and complete.
 
-    That an example actually works is proven by running it — see
-    :class:`ExecutedExampleTests` for the HTTP methods and
-    ``FlightTests.test_the_example_from_the_admin_shall_perform_a_real_upload``
-    for Arrow Flight.
+    That an example works is proven by running it; see :class:`ExecutedExampleTests` and
+    ``FlightTests.test_the_example_from_the_admin_shall_perform_a_real_upload``.
     """
 
     def zone(self, method, **kwargs):
-        # A name per method, because the field is unique and these tests build one
-        # dropzone per method within a single test.
+        # A name per method: the field is unique and one test builds several.
         return Dropzone.objects.create(
             name=f"example-{method}", upload_method=method, **kwargs
         )
 
     def test_every_method_has_an_example(self):
-        # A method without a template would leave its dropzone page with an empty
-        # example box, so the mapping must cover the choices exhaustively.
+        # A method without a template would leave an empty example box.
         self.assertEqual(
             sorted(examples.TEMPLATES), sorted(m.value for m in Dropzone.Method)
         )
 
     def test_no_template_keeps_an_unfilled_placeholder(self):
-        # The placeholder names the templates may use; anything else would raise in
-        # str.format, and a leftover "{name}" here would reach the uploader as-is.
+        # Anything else would raise in str.format, and a leftover placeholder would
+        # reach the uploader as it stands.
         placeholders = re.compile(
             r"\{(url|address|name|secret|port|host)[!:}]"
         )
@@ -1761,8 +1725,8 @@ class UploadExampleTests(TestCase):
         self.assertIn("<secret>", zone.upload_example())
 
     def test_each_example_names_the_endpoint_it_uploads_to(self):
-        # The URL methods show the address verbatim; SFTP and Arrow Flight show the
-        # host and port of theirs, in the shape their client expects.
+        # The URL methods show the address verbatim; SFTP and Arrow Flight show host
+        # and port in the shape their client expects.
         for method in (
             Dropzone.Method.BROWSER, Dropzone.Method.API, Dropzone.Method.WEBHOOK
         ):
@@ -1797,10 +1761,8 @@ class UploadExampleTests(TestCase):
 class ExecutedExampleTests(TempMediaMixin, TestCase):
     """Run the stored examples against live dropzones.
 
-    The point is that an example a user copies actually uploads something: the curl
-    commands are parsed into the request they describe and replayed through the real
-    view, so a template that drifts away from its endpoint fails here rather than
-    wasting an uploader's afternoon.
+    The curl commands are parsed into the request they describe and replayed through the
+    real view, so a template that drifts away from its endpoint fails here.
     """
 
     def curl_parts(self, command):
@@ -1841,7 +1803,7 @@ class ExecutedExampleTests(TempMediaMixin, TestCase):
             self.strip_comments(zone.upload_example())
         )
         self.assertEqual(url, zone.api_upload_url())
-        # -F files=@yourfile.csv means "post this file under the name files".
+        # -F files=@yourfile.csv posts the file under the name "files".
         self.assertEqual([field.split("=@")[0] for field in fields], ["files"])
         filename = fields[0].split("=@")[1]
 
@@ -1872,7 +1834,7 @@ class ExecutedExampleTests(TempMediaMixin, TestCase):
         self.assertEqual(response.status_code, 201, response.content)
         upload = Upload.objects.get(dropzone=zone)
         stored = (Path(settings.MEDIA_ROOT) / upload.files.get().file.name).read_text()
-        # The example's own readings, as the columns of the stored one-row CSV.
+        # The example's own readings, as the stored CSV's columns.
         self.assertEqual(stored.splitlines()[0], "humidity,temperature")
         self.assertEqual(stored.splitlines()[1], "48,21.5")
 
@@ -1883,7 +1845,7 @@ class ExecutedExampleTests(TempMediaMixin, TestCase):
         )
         example = zone.upload_example()
         self.assertIn(zone.upload_url(), example)
-        # The link in the example is the page an uploader lands on.
+        # The example's link is the page an uploader lands on.
         self.assertEqual(self.client.get(zone.upload_path()).status_code, 200)
 
     @override_settings(SERVER_NAME="reports.example.com", SFTP_PORT=2222)
@@ -1892,8 +1854,8 @@ class ExecutedExampleTests(TempMediaMixin, TestCase):
             name="sftp-example", upload_method=Dropzone.Method.SFTP, secret="s3cret"
         )
         example = zone.upload_example()
-        # The credentials the example tells the uploader to use must be the ones the
-        # endpoint accepts; the transfer itself is covered by the integration suite.
+        # The credentials the example names must be the ones the endpoint accepts; the
+        # transfer itself is covered by the integration suite.
         self.assertIn("sftp -P 2222 sftp-example@reports.example.com", example)
         self.assertTrue(zone.secret_matches("s3cret"))
         self.assertIn("s3cret", example)
@@ -1919,12 +1881,12 @@ class AdminTests(TempMediaMixin, TestCase):
                 self.assertIn(
                     ("test_zz_conv", "test_zz_conv"), form.fields["converter"].choices
                 )
-                # The shipped defaults appear under their human-readable labels.
+                # The shipped defaults appear under their labels.
                 self.assertIn(
                     ("csv_to_parquet", "CSV to Parquet"),
                     form.fields["converter"].choices,
                 )
-        # Both fields must be optional, and an unregistered name must not validate.
+        # Both fields are optional, and an unregistered name must not validate.
         form = DropzoneForm(
             {"name": "n", "upload_method": "browser", "checker": "test_zz_check"}
         )
@@ -1954,7 +1916,7 @@ class AdminTests(TempMediaMixin, TestCase):
             upload_method=Dropzone.Method.WEBHOOK,
             require_login=False,
         )
-        # The link field carries the address alone; how to call it is the example.
+        # The link field carries the address alone; the example says how to call it.
         self.assertIn(
             zone.webhook_url(), DropzoneAdmin(Dropzone, admin.site).upload_link(zone)
         )
@@ -1994,8 +1956,8 @@ class AdminTests(TempMediaMixin, TestCase):
         return DropzoneForm(data)
 
     def test_an_sftp_dropzone_requires_a_secret(self):
-        # Without a secret the endpoint would accept no logins; the form catches the
-        # misconfiguration when the dropzone is created rather than at upload time.
+        # Without a secret the endpoint accepts no logins, so the form catches it at
+        # creation rather than at upload time.
         complete = self.dropzone_form()
         self.assertTrue(complete.is_valid(), complete.errors)
         self.assertIn("secret", self.dropzone_form(secret="").errors)

@@ -1,8 +1,7 @@
 """Database work shared by the SFTP and Arrow Flight endpoints.
 
-Both run as long-lived server processes outside the request cycle and authenticate an
-uploader against a dropzone rather than a Django session. Only the protocol differs, so
-everything either one does with the database lives here.
+Both are long-lived server processes outside the request cycle, authenticating against a
+dropzone rather than a Django session. Only the protocol differs between them.
 """
 
 from django.core.files import File
@@ -16,10 +15,10 @@ from .services import process_upload
 def fresh(func, *args):
     """Run a database-facing function on a healthy connection, and leave none behind.
 
-    The servers run for weeks, so a connection the database dropped in the meantime is
-    discarded before the call instead of failing it. Both endpoints answer on worker
-    threads, where nothing signals the end of a call the way a request does for a view,
-    so a connection opened there would be held until the process exits.
+    The servers run for weeks, so a connection dropped in the meantime is discarded
+    before the call rather than failing it. Both answer on worker threads, where nothing
+    signals the end of a call, so a connection opened there is held until the process
+    exits.
 
     Args:
         func: The database-facing function to call.
@@ -48,8 +47,7 @@ def authenticate(method, name, secret):
 def store_session(dropzone_id, paths):
     """Feed a finished session's files into the upload pipeline as one upload."""
     dropzone = Dropzone.objects.get(pk=dropzone_id)
-    # Neither protocol carries a validity form, so the dropzone's default applies:
-    # "always" keeps both bounds open, everything else starts now.
+    # Neither protocol carries a validity form, so the dropzone's default applies.
     valid_from = (
         None
         if dropzone.default_validity == Dropzone.Validity.ALWAYS
@@ -67,8 +65,8 @@ def store_session(dropzone_id, paths):
 def stored_file_count(dropzone_id, paths):
     """store_session, reduced to the file count the caller reports.
 
-    Counting is a query of its own and has to happen inside the same ``fresh`` call;
-    asking afterwards would open a second connection that nothing closes again.
+    Counting is a query of its own and belongs in the same ``fresh`` call; asking
+    afterwards would open a second connection that nothing closes.
 
     Args:
         dropzone_id: Primary key of the dropzone that was uploaded to.

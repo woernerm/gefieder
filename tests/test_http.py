@@ -21,10 +21,8 @@ class TestRouting:
     def test_root_shall_redirect_to_the_admin_panel(self, http):
         resp = http.get("/")
         assert resp.status_code in (301, 302)
-        # The Location has to be the bare path. nginx builds an absolute URL from the port
-        # it listens on inside the pod, not the one the request came in on, so an absolute
-        # answer here sends the browser to port 80/443 — and this suite, like dev.sh and
-        # the custom ports in the README, publishes the proxy on neither.
+        # The Location has to be the bare path: nginx builds an absolute URL from the
+        # port it listens on inside the pod, not the one the request came in on.
         assert resp.headers["location"] == f"/{CRUDMAN_PATH}/", (
             "the redirect is absolute; it drops the port the client is talking to"
         )
@@ -34,7 +32,7 @@ class TestStaticFiles:
     """Both applications serve their static assets through the proxy."""
 
     def test_crudman_static_files_shall_be_served(self, http_follow):
-        # Find a real hashed asset the login page references and fetch it.
+        # A real hashed asset the login page references.
         html = http_follow.get(CRUDMAN_LOGIN).text
         match = re.search(rf"/{CRUDMAN_PATH}/static/[^\"']+\.css", html)
         assert match, "no crudman static asset referenced on the login page"
@@ -43,10 +41,9 @@ class TestStaticFiles:
         assert "text/css" in resp.headers["content-type"]
 
     def test_grafana_static_files_shall_be_served(self, http_follow):
-        # Grafana references assets relative to its <base href="/GRAFANA_PATH/">.
-        # The bundle names come from the upstream image and change between releases
-        # (13.x appends a "-react19" variant suffix), so match any of them rather than
-        # one specific bundle: what is under test is the proxy serving the asset.
+        # Grafana references assets relative to its <base href="/GRAFANA_PATH/">, and the
+        # bundle names change between releases, so match any of them: what is under test
+        # is the proxy serving the asset.
         html = http_follow.get(GRAFANA_LOGIN).text
         match = re.search(r"public/build/grafana\.[^\"']+\.css", html)
         assert match, "no grafana static asset referenced on the login page"

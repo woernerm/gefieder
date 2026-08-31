@@ -1,13 +1,11 @@
 """The dropzones SFTP endpoint (run by ``manage.py sftpserver``).
 
-The application runs its own SFTP server instead of watching a directory, so an uploader
-needs no convention at all: connect with the dropzone's name and secret, ``put`` one or
-more files, disconnect. The server sees the transfer itself, so completeness needs no
-signalling — everything fully transferred in one SFTP (or scp) session becomes one
+Running the server rather than watching a directory means an uploader needs no
+convention: connect with the dropzone's name and secret, ``put`` files, disconnect. The
+server sees the transfer, so completeness needs no signalling -- one session becomes one
 upload, and a session that breaks off mid-file stores nothing.
 
-Every session is chrooted into its own throwaway directory, so an uploader only ever
-sees the files of their own running session.
+Every session is chrooted into its own throwaway directory.
 """
 
 import asyncio
@@ -26,13 +24,11 @@ from .services import UploadError
 
 logger = logging.getLogger(__name__)
 
-# The dropzone identity of every currently connected client, keyed by its SSH
-# connection: written on successful authentication, read by the SFTP sessions opened
-# on the connection, removed when the connection closes.
+# The dropzone identity of every connected client, keyed by its SSH connection: written
+# at authentication, read by the sessions on that connection, removed when it closes.
 _sessions = {}
 
-# Keeps the fire-and-forget processing tasks alive until they finish; asyncio holds
-# tasks only weakly, so an otherwise unreferenced task could vanish mid-run.
+# asyncio holds tasks only weakly, so an unreferenced one could vanish mid-run.
 _tasks = set()
 
 
@@ -44,7 +40,7 @@ def _session_files(directory):
 
     Returns:
         Every file below it, sorted. Subdirectories are not preserved: the pipeline
-        stores bare file names, and a client's temporary tree carries no meaning.
+        stores bare file names.
     """
     return sorted(p for p in directory.rglob("*") if p.is_file())
 
@@ -59,13 +55,12 @@ def _store_session_files(dropzone_id, directory):
 async def _finish_session(name, dropzone_id, directory, peer):
     """Store a finished session and clean up its directory afterwards."""
     try:
-        # Listing the directory happens on the worker thread too, not on the event loop:
-        # it is filesystem work, and a session with many files would stall every other
-        # connection while it ran here.
+        # Listing runs on the worker thread too: filesystem work on the event loop would
+        # stall every other connection.
         stored = await sync_to_async(_store_session_files)(dropzone_id, directory)
     except UploadError as error:
-        # The checker/converter verdict. The uploader has already disconnected, so
-        # the rejection can only be logged here, not shown to them.
+        # The uploader has already disconnected, so the checker's verdict can only be
+        # logged.
         logger.warning("Dropzone '%s': upload from %s rejected: %s", name, peer, error)
     except Exception:
         logger.exception("Dropzone '%s': storing the upload from %s failed", name, peer)
@@ -86,8 +81,7 @@ async def _finish_session(name, dropzone_id, directory, peer):
 class SFTPEndpoint(asyncssh.SSHServer):
     """One instance per SSH connection.
 
-    Authenticates a dropzone for the SFTP sessions opened on the connection, which
-    :class:`SessionSFTPServer` then serves.
+    Authenticates a dropzone for the sessions :class:`SessionSFTPServer` then serves.
     """
 
     def connection_made(self, conn):
@@ -119,11 +113,10 @@ class SFTPEndpoint(asyncssh.SSHServer):
 class SessionSFTPServer(asyncssh.SFTPServer):
     """One SFTP (or scp) session, stored as one upload when the session ends.
 
-    The commit decision is made at the session level rather than at the SSH connection
-    level: not every client disconnects cleanly after closing its files (paramiko just
-    drops the socket), and an upload must not be lost to that. asyncssh force-closes
-    handles a client never closed while the channel reports ``is_closing()``, then calls
-    :meth:`exit` once, so a forced close marks the transfer as broken off mid-file.
+    The commit decision is made per session rather than per connection: not every client
+    disconnects cleanly after closing its files (paramiko drops the socket), and an upload
+    must not be lost to that. asyncssh force-closes handles the client left open while the
+    channel reports ``is_closing()``, which is what marks a transfer broken off mid-file.
     """
 
     def __init__(self, chan):
@@ -136,16 +129,16 @@ class SessionSFTPServer(asyncssh.SFTPServer):
         super().__init__(chan, chroot=self._directory)
 
     def close(self, file_obj):
-        # A close while the channel is already closing is asyncssh's cleanup of a
-        # file the client never finished: the session broke off mid-file.
+        # A close while the channel is already closing is asyncssh cleaning up a file
+        # the client never finished.
         if self.channel.is_closing():
             self._incomplete = True
         super().close(file_obj)
 
     def exit(self):
         if self._incomplete:
-            # Nothing is stored, like an aborted POST; the uploader's client saw the
-            # broken transfer on its side and retries the whole session.
+            # Nothing is stored, like an aborted POST; the client saw the broken
+            # transfer and retries the whole session.
             logger.warning(
                 "Dropzone '%s': session from %s broke off mid-file, nothing stored",
                 self._name,
@@ -164,8 +157,8 @@ def _host_key():
     """The server's persistent host key, generated on first start.
 
     Returns:
-        Path to the key under SFTP_DIR, so the server identity survives restarts and
-        updates; a changed host key would make every SFTP client refuse to reconnect.
+        Path to the key under SFTP_DIR, so the server identity survives restarts; a
+        changed host key would make every SFTP client refuse to reconnect.
     """
     path = Path(settings.SFTP_DIR) / "ssh_host_ed25519_key"
     if not path.exists():

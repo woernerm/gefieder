@@ -17,9 +17,8 @@ Typical usage example:
 
 Each lookup takes one row per tick, so both sources must be unique on (key, timestamp)
 and on (join columns, timestamp). The tick list over-collects, so every column of both
-*sources*, timestamps aside, is compared with the tick before and only a change survives;
-a SELECT folding two columns into one can still show identical rows, which the example's
-audits catch.
+*sources* is compared with the tick before and only a change survives; a SELECT folding
+two columns into one can still show identical rows, which the example's audits catch.
 """
 
 from sqlglot import exp
@@ -32,15 +31,14 @@ from sqlmesh.utils.errors import SQLMeshError
 TICKS, LEFT, RIGHT = "tck", "lhs", "rhs"
 """The aliases a calling model selects from.
 
-Fixed rather than configurable: a name that changed with the call site would only make
-the models harder to read.
+Fixed rather than configurable: a name changing with the call site would only make the
+models harder to read.
 """
 
 DUCKDB_GATEWAY = "duckdb"
 """The gateway whose engine has an ASOF JOIN, named as config.py names it.
 
-A model that asks for it gets the join; every other gateway gets the same lookup written
-out by hand.
+Every other gateway gets the same lookup written out by hand.
 """
 
 
@@ -78,8 +76,8 @@ def _value_columns(
         timestamp: The timestamp column to leave out.
 
     Returns:
-        The column names, or an empty list while SQLMesh is still loading and has not
-        read the upstream schemas.
+        The column names, or an empty list while SQLMesh is loading and has not read the
+        upstream schemas.
 
     Raises:
         SQLMeshError: The columns are unknown outside the loading stage.
@@ -88,8 +86,8 @@ def _value_columns(
     if not columns_to_types_all_known(columns_to_types):
         if evaluator.runtime_stage != RuntimeStage.LOADING.value:
             raise SQLMeshError(f"@temporal_join: the columns of '{table.sql()}' are unknown.")
-        # Asking for the schemas is what keeps this render out of the cache, so the real
-        # columns arrive before anything is executed.
+        # Asking for the schemas keeps this render out of the cache, so the real columns
+        # arrive before anything is executed.
         return []
     excluded = normalize_identifiers(timestamp, dialect=evaluator.dialect).name
     return [c for c in columns_to_types if c != excluded]
@@ -127,8 +125,8 @@ def temporal_join(
             f"got '{key.sql()}'."
         )
 
-    # SQLMesh scopes a model's variables to the gateway its MODEL block names, so this is
-    # the engine that will run the query, settled once at load so every render agrees.
+    # SQLMesh scopes a model's variables to the gateway its MODEL block names, so this
+    # is the engine that will run the query.
     dialect = evaluator.dialect
     asof = evaluator.gateway == DUCKDB_GATEWAY
     if asof and dialect != "duckdb":
@@ -139,8 +137,8 @@ def temporal_join(
         )
 
     def name(identifier: str | exp.Identifier) -> str:
-        # Quoted throughout, because a source column may be named like a keyword
-        # ("offset"); normalized first so quoting cannot change what it means.
+        # Quoted, a source column being possibly named like a keyword ("offset"), and
+        # normalized first so quoting cannot change what it means.
         identifier = normalize_identifiers(exp.to_identifier(identifier), dialect=dialect)
         identifier.set("quoted", True)
         return identifier.sql(dialect)
@@ -155,13 +153,12 @@ def temporal_join(
     tck_key, tck_time = column(TICKS, key.this), column(TICKS, lhs_column)
     rhs_time = column(RIGHT, rhs_column)
 
-    # A right row's timestamp is a tick for every item that reaches it, so both sides are
-    # keyed by the left table. UNION, not UNION ALL: both tables may change at once.
+    # A right row's timestamp is a tick for every item that reaches it, so both sides
+    # are keyed by the left table. UNION, not UNION ALL: both may change at once.
     #
     # Which right rows an item reaches follows from the distinct join keys its versions
-    # carry, so the second branch joins the distinct pairs. Joining the version rows would
-    # multiply the histories together (68k rows per item, for two 260-version histories)
-    # for a tick list the UNION deduplicates back down anyway.
+    # carry, so the second branch joins the distinct pairs. Joining the version rows
+    # would multiply the histories together for a tick list the UNION deduplicates again.
     reachable = ", ".join(
         dict.fromkeys(
             [key_name]
@@ -176,9 +173,8 @@ def temporal_join(
         f"JOIN {rhs_source} AS {RIGHT} ON {predicate}"
     )
 
-    # Both forms say the same thing — the latest row at or before the tick — and the right
-    # one hangs off the left row rather than off the tick either way, so following the
-    # left row to a different right row is part of the history in both.
+    # Both forms say the same thing -- the latest row at or before the tick -- with the
+    # right one hanging off the left row rather than off the tick.
     #
     # PostgreSQL has no ASOF JOIN and pg_duckdb cannot lend it one, parsing the statement
     # long before DuckDB sees it. LATERAL ... ORDER BY ... LIMIT 1 is the same lookup
@@ -202,9 +198,9 @@ def temporal_join(
 
     # DISTINCT ON (key, every column) would say this in one line, but it deduplicates
     # globally rather than tick by tick: an issue reopened into a state it held before
-    # would keep only the earlier row, the reopening gone and the issue closed ever after.
-    # Hence the comparison with the previous tick, and the LAG that is NULL only for the
-    # first. WHERE runs before the window functions, so left-less ticks are already gone.
+    # would keep only the earlier row. Hence the comparison with the previous tick, and
+    # the LAG that is NULL only for the first. WHERE runs before the window functions, so
+    # left-less ticks are already gone.
     values = [
         *(column(LEFT, c) for c in _value_columns(evaluator, lhs_table, lhs_column)),
         *(column(RIGHT, c) for c in _value_columns(evaluator, rhs_table, rhs_column)),
@@ -221,7 +217,7 @@ def temporal_join(
     )
 
     # The lookups run again over the surviving ticks rather than carrying their rows out
-    # of the query above, so `tck` exposes the item and its timeline and nothing else.
-    # sqlglot parses statements, not FROM clauses, hence the throwaway SELECT.
+    # of the query above, so `tck` exposes the item and its timeline alone. sqlglot parses
+    # statements, not FROM clauses, hence the throwaway SELECT.
     joined = f"(({changes}) AS {TICKS} {lookups})"
     return evaluator.parse_one(f"SELECT 1 FROM {joined}").find(exp.From).this

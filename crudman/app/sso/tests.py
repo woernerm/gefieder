@@ -37,8 +37,8 @@ from .roles import (
 from .scopes import scopes_for
 from unfold.widgets import UnfoldBooleanSwitchWidget
 
-# The group each rank grants, built the way roles.py builds it rather than spelled out, so
-# these tests follow ROLE_PREFIX instead of asserting the value it ships with.
+# Built the way roles.py builds it, so these tests follow ROLE_PREFIX rather than
+# asserting the value it ships with.
 VIEWER = GROUP_FOR_RANK["viewer"]
 EDITOR = GROUP_FOR_RANK["editor"]
 ADMIN = GROUP_FOR_RANK["admin"]
@@ -71,8 +71,7 @@ class RoleGroupTests(TestCase):
             self.assertEqual("delete" in granted, "delete" in actions, name)
 
     def test_no_role_may_touch_users_or_groups(self):
-        # An editor who can add users could grant themselves anything, so the groups are
-        # confined to this project's own apps.
+        # An editor who can add users could grant themselves anything.
         for name in GROUP_ACTIONS:
             labels = {
                 perm.content_type.app_label
@@ -81,8 +80,7 @@ class RoleGroupTests(TestCase):
             self.assertNotIn("auth", labels, name)
 
     def test_permissions_of_an_existing_group_are_left_alone(self):
-        # Re-running post_migrate must not undo an operator's edits, or every deployment
-        # would silently reset the permission sets they tuned.
+        # Every deployment re-runs post_migrate, and must not reset a tuned group.
         group = Group.objects.get(name=VIEWER)
         group.permissions.set([Permission.objects.first()])
 
@@ -101,8 +99,8 @@ class ClaimedRolesTests(TestCase):
         self.assertEqual(claimed_roles(data), ["Editor"])
 
     def test_the_id_token_wins_over_userinfo(self):
-        # Entra ID's userinfo endpoint returns no roles at all, and allauth prefers
-        # userinfo when both are present, so reading its merged view would find nothing.
+        # Entra ID's userinfo endpoint returns no roles, and allauth's merged view prefers
+        # userinfo.
         data = {"id_token": {"roles": ["Admin"]}, "userinfo": {"roles": ["Viewer"]}}
 
         self.assertEqual(claimed_roles(data), ["Admin"])
@@ -132,7 +130,6 @@ class HighestRoleTests(TestCase):
         self.assertEqual(highest_role(["Viewer", "Admin", "Editor"]), ADMIN)
 
     def test_matching_ignores_capitalisation(self):
-        # Providers differ on how they spell the role back to us.
         self.assertEqual(highest_role(["ADMIN"]), ADMIN)
 
     def test_unknown_roles_grant_nothing(self):
@@ -164,8 +161,7 @@ class ApplyRolesTests(TestCase):
 
     def test_groups_granted_by_hand_survive_a_login(self):
         # The point of the whole scheme: a baseline from the provider, extras assigned
-        # locally on top. Rewriting the group list instead of reconciling the managed ones
-        # would delete this membership on the user's next login.
+        # locally on top.
         local = Group.objects.create(name="project-b-analysts")
         self.user.groups.add(local)
 
@@ -188,8 +184,8 @@ class ApplyRolesTests(TestCase):
         self.assertEqual(list(self.user.groups.all()), [])
 
     def test_losing_the_role_keeps_local_groups(self):
-        # Deactivating is not the same as stripping: if the person comes back, the rights
-        # someone granted them by hand should still be there.
+        # Deactivating is not stripping: if the person comes back, the rights granted by
+        # hand should still be there.
         local = Group.objects.create(name="project-b-analysts")
         self.user.groups.add(local)
 
@@ -207,8 +203,8 @@ class ApplyRolesTests(TestCase):
         self.assertTrue(self.user.is_staff)
 
     def test_dropping_from_admin_to_editor_withdraws_superuser(self):
-        # is_superuser bypasses every permission check, so it has to be taken away by the
-        # same login that takes the role away.
+        # is_superuser bypasses every permission check, so the login that takes the role
+        # away must take it too.
         apply_roles(self.user, ["Admin"])
 
         apply_roles(self.user, ["Editor"])
@@ -232,19 +228,17 @@ class ApplyRolesTests(TestCase):
 class FakeSocialLogin:
     """Enough of allauth's SocialLogin for the adapter to work on.
 
-    The adapter reads two things off it — the account's claims and whether the user
-    already exists — so standing those in keeps these tests about the mapping rather than
-    about allauth's own machinery. The exchange that produces the claims is covered end to
-    end by the integration suite, against a real OpenID Connect server.
+    The adapter reads only the account's claims and whether the user already exists, so
+    standing those in keeps these tests about the mapping. The exchange that produces the
+    claims is covered by the integration suite, against a real OpenID Connect server.
     """
 
     def __init__(self, user, claims, is_existing=True, token=None):
         self.user = user
         self.is_existing = is_existing
         self.account = type("FakeAccount", (), {"extra_data": {"id_token": claims}})()
-        # The access token allauth holds during a login and, here, never stores. Absent
-        # unless a test is about the one thing that uses it: the profile picture a
-        # provider will hand to this server but not to the browser.
+        # The access token allauth holds during a login. Absent unless a test is about
+        # the one thing that uses it: a picture the browser is refused.
         self.token = type("FakeToken", (), {"token": token})() if token else None
 
 
@@ -259,8 +253,7 @@ class AdapterTests(TestCase):
         self.user = User.objects.create_user("kim")
 
     def test_an_existing_account_is_reconciled_before_the_session_starts(self):
-        # Not on the next login but on this one, so a role taken away in the directory
-        # stops working immediately.
+        # On this login, not the next, so a withdrawn role stops working immediately.
         login = FakeSocialLogin(self.user, {"roles": ["Editor"]})
 
         self.adapter.pre_social_login(None, login)
@@ -283,14 +276,12 @@ class AdapterTests(TestCase):
         with self.assertRaises(PermissionDenied):
             self.adapter.pre_social_login(None, login)
 
-        # The refusal comes before any change, so the account is left as it was rather
-        # than half-updated by a login that did not complete.
+        # The refusal comes before any change, so nothing is half-updated.
         self.user.refresh_from_db()
         self.assertTrue(self.user.is_superuser)
 
     def test_a_new_account_is_not_touched_before_it_exists(self):
-        # A user allauth has not saved yet has no primary key, so group membership cannot
-        # be written; save_user does it once the row is there.
+        # No primary key yet, so group membership cannot be written; save_user does it.
         login = FakeSocialLogin(User(username="new"), {"roles": ["Viewer"]}, is_existing=False)
 
         self.adapter.pre_social_login(None, login)  # must not raise
@@ -312,9 +303,8 @@ class ProviderRoutesTests(TestCase):
     """With single sign-on on, the routes the provider redirects back to are mounted."""
 
     def test_the_callback_address_is_served(self):
-        # The address registered with the identity provider. Reversing it here is what
-        # catches a change to the URL layout that would silently invalidate that
-        # registration and break every sign-in.
+        # The address registered with the identity provider: a change to the URL layout
+        # would invalidate that registration and break every sign-in.
         self.assertEqual(
             reverse("openid_connect_callback", kwargs={"provider_id": "sso"}),
             "/crudman/accounts/oidc/sso/login/callback/",
@@ -322,9 +312,8 @@ class ProviderRoutesTests(TestCase):
 
     def test_the_callback_is_served_by_allauth_and_not_the_admin(self):
         # The admin's URLs end in a catch-all under the same prefix, so whichever is
-        # listed first wins. With the admin first, the callback would redirect anonymous
-        # visitors to the login page, which redirects to the provider, which comes back
-        # here — a loop that ends only when the browser gives up.
+        # listed first wins. With the admin first, a sign-in loops until the browser
+        # gives up.
         from django.urls import resolve
 
         match = resolve("/crudman/accounts/oidc/sso/login/callback/")
@@ -335,8 +324,7 @@ class ProviderRoutesTests(TestCase):
         )
 
     def test_the_login_page_redirects_to_the_real_provider_route(self):
-        # The same assertion the stubbed URLconf makes below, but against the routes
-        # allauth actually mounts.
+        # As below, but against the routes allauth actually mounts.
         response = self.client.get(reverse("login"))
 
         self.assertEqual(response.status_code, 302)
@@ -348,7 +336,7 @@ class LoginRedirectTests(TestCase):
 
     @override_settings(OIDC_ENABLED=False)
     def test_the_local_form_is_served_when_sso_is_off(self):
-        # Pinned rather than inherited, so the assertion holds in both runs of this suite.
+        # Pinned, so the assertion holds in both runs of this suite.
         response = self.client.get(reverse("login"))
 
         self.assertEqual(response.status_code, 200)
@@ -377,8 +365,7 @@ class LoginRedirectTests(TestCase):
 
     @override_settings(OIDC_ENABLED=True, ROOT_URLCONF="sso.test_urls")
     def test_the_local_form_can_still_be_submitted(self):
-        # The form posts back without the query string, so a POST has to count as local or
-        # the escape hatch would bounce the submission to the provider instead.
+        # The form posts back without the query string, so a POST has to count as local.
         User.objects.create_superuser("root", password="hunter2hunter2")
 
         response = self.client.post(
@@ -401,7 +388,7 @@ class LogoutTests(TestCase):
 
     @override_settings(OIDC_ENABLED=False)
     def test_the_admin_handles_it_when_sso_is_off(self):
-        # Nothing to sign out of elsewhere, so the admin's own page is the right answer.
+        # Nothing to sign out of elsewhere.
         response = self.client.post(reverse("logout"))
 
         self.assertEqual(response.status_code, 200)
@@ -416,16 +403,14 @@ class LogoutTests(TestCase):
 
     @override_settings(OIDC_ENABLED=True, OIDC_LOGOUT_URL=PROVIDER_LOGOUT)
     def test_the_session_ends_here_first(self):
-        # Ending it locally must not wait on the provider answering: if the redirect is
-        # never followed, the person still has to be signed out of this system.
+        # If the redirect is never followed, the person is still signed out here.
         self.client.post(reverse("logout"))
 
         self.assertNotIn("_auth_user_id", self.client.session)
 
     @override_settings(OIDC_ENABLED=True, OIDC_LOGOUT_URL="")
     def test_the_admin_handles_it_when_no_logout_address_is_configured(self):
-        # Single sign-on without an end-session address: the local session still ends, and
-        # there is nowhere to forward to.
+        # Single sign-on without an end-session address: nowhere to forward to.
         response = self.client.post(reverse("logout"))
 
         self.assertEqual(response.status_code, 200)
@@ -439,8 +424,7 @@ class AdminMenuTests(TestCase):
         request = RequestFactory().get(reverse("admin:index"))
         request.user = User.objects.create_superuser("root")
 
-        # What the sidebar is built from, seen by a superuser, so nothing is missing merely
-        # for want of a permission.
+        # Seen by a superuser, so nothing is missing for want of a permission.
         self.sections = {
             app["name"]: [model["name"] for model in app["models"]]
             for app in admin.site.get_app_list(request)
@@ -449,8 +433,7 @@ class AdminMenuTests(TestCase):
     def test_one_heading_covers_signing_in(self):
         self.assertIn("Access", self.sections)
 
-        # Django's own name for the section, and the two allauth arrives with. With single
-        # sign-on on, all three stood in the menu at once, saying much the same thing.
+        # Django's own name and the two allauth arrives with, which said much the same.
         for heading in ("Authentication and Authorization", "Accounts", "Social Accounts"):
             self.assertNotIn(heading, self.sections)
 
@@ -458,8 +441,7 @@ class AdminMenuTests(TestCase):
         self.assertEqual(self.sections["Access"], ["Groups", "Users"])
 
     def test_database_access_has_no_section_of_its_own(self):
-        """It is a switch on the user, so a heading listing the accounts would be a
-        second place to look for the same fact."""
+        """A switch on the user, so a heading would be a second place for one fact."""
         self.assertNotIn("Database access", self.sections)
 
 
@@ -471,9 +453,8 @@ class AllauthAdminPageTests(TestCase):
         from allauth.account.models import EmailAddress
         from allauth.socialaccount.models import SocialAccount, SocialApp, SocialToken
 
-        # Dropping them from the sidebar alone would not do: a page that stays registered
-        # stays reachable by typing its address, and the social application one would then
-        # offer to configure a provider that is really configured in settings.py.
+        # A page dropped from the sidebar alone stays reachable by typing its address,
+        # and the social application one would offer to reconfigure the provider.
         for model in (EmailAddress, SocialApp, SocialToken, SocialAccount):
             self.assertFalse(admin.site.is_registered(model), model.__name__)
 
@@ -498,14 +479,14 @@ class SingleSignOnInlineTests(TestCase):
         )
 
     def test_the_claims_are_shown_on_the_user(self):
-        # The question this page is here to answer: the provider calls someone an editor
-        # and the system does not, so show the roles exactly as they arrived.
+        # The question this page answers: the provider calls someone an editor and the
+        # system does not.
         self.assertContains(self.page, "kim@example.com")
         self.assertContains(self.page, "Editor")
 
     def test_nothing_of_it_can_be_edited(self):
-        # Read-only fields render as text, so a form input for one would mean the
-        # provider's data had become editable here — and rewritten on its next login.
+        # Read-only fields render as text, so a form input would mean the provider's data
+        # had become editable -- and overwritten at its next login.
         self.assertNotContains(self.page, "socialaccount_set-0-uid")
 
     def test_no_account_can_be_added_by_hand(self):
@@ -517,10 +498,7 @@ class SingleSignOnInlineTests(TestCase):
 
 
 class LocalUserCreationTests(TestCase):
-    """Making a user by hand.
-
-    The whole story with single sign-on off, and how the local superuser goes on
-    existing when it is on."""
+    """Making a user by hand, which is how the local superuser exists."""
 
     def setUp(self):
         self.client.force_login(User.objects.create_superuser("root"))
@@ -532,8 +510,8 @@ class LocalUserCreationTests(TestCase):
         self.assertContains(response, 'name="password1"')
 
     def test_the_add_page_says_nothing_about_the_provider(self):
-        # Someone created here has signed in nowhere yet, so the box would be empty — and
-        # the page would refuse to save the new user without its formset coming back.
+        # Someone created here has signed in nowhere yet, so the box would be empty, and
+        # the page would refuse to save without its formset coming back.
         response = self.client.get(reverse("admin:auth_user_add"))
 
         self.assertNotContains(response, "socialaccount_set-TOTAL_FORMS")
@@ -548,24 +526,22 @@ class LocalUserCreationTests(TestCase):
             },
         )
 
-        # The add page redirects to the new user's own page; a 200 would be the form
-        # coming back with errors.
+        # A 200 would be the form coming back with errors.
         self.assertEqual(response.status_code, 302)
         self.assertIsNotNone(authenticate(username="kim", password="hunter2hunter2"))
 
     @override_settings(OIDC_ENABLED=True, OIDC_LOGOUT_URL=PROVIDER_LOGOUT)
     def test_a_link_cannot_sign_someone_out(self):
-        # Django stopped accepting logout from a GET so that another site cannot trigger
-        # it, and routing it through the provider must not reopen that.
+        # Django refuses logout on a GET so another site cannot trigger it, and routing
+        # it through the provider must not reopen that.
         response = self.client.get(reverse("logout"))
 
         self.assertEqual(response.status_code, 405)
         self.assertIn("_auth_user_id", self.client.session)
 
 
-# A picture a browser can fetch, as a standards-abiding provider publishes it, and the one
-# Entra ID publishes instead: an address inside Microsoft Graph that answers only to a
-# request carrying a bearer token.
+# A picture a browser can fetch, and the Microsoft Graph address Entra ID publishes
+# instead, which answers only to a request carrying a bearer token.
 PICTURE = "https://provider.example/photos/kim.jpg"
 GRAPH_PICTURE = "https://graph.microsoft.com/v1.0/me/photo/$value"
 
@@ -610,8 +586,7 @@ class ClaimedPictureTests(TestCase):
         self.assertEqual(claimed_picture({"picture": PICTURE}), PICTURE)
 
     def test_nothing_is_found_when_the_claim_is_absent(self):
-        # Most providers publish no picture at all, which is not an error: the initial of
-        # the name is what the sidebar has always shown.
+        # Most providers publish none, and the sidebar falls back to the initial.
         self.assertIsNone(claimed_picture({"userinfo": {"sub": "kim"}}))
         self.assertIsNone(claimed_picture(None))
 
@@ -623,29 +598,28 @@ class LoadablePictureTests(TestCase):
         with patch("sso.avatars.requests.get", return_value=fake_answer()) as get:
             self.assertEqual(loadable_picture(PICTURE), PICTURE)
 
-        # Streamed, because the answer's headers settle it and the picture behind them can
-        # be megabytes that nothing here will ever look at.
+        # The headers settle it, and the picture behind them may be megabytes.
         self.assertTrue(get.call_args.kwargs["stream"])
 
     def test_a_link_that_needs_a_token_is_dropped(self):
-        # What Entra ID sends. Keeping it would put an address in the stylesheet that the
-        # browser is refused, leaving an empty circle where the initial used to be.
+        # What Entra ID sends. Keeping it would leave an empty circle where the initial
+        # used to be.
         answer = fake_answer(status=401, content_type="application/json")
 
         with patch("sso.avatars.requests.get", return_value=answer):
             self.assertIsNone(loadable_picture(GRAPH_PICTURE))
 
     def test_something_that_is_not_an_image_is_dropped(self):
-        # A sign-in page, say, which is how some providers answer a request they will not
-        # serve — with 200 and a page rather than an error.
+        # Some providers answer a request they will not serve with 200 and a sign-in
+        # page rather than an error.
         answer = fake_answer(content_type="text/html; charset=utf-8")
 
         with patch("sso.avatars.requests.get", return_value=answer):
             self.assertIsNone(loadable_picture(PICTURE))
 
     def test_an_unreachable_host_costs_the_picture_and_nothing_else(self):
-        # The login has already succeeded by this point, so a picture host that is down,
-        # slow or unresolvable must not turn a completed sign-in into an error page.
+        # The login has already succeeded, so a picture host that is down must not turn
+        # it into an error page.
         with patch("sso.avatars.requests.get", side_effect=requests.RequestException):
             self.assertIsNone(loadable_picture(PICTURE))
 
@@ -670,8 +644,8 @@ class FetchedPictureTests(TestCase):
         )
 
     def test_the_token_is_sent_nowhere_but_the_provider(self):
-        # The host comes out of a claim. A tampered or mistaken one must not be able to
-        # turn a login into an access token handed to a stranger.
+        # The host comes out of a claim, and a tampered one must not turn a login into
+        # an access token handed to a stranger.
         with patch("sso.avatars.requests.get") as get:
             picture = fetched_picture(
                 "https://elsewhere.example/kim.jpg", "token-123", "graph.microsoft.com"
@@ -688,7 +662,7 @@ class FetchedPictureTests(TestCase):
         get.assert_not_called()
 
     def test_a_picture_too_large_to_carry_is_dropped(self):
-        # It would ride in the session row, which Django reads back on every request.
+        # It would ride in the session row, read back on every request.
         answer = fake_answer(body=b"x" * (MAX_PICTURE_BYTES + 1))
 
         with patch("sso.avatars.requests.get", return_value=answer):
@@ -697,8 +671,8 @@ class FetchedPictureTests(TestCase):
             )
 
     def test_a_refusal_is_dropped(self):
-        # A token without the permission the provider wants for photographs, which is a
-        # matter of the operator's registration and not something to fail a login over.
+        # A token lacking the permission the provider wants for photographs, which is
+        # the operator's registration and not worth failing a login over.
         answer = fake_answer(status=403, content_type="application/json")
 
         with patch("sso.avatars.requests.get", return_value=answer):
@@ -717,8 +691,7 @@ class ApiHostTests(TestCase):
     """The one host a token may be sent to, read from the provider's own document."""
 
     def test_the_userinfo_host_is_where_the_token_may_go(self):
-        # Where allauth has just sent this very token for the claims themselves, so the
-        # picture costs no new trust.
+        # Where allauth just sent this token for the claims, so nothing new is trusted.
         login = MagicMock()
         adapter = login.account.get_provider.return_value.get_oauth2_adapter.return_value
         adapter.openid_config = {
@@ -728,7 +701,7 @@ class ApiHostTests(TestCase):
         self.assertEqual(api_host(None, login), "graph.microsoft.com")
 
     def test_a_provider_that_cannot_be_asked_names_no_host(self):
-        # Discovery is a network call like any other, and failing it costs the picture.
+        # Discovery is a network call, and failing it costs only the picture.
         login = MagicMock()
         login.account.get_provider.side_effect = requests.RequestException
 
@@ -755,13 +728,12 @@ class RememberPictureTests(TestCase):
 
         remember_picture(self.request)
 
-        # Signing in as somebody else must not leave their predecessor's face in the
-        # corner of the page.
+        # Signing in as somebody else must not leave the predecessor's face there.
         self.assertIsNone(self.request.session[SESSION_KEY])
 
     def test_a_picture_the_browser_may_have_is_left_to_it(self):
-        # The common case, and the cheap one: the address goes to the browser and this
-        # server never carries the image at all.
+        # The common case: the address goes to the browser and this server never carries
+        # the image.
         login = FakeSocialLogin(User(username="kim"), {"picture": PICTURE}, token="tok")
 
         with patch("sso.avatars.requests.get", return_value=fake_answer()) as get:
@@ -769,13 +741,13 @@ class RememberPictureTests(TestCase):
 
         self.assertEqual(self.request.session[SESSION_KEY], PICTURE)
         self.assertIsNone(self.request.session[SESSION_PICTURE_KEY])
-        # Only the probe. Nothing was downloaded, and no token was sent anywhere.
+        # Only the probe: nothing downloaded, no token sent anywhere.
         self.assertEqual(get.call_count, 1)
         self.assertNotIn("headers", get.call_args.kwargs)
 
     def test_a_picture_only_the_provider_will_hand_over_is_downloaded(self):
         # Entra ID's shape: the browser is refused, so the login fetches the photograph
-        # with the token it has just been given and the sidebar points back at this system.
+        # and the sidebar points back at this system.
         login = FakeSocialLogin(
             User(username="kim"), {"picture": GRAPH_PICTURE}, token="token-123"
         )
@@ -808,7 +780,7 @@ class RememberPictureTests(TestCase):
         self.assertIsNone(self.request.session[SESSION_PICTURE_KEY])
 
     def test_nothing_is_downloaded_without_a_token(self):
-        # A login that never carried one — there is nothing to ask the provider with.
+        # Nothing to ask the provider with.
         login = FakeSocialLogin(User(username="kim"), {"picture": GRAPH_PICTURE})
         refused = fake_answer(status=401, content_type="application/json")
 
@@ -832,8 +804,8 @@ class ScopeChoiceTests(TestCase):
         )
 
     def test_entra_is_also_asked_for_what_its_pictures_need(self):
-        # Not discoverable: Entra ID's own document lists only the OpenID Connect scopes,
-        # and User.Read is a Microsoft Graph permission that never appears in it.
+        # Not discoverable: User.Read is a Microsoft Graph permission, and Entra ID's
+        # document lists only the OpenID Connect scopes.
         self.assertEqual(
             scopes_for("https://login.microsoftonline.com/a-tenant-id/v2.0"),
             ["openid", "profile", "email", "User.Read"],
@@ -847,16 +819,15 @@ class ScopeChoiceTests(TestCase):
             self.assertIn("User.Read", scopes_for(issuer), issuer)
 
     def test_a_lookalike_domain_is_not_entra(self):
-        # Matching on the letters at the end alone would take "notmicrosoftonline.com" for
-        # Microsoft, and ask a stranger's provider for a permission it has never heard of.
+        # Matching on the trailing letters alone would ask a stranger's provider for a
+        # permission it has never heard of.
         self.assertEqual(
             scopes_for("https://login.notmicrosoftonline.com/tenant/v2.0"),
             ["openid", "profile", "email"],
         )
 
     def test_an_operator_can_overrule_the_choice(self):
-        # The way back for a tenant that will not grant the extra permission, whose
-        # sign-in then fails outright rather than merely losing the picture.
+        # The way back for a tenant that will not grant the extra permission.
         self.assertEqual(
             scopes_for(
                 "https://login.microsoftonline.com/a-tenant-id/v2.0",
@@ -866,7 +837,7 @@ class ScopeChoiceTests(TestCase):
         )
 
     def test_an_unconfigured_issuer_asks_for_the_standard_scopes(self):
-        # What every installation with single sign-on switched off carries.
+        # What an installation with single sign-on off carries.
         self.assertEqual(scopes_for(""), ["openid", "profile", "email"])
 
 
@@ -874,11 +845,8 @@ class ScopeChoiceTests(TestCase):
 class ScopeTests(TestCase):
     """What the sign-in asks the provider for.
 
-    A setting because of the picture: Entra ID hands that over only to a token holding
-    "User.Read", while a provider that has never heard of the scope refuses the request
-    outright. What matters here is that allauth reads the setting at all — put under the
-    wrong key it would be ignored in silence, and the operator would be left adding a
-    scope that never reached the provider.
+    What matters is that allauth reads the setting at all: under the wrong key it would be
+    ignored in silence, and an added scope would never reach the provider.
     """
 
     def provider(self):
@@ -920,8 +888,8 @@ class AvatarViewTests(TestCase):
         self.assertEqual(response["Content-Type"], "image/jpeg")
 
     def test_it_is_kept_by_the_browser_and_by_no_one_else(self):
-        # One person's face must not sit in a shared cache waiting to be served to the
-        # next, and the browser should not ask again on every page view.
+        # One person's face must not sit in a shared cache for the next, and the browser
+        # should not ask again on every page view.
         self.store()
 
         response = self.client.get(reverse("avatar"))
@@ -937,9 +905,8 @@ class AvatarViewTests(TestCase):
 class LoginSignalTests(TestCase):
     """The wiring, which is the half that cannot fail loudly.
 
-    remember_picture works when called; what is worth proving is that a login calls it.
-    The signal is sent exactly as allauth sends it, so the arguments it arrives with are
-    part of what is under test.
+    remember_picture works when called; what is proved here is that a login calls it, with
+    the signal sent exactly as allauth sends it.
     """
 
     def test_a_provider_login_stores_the_picture(self):
@@ -974,8 +941,8 @@ class AvatarMiddlewareTests(TestCase):
         self.assertEqual(request.user.avatar_url, PICTURE)
 
     def test_a_session_without_one_leaves_the_user_alone(self):
-        # Assigning to request.user resolves the lazy object Django leaves there, which is
-        # a query for the user — on every request, and most of them render no sidebar.
+        # Assigning to request.user resolves the lazy object Django leaves there: a query
+        # on every request, most of which render no sidebar.
         loaded = []
 
         def load_user():
@@ -1006,18 +973,17 @@ class AvatarInTheSidebarTests(TestCase):
         self.assertContains(self.client.get(reverse("admin:index")), PICTURE)
 
     def test_a_session_without_one_shows_the_initial(self):
-        # Unfold's own fallback, which is the whole of the feature for a provider that
-        # publishes no picture — and must stay reachable rather than being replaced by a
-        # blank circle.
+        # Unfold's own fallback, which is the whole feature for a provider that publishes
+        # no picture.
         self.assertNotContains(self.client.get(reverse("admin:index")), "background-image")
 
 
 class DatabaseAccessSwitchTests(TestCase):
     """The switch on the user page, which is how a database account is given and taken.
 
-    Everything below the switch — the role name, the rank, the credential handover — is
-    covered in dbusers/tests.py. What matters here is that the switch reflects what
-    exists and that saving reconciles it.
+    Everything below it -- the role name, the rank, the credential handover -- is covered
+    in dbusers/tests.py. What matters here is that the switch reflects what exists and
+    that saving reconciles it.
     """
 
     def setUp(self):
@@ -1025,13 +991,12 @@ class DatabaseAccessSwitchTests(TestCase):
             Group.objects.get_or_create(name=name)
         self.client.force_login(User.objects.create_superuser("root"))
         # Staff, because the switch is read-only without it: the password is handed over
-        # at sign-in here, so an account for someone who cannot sign in is unusable.
+        # at sign-in here.
         self.user = User.objects.create_user("jdoe", password="x", is_staff=True)
         self.user.groups.add(Group.objects.get(name=EDITOR))
 
-        # The form asks PostgreSQL whether the derived role name is already taken. The
-        # database is mocked here, so the answer is pinned to "free" and the one test
-        # about a taken name says so itself.
+        # The form asks PostgreSQL whether the derived role name is taken; with the
+        # database mocked, the answer is pinned to "free".
         free = patch("sso.admin.unmanaged_role", return_value=None)
         free.start()
         self.addCleanup(free.stop)
@@ -1089,7 +1054,7 @@ class DatabaseAccessSwitchTests(TestCase):
         with patch("dbusers.utils.connection") as conn:
             self._post(database_access="on")
 
-        # No re-enrollment: create_db_user would rewrite the role the person already has.
+        # Re-enrolling would rewrite the role the person already has.
         conn.cursor.assert_not_called()
         self.assertTrue(DatabaseUser.objects.filter(user=self.user).exists())
 
@@ -1101,15 +1066,14 @@ class DatabaseAccessSwitchTests(TestCase):
         self.assertTrue(page.context["adminform"].form["database_access"].value())
 
     def test_the_switch_is_rendered_as_a_switch(self):
-        """Unfold's formfield_overrides reach model fields only, so a plain form field
-        silently falls back to Django's bare checkbox."""
+        """formfield_overrides reach model fields only, so a plain form field would fall
+        back to Django's bare checkbox."""
         page = self.client.get(reverse("admin:auth_user_change", args=[self.user.pk]))
         widget = page.context["adminform"].form.fields["database_access"].widget
         self.assertIsInstance(widget, UnfoldBooleanSwitchWidget)
 
     def test_a_superuser_needs_no_rank_group(self):
-        """With single sign-on off nothing grants a role group, so the local
-        administrator would otherwise be the one person unable to get an account."""
+        """With single sign-on off nothing grants a role group."""
         self.user.groups.clear()
         self.user.is_superuser = True
         self.user.save()
@@ -1120,8 +1084,7 @@ class DatabaseAccessSwitchTests(TestCase):
         self.assertTrue(DatabaseUser.objects.filter(user=self.user).exists())
 
     def test_a_user_without_a_rank_cannot_be_switched_on(self):
-        """Without a rank there is no privilege set to grant, so the switch is disabled
-        rather than failing on save."""
+        """Without a rank there is nothing to grant, so the switch is disabled."""
         self.user.groups.clear()
 
         with patch("dbusers.utils.connection") as conn:
@@ -1133,9 +1096,8 @@ class DatabaseAccessSwitchTests(TestCase):
     def test_a_role_this_app_did_not_create_is_shown_read_only(self):
         """The deployment's superuser is a Django account and a PostgreSQL role at once.
 
-        They reach the database through that role, so reporting no access would be a lie;
-        offering to remove it would be one too, the provisioning functions refusing a role
-        without the marker they grant.
+        Reporting no access would be a lie, and so would offering to remove it: the
+        provisioning functions refuse a role without the marker they grant.
         """
         with patch("sso.admin.unmanaged_role", return_value="admin"):
             page = self.client.get(
@@ -1156,8 +1118,7 @@ class DatabaseAccessSwitchTests(TestCase):
         self.assertFalse(DatabaseUser.objects.filter(user=self.user).exists())
 
     def test_a_user_without_staff_status_cannot_be_switched_on(self):
-        """They never reach the admin, which is where the password is handed over, so
-        the account would exist with a password nobody is ever shown."""
+        """They never reach the admin, so nobody would ever be shown the password."""
         self.user.is_staff = False
         self.user.save()
 
@@ -1178,8 +1139,7 @@ class DatabaseAccessSwitchTests(TestCase):
         self.assertTrue(DatabaseUser.objects.filter(user=self.user).exists())
 
     def test_a_database_failure_does_not_lose_the_user_edit(self):
-        # The admin logs the failure it recovers from, so muffle the traceback the
-        # deliberate error would otherwise print across the test output.
+        # The admin logs the failure it recovers from; muffle that traceback.
         self.addCleanup(disable, 0)
         disable(CRITICAL)
         with patch("dbusers.utils.enroll", side_effect=RuntimeError("boom")), \

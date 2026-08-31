@@ -1,25 +1,20 @@
 -- The group roles behind per-admin database users.
 --
--- Every administrator who needs SQL access gets a login role of their own (created by
--- crudman, see create_db_user in gf_0003) rather than sharing the sqlmesh secret. What
--- such a role may do is not granted to it directly: it is a member of exactly one of the
--- three group roles below, which carry the privileges. That indirection is the point --
--- changing what an editor may do is one GRANT here, not a loop over every person.
+-- Every administrator who needs SQL access gets a login role of their own (create_db_user
+-- in gf_0003) rather than sharing the sqlmesh secret. Nothing is granted to it directly:
+-- it is a member of exactly one of the three group roles below, so changing what an editor
+-- may do is one GRANT here rather than a loop over every person.
 --
 -- The three names are the single sign-on group names of crudman/app/sso/roles.py, both
--- built from ROLE_PREFIX, so the rank the identity provider sends decides the
--- database rights too and there is one place where that mapping is written down.
+-- built from ROLE_PREFIX, so the rank the identity provider sends decides the database
+-- rights too. NOINHERIT is deliberately not set: a member gets the rights by connecting.
 --
--- NOINHERIT is deliberately NOT set: a member should get the group's rights simply by
--- connecting, without having to SET ROLE.
---
--- A fourth role rides along, <prefix>person, which grants nothing: it is the marker
--- create_db_user puts on every account it provisions, and the only thing that tells a
--- personal role from a tenant or a service role. See is_db_user in gf_0003.
+-- A fourth role, <prefix>person, grants nothing: it is the marker create_db_user puts on
+-- every account it provisions, and the only thing that tells a personal role from a tenant
+-- or a service role. See is_db_user in gf_0003.
 
--- CREATE ROLE has no IF NOT EXISTS, and these scripts re-run on every start (see the
--- postgresql entrypoint), so create each role only when it is absent. The rights below
--- are re-granted either way, which is what lets a re-run repair a tampered grant.
+-- CREATE ROLE has no IF NOT EXISTS, and these scripts re-run on every start. The rights
+-- below are re-granted either way, which is what lets a re-run repair a tampered grant.
 DO $$
 DECLARE
     group_role text;
@@ -29,9 +24,8 @@ BEGIN
                                       '${ROLE_PREFIX}admin',
                                       '${ROLE_PREFIX}person']
     LOOP
-        -- A name already somebody's login role would be handed out by create_db_user as
-        -- if it were one of ours -- and an unprefixed "admin" is the cluster superuser.
-        -- Refusing to start is the only safe answer.
+        -- create_db_user would hand out somebody else's login role as one of ours, and
+        -- an unprefixed "admin" is the cluster superuser.
         IF EXISTS (SELECT 1 FROM pg_roles
                    WHERE rolname = group_role AND (rolsuper OR rolcanlogin)) THEN
             RAISE EXCEPTION '% is a login role already -- change ROLE_PREFIX', group_role;
@@ -47,45 +41,39 @@ $$;
 --------------------------------------------------------------------
 -- Read access to the analytics data.
 --
--- All three ranks may read the same things: the medallion layers and the crudman model
+-- All three ranks read the same things: the medallion layers and the crudman model
 -- tables. What separates them is write access to SQLMesh's working schemas below. The
--- grants mirror grafana's in gf_0005 -- deliberately, because "what a dashboard may
--- read" and "what a person may read" are the same question here.
+-- grants mirror grafana's in gf_0005: what a dashboard may read and what a person may read
+-- are one question here.
 --------------------------------------------------------------------
 GRANT USAGE ON SCHEMA ${SILVER_SCHEMA}, ${GOLD_SCHEMA} TO ${ROLE_PREFIX}viewer;
 GRANT SELECT ON ALL TABLES IN SCHEMA ${SILVER_SCHEMA}, ${GOLD_SCHEMA} TO ${ROLE_PREFIX}viewer;
 ALTER DEFAULT PRIVILEGES FOR ROLE ${SQLMESH_DB_USER} IN SCHEMA ${SILVER_SCHEMA} GRANT SELECT ON TABLES TO ${ROLE_PREFIX}viewer;
 ALTER DEFAULT PRIVILEGES FOR ROLE ${SQLMESH_DB_USER} IN SCHEMA ${GOLD_SCHEMA} GRANT SELECT ON TABLES TO ${ROLE_PREFIX}viewer;
 
--- The crudman schema, minus the tables that hold credentials or secret tokens. The same
--- exclusions as grafana's: Django's own auth_/django_ tables and the dropzone table with
--- its upload-link tokens.
+-- Minus the tables holding credentials or secret tokens, as for grafana: Django's own
+-- auth_/django_ tables and the dropzone table with its upload-link tokens.
 GRANT USAGE ON SCHEMA crudman TO ${ROLE_PREFIX}viewer;
 
--- Editors and admins read everything a viewer reads, so they are made members of it
--- rather than repeating the grants. A rank is therefore cumulative by construction.
+-- Editors and admins are members of the viewer role rather than repeating its grants.
 GRANT ${ROLE_PREFIX}viewer TO ${ROLE_PREFIX}editor;
 GRANT ${ROLE_PREFIX}editor TO ${ROLE_PREFIX}admin;
 
 --------------------------------------------------------------------
 -- Write access for SQLMesh development.
 --
--- Running `sqlmesh plan` needs more than reading: SQLMesh writes snapshots to the state
--- schema and materialises models into the physical schemas behind the virtual layer.
--- Those are owned by the sqlmesh role and created as models appear, so the event trigger
--- below applies the grants rather than listing them here.
+-- `sqlmesh plan` writes snapshots to the state schema and materialises models into the
+-- physical schemas behind the virtual layer. Those are owned by sqlmesh and created as
+-- models appear, so the event trigger below applies the grants.
 --
--- This deliberately permits `sqlmesh plan prod` too. Promoting is a view swap in exactly
--- the schemas a developer must write to in order to plan at all, so PostgreSQL cannot
--- separate the two without a state and physical layer per person, costing a full backfill
--- each. The accepted control is that production is deployed from CI on merge.
+-- This permits `sqlmesh plan prod` too: promoting is a view swap in exactly the schemas a
+-- developer must write to in order to plan at all, and separating the two would cost a
+-- state and physical layer per person. The control is that production deploys from CI.
 --------------------------------------------------------------------
 GRANT CREATE ON DATABASE ${PG_DATABASE} TO ${ROLE_PREFIX}editor;
 
--- SQLMesh's schemas do not exist yet at first start (the engine creates them on its first
--- plan) and new ones appear whenever a model lands in a new schema. An event trigger
--- grants the developer group access to each one as it is created, the same technique
--- gf_0005 uses to keep grafana's read access current.
+-- SQLMesh's schemas appear on its first plan and whenever a model lands in a new one, so
+-- an event trigger grants each as it is created, as gf_0005 does for grafana.
 CREATE OR REPLACE FUNCTION grant_developer_write()
 RETURNS event_trigger
 LANGUAGE plpgsql
@@ -98,12 +86,10 @@ BEGIN
         FROM pg_event_trigger_ddl_commands()
         WHERE command_tag = 'CREATE SCHEMA'
     LOOP
-        -- Only the schemas SQLMesh works in: its physical layer (sqlmesh__*), its state
-        -- schema (sqlmesh) and the virtual layer of the medallion levels, including the
-        -- staging layer and the per-environment suffixed copies a dev plan creates
-        -- (silver_staging, silver__dev_jdoe, ...) -- which is why these match on a
-        -- prefix. starts_with rather than LIKE because a configured name may hold an
-        -- underscore, which LIKE would read as a single-character wildcard.
+        -- Only the schemas SQLMesh works in: its physical layer, its state schema and
+        -- the medallion virtual layer, including the staging and per-environment copies a
+        -- dev plan creates -- hence the prefix match. starts_with rather than LIKE, a
+        -- configured name possibly holding an underscore.
         CONTINUE WHEN NOT starts_with(obj.object_identity, 'sqlmesh')
                   AND NOT starts_with(obj.object_identity, '${SILVER_SCHEMA}')
                   AND NOT starts_with(obj.object_identity, '${GOLD_SCHEMA}')
@@ -128,25 +114,19 @@ CREATE EVENT TRIGGER developer_write_on_create_schema
     WHEN TAG IN ('CREATE SCHEMA')
     EXECUTE FUNCTION grant_developer_write();
 
--- The two schemas that already exist at this point (created by gf_0005) predate the
--- trigger, so they are granted directly.
+-- gf_0005 created these before the trigger existed.
 GRANT ALL ON SCHEMA ${SILVER_SCHEMA}, ${GOLD_SCHEMA} TO ${ROLE_PREFIX}editor;
 
--- The engine's own run has to be able to read and replace what a developer's plan
--- materialised, which it cannot do for a table another role owns. Rather than making the
--- production role a member of the developer group -- which would widen what the deployed
--- engine may do -- every developer's role is created with sqlmesh as a default member of
--- the objects it creates; see create_db_user in gf_0003.
+-- The engine has to read and replace what a developer's plan materialised, which it
+-- cannot do for a table another role owns. Rather than widening the production role, every
+-- developer's role gives sqlmesh default membership of what it creates (gf_0003).
 
 --------------------------------------------------------------------
 -- Who may provision database users.
 --
--- PostgreSQL grants EXECUTE on a new function to PUBLIC by default, which for a
--- SECURITY DEFINER function that can CREATE ROLE means every role in the cluster could
--- provision itself an admin account. The default is therefore revoked and the privilege
--- given to crudman alone, which is the only thing that legitimately calls these.
---
--- They live in gf_0003 with the tenant functions, but the grant has to wait until here:
+-- PostgreSQL grants EXECUTE on a new function to PUBLIC, which for a SECURITY DEFINER
+-- function that can CREATE ROLE would let every role in the cluster provision itself an
+-- admin account. The functions live in gf_0003, but the grant waits until here because
 -- gf_0003 runs before gf_0004 creates the crudman role.
 --------------------------------------------------------------------
 REVOKE ALL ON FUNCTION create_db_user(text, text, text) FROM PUBLIC;

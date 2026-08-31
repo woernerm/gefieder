@@ -1,52 +1,44 @@
 #!/bin/sh
 # Server-statistics collector.
 #
-# Runs on the host as the rootless-podman user (a systemd user timer owns the cadence), NOT
-# inside a container: only the host can see the pod's real CPU time, disk IOPS and
-# throughput, and network egress. PostgreSQL itself cannot report those, so they are read
-# here from cgroup v2 and /sys and written into the database, where the per-query and
-# per-table statistics already live. One INSERT per tick into the server-statistics schema,
-# then a rollup/prune so the raw table stays small.
+# Runs on the host as the rootless-podman user, a systemd user timer owning the cadence.
+# Only the host can see the pod's real CPU time, disk IOPS and throughput, and network
+# egress, so they are read from cgroup v2 and /sys and written into the database, where the
+# per-query and per-table statistics already live. One INSERT per tick, then a rollup and
+# prune so the raw table stays small.
 #
-# Everything is plain counters or sizes; rates are computed later as deltas between rows.
-# Each metric is best-effort: a value that cannot be read this tick is written as NULL
-# rather than failing the whole sample, so a kernel that hides one cgroup file still
-# yields a usable row.
+# Everything is counters or sizes; rates are deltas between rows. Each metric is
+# best-effort: a value that cannot be read is written NULL rather than failing the sample.
 set -eu
 
 # --- configuration --------------------------------------------------------------------
-# The schema is fixed at build time, because it must match what the init scripts created.
-# This script takes exactly one sample per invocation and holds no cadence of its own: the
-# timer decides how often it runs.
+# The schema is fixed at build time, matching what the init scripts created. One sample per
+# invocation; the timer decides how often.
 APP_NAME="${APP_NAME:?APP_NAME must be set (server-stats.service and dev.sh provide it)}"
 SCHEMA="${SERVER_STATS_SCHEMA:-server_stats}"
 
-# The container whose cgroup stands in for the whole pod: all pod containers share one
-# parent cgroup, and postgresql is always present, so its cgroup's parent is the pod's.
+# Every pod container shares one parent cgroup, and postgresql is always present, so its
+# cgroup's parent is the pod's.
 CONTAINER="${SERVER_STATS_CONTAINER:-postgresql}"
 
-# Run the size probes (du/df/pg_database_size) only every ~5 minutes: disk space does not
-# move in seconds and these probes are far heavier than reading a counter file. Between
-# probes the size columns are written NULL and simply carry forward in the charts.
+# The size probes are far heavier than reading a counter file, and disk space does not move
+# in seconds. Between probes the size columns are NULL and carry forward in the charts.
 DISK_PROBE_SECONDS="${SERVER_STATS_DISK_PROBE_SECONDS:-300}"
 
-# Snapshot pg_stat_statements / pg_stat_user_tables only every ~15 minutes. Both are
-# cumulative counters, so a coarser cadence loses no information -- a delta over any window
-# is still exact -- while a per-minute snapshot of a table with thousands of statements is
-# what filled the raw tables. The host counters keep the full timer cadence.
+# Both views hold cumulative counters, so a coarse cadence loses nothing while a
+# per-minute snapshot of thousands of statements is what filled the raw tables. The host
+# counters keep the full timer cadence.
 QUERY_PROBE_SECONDS="${SERVER_STATS_QUERY_PROBE_SECONDS:-900}"
 
 # --- helpers --------------------------------------------------------------------------
-# Read a single whitespace-delimited field from a flat cgroup file like cpu.stat:
-#   field_in <file> <key>   ->  the value after "<key> " or empty if absent/unreadable.
+# field_in <file> <key> -> the value after "<key> " in a flat cgroup file, or empty.
 field_in() {
     [ -r "$1" ] || return 0
     awk -v k="$2" '$1==k {print $2; found=1} END {if(!found) print ""}' "$1"
 }
 
-# Sum a column across the io.stat lines (one line per block device). io.stat fields are
-# key=value pairs; pick the value of <key> on every line and total them, so a volume
-# spread over several devices is summed. Empty when the file is unreadable.
+# Total <key> across io.stat's key=value lines, one per block device, so a volume spread
+# over several is summed. Empty when the file is unreadable.
 io_sum() {
     [ -r "$1" ] || { echo ""; return 0; }
     awk -v k="$2" '{
@@ -54,12 +46,11 @@ io_sum() {
     } END { print s+0 }' "$1"
 }
 
-# Emit NULL for an empty value so it lands in SQL as a real NULL, not an empty string.
+# An empty value has to reach SQL as a real NULL, not an empty string.
 sql() { if [ -z "$1" ]; then printf NULL; else printf '%s' "$1"; fi; }
 
-# Sub-cadence gate: true when <name> was last run at least <seconds> ago, and then marks it
-# as run now. A marker file's mtime is the whole state, so a missed tick or a reboot simply
-# makes the next tick due. Callers must have created STATE_DIR.
+# True when <name> last ran at least <seconds> ago, marking it as run now. A marker file's
+# mtime is the whole state, so a missed tick or a reboot makes the next one due.
 due() {
     marker="$STATE_DIR/$1"
     last=0
@@ -68,11 +59,9 @@ due() {
     touch "$marker"
 }
 
-# Run psql inside the postgresql container as the superuser against the app database.
-# Required rather than defaulted: the superuser is created under SUPERUSER_NAME, so a
-# hardcoded fallback would fit only a deployment that kept the default and would otherwise
-# connect as a role that does not exist. Every caller passes it, so a missing one is a
-# wiring mistake worth saying out loud.
+# psql inside the postgresql container, as the superuser. Required rather than defaulted:
+# the superuser is created under SUPERUSER_NAME, so a hardcoded fallback would fit only a
+# deployment that kept it.
 POSTGRES_USER="${POSTGRES_USER:?POSTGRES_USER must be set to the database superuser name}"
 psql_exec() {
     podman exec -i "$CONTAINER" \
@@ -81,8 +70,7 @@ psql_exec() {
 }
 
 # --- locate the pod cgroup ------------------------------------------------------------
-# podman reports the container's own cgroup path; its parent directory is the pod cgroup
-# that aggregates every container in the pod, which is what we want to measure.
+# podman reports the container's own cgroup path; its parent aggregates the whole pod.
 CG_CONTAINER="$(podman inspect "$CONTAINER" --format '{{.State.CgroupPath}}' 2>/dev/null || true)"
 CG_ROOT="/sys/fs/cgroup"
 if [ -n "$CG_CONTAINER" ] && [ -d "${CG_ROOT}${CG_CONTAINER}" ]; then
@@ -100,20 +88,18 @@ HOST_MEM_TOTAL="$(field_in /proc/meminfo MemTotal:)"   # value is in kB
 [ -n "$HOST_MEM_TOTAL" ] && HOST_MEM_TOTAL=$((HOST_MEM_TOTAL * 1024))
 
 # --- disk I/O (cgroup io.stat) --------------------------------------------------------
-# io.stat only appears here when the io controller is delegated to the user slice. systemd
-# does not delegate it by default, so install.sh adds a drop-in that does; without it (or
-# on a kernel that hides per-cgroup io, e.g. some WSL2 builds) these read empty and the
-# columns are written NULL rather than failing the sample.
+# io.stat appears only when the io controller is delegated to the user slice, which systemd
+# does not do by default -- install.sh adds a drop-in. Without it, or on a kernel that
+# hides per-cgroup io, these read empty and the columns are NULL.
 IO_READ_BYTES="$(io_sum "${CG_POD}/io.stat" rbytes)"
 IO_WRITE_BYTES="$(io_sum "${CG_POD}/io.stat" wbytes)"
 IO_READ_IOS="$(io_sum "${CG_POD}/io.stat" rios)"
 IO_WRITE_IOS="$(io_sum "${CG_POD}/io.stat" wios)"
 
 # --- network egress/ingress (host interface) -----------------------------------------
-# Rootless podman's pod traffic flows over the user-mode network's tap interface. Sum the
-# tx/rx byte counters of every non-loopback interface, so the value holds regardless of
-# the interface name (pasta's tap, slirp4netns's tap0, ...). The monthly sum of tx deltas
-# is the outgoing traffic.
+# Pod traffic flows over the user-mode network's tap interface, whose name varies, so the
+# counters of every non-loopback interface are summed. The monthly sum of tx deltas is the
+# outgoing traffic.
 NET_TX=""
 NET_RX=""
 for dir in /sys/class/net/*; do
@@ -126,16 +112,14 @@ for dir in /sys/class/net/*; do
 done
 
 # --- sizes (slower sub-cadence) -------------------------------------------------------
-# Probe the database, temp-spill and volume sizes only every DISK_PROBE_SECONDS; between
-# probes these columns stay NULL.
+# Only every DISK_PROBE_SECONDS; between probes these columns stay NULL.
 DB_SIZE=""
 TEMP_SIZE=""
 VOLUME_SIZE=""
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/${APP_NAME}"
 mkdir -p "$STATE_DIR"
 if due "serverstats-disk-probe" "$DISK_PROBE_SECONDS"; then
-    # Database size and the temp spill (DuckDB/sort spill in base/pgsql_tmp) from within
-    # the server; pg_database_size and a directory-size sum are both cheap server-side.
+    # From within the server, where pg_database_size and a directory-size sum are cheap.
     DB_SIZE="$(psql_exec -c "SELECT pg_database_size(current_database())" 2>/dev/null || echo "")"
     TEMP_SIZE="$(psql_exec -c "SELECT coalesce(sum((pg_ls_dir).size),0) FROM pg_ls_tmpdir() AS pg_ls_dir" 2>/dev/null || echo "")"
     # Total on-disk size of every data volume of the stack, summed over their mountpoints.
@@ -167,10 +151,8 @@ INSERT INTO "$SCHEMA".host_sample (
 SQL
 
 # --- snapshot the query and table statistics (slower sub-cadence, server-side) --------
-# These read views that only exist inside the database, so they are done in one psql call
-# entirely in SQL. The collector's job is just to trigger the snapshot at the cadence -- a
-# coarse one (QUERY_PROBE_SECONDS), because both views hold cumulative counters whose
-# deltas stay exact no matter how far apart two snapshots sit.
+# The views exist only inside the database, so this is one psql call entirely in SQL; the
+# collector only triggers it at the cadence.
 if due "serverstats-query-probe" "$QUERY_PROBE_SECONDS"; then
 psql_exec <<SQL
 -- One transaction, so the staged snapshot below lives across the three statements that
@@ -241,61 +223,51 @@ SQL
 fi
 
 # --- drain the proxy's dashboard/page visit log ---------------------------------------
-# The proxy writes one JSON line per page navigation to visits.log (it already discards
-# API/asset/non-GET noise). Read only the lines added since last tick -- a byte offset
-# kept in the state dir is the cursor -- and load them. If the file shrank since last time
-# (rotated/truncated), restart from the beginning. Parsing, the cookie hashing and the
-# dashboard-uid extraction are all done server-side in SQL below, so this just moves bytes.
+# The proxy writes one JSON line per page navigation to visits.log, having already
+# discarded API, asset and non-GET noise. Only the lines added since the last tick are read,
+# a byte offset in the state dir being the cursor; a file that shrank was rotated, so it is
+# re-read from the start. Parsing and hashing happen server-side, so this just moves bytes.
 VISIT_LOG="${SERVER_STATS_VISIT_LOG:-/var/log/app/visits.log}"
 VISIT_CONTAINER="${SERVER_STATS_PROXY_CONTAINER:-proxy}"
 OFFSET_FILE="$STATE_DIR/serverstats-visit-offset"
 
-# Current size of the log inside the proxy container; empty if the proxy or file is absent.
+# Empty if the proxy or the file is absent.
 cur_size="$(podman exec "$VISIT_CONTAINER" sh -c "wc -c < '$VISIT_LOG' 2>/dev/null" 2>/dev/null | tr -d ' ' || true)"
 if [ -n "$cur_size" ]; then
     prev_size=0
     [ -f "$OFFSET_FILE" ] && prev_size="$(cat "$OFFSET_FILE" 2>/dev/null || echo 0)"
-    # A shrunk file means it was rotated/truncated; re-read from the start.
+    # A shrunk file was rotated or truncated.
     [ "$cur_size" -lt "$prev_size" ] && prev_size=0
 
     if [ "$cur_size" -gt "$prev_size" ]; then
-        # Pull the new bytes into a host temp file, then advance the cursor only over whole
-        # lines: it must land on a newline, never mid-line. The proxy may still be writing
-        # the final line, and -- the bug this guards against -- a cursor left on a mid-line
-        # byte would feed a partial JSON fragment on every future tick, wedging the drain
-        # permanently (it never moves past a line it cannot parse). So consume exactly the
-        # complete-line prefix, through the last newline, and leave any trailing partial
-        # line for the next tick.
+        # The cursor must land on a newline: the proxy may still be writing the final
+        # line, and a cursor left mid-line would feed a partial JSON fragment on every
+        # future tick, wedging the drain for good. So only the complete-line prefix is
+        # consumed and a trailing partial line is left for the next tick.
         NEW_BYTES="$(mktemp)"
         podman exec "$VISIT_CONTAINER" sh -c "tail -c +$((prev_size + 1)) '$VISIT_LOG'" > "$NEW_BYTES" 2>/dev/null || true
-        # Measured in bytes (LC_ALL=C) so a multibyte UTF-8 user-agent cannot skew the offset.
+        # In bytes (LC_ALL=C), so a multibyte user-agent cannot skew the offset.
         total_new="$(LC_ALL=C wc -c < "$NEW_BYTES" | tr -d ' ')"
         if [ "$(tail -c1 "$NEW_BYTES" | od -An -tx1 | tr -d ' \n')" = "0a" ]; then
-            # Ends on a newline: every byte is part of a complete line.
+            # Every byte is part of a complete line.
             consumed="$total_new"
         else
-            # Ends mid-line: subtract the trailing partial line, isolated with sed as
-            # everything after the last newline. With no newline at all that is the whole
-            # buffer, so consumed stays 0 and the line is picked up once it is finished.
+            # Subtract the trailing partial line, everything after the last newline. With
+            # no newline at all that is the whole buffer, so consumed stays 0.
             partial="$(sed '$!d' "$NEW_BYTES" | LC_ALL=C wc -c | tr -d ' ')"
             consumed=$(( total_new - partial ))
         fi
 
         if [ "${consumed:-0}" -gt 0 ]; then
-            # Build a single psql script: stage the complete lines with an inline COPY (the
-            # data follows the \copy in the same stream, terminated by \.), then transform
-            # them. md5() turns the raw session cookie into a stable, non-reversible hash so
-            # a person is never identifiable; the dashboard uid is parsed from /d/<uid>/<slug>.
-            # A malformed line cannot abort the drain -- see the JSON filter below.
+            # One psql script: stage the lines with an inline COPY, whose data follows in
+            # the same stream, then transform them. md5() makes the session cookie a
+            # stable, non-reversible hash, so a person is never identifiable.
             VISIT_SQL="$(mktemp)"
             {
                 printf 'CREATE TEMP TABLE _visit_raw (line text);\n'
-                # CSV format with a delimiter and quote that never occur in a JSON log line
-                # (two control bytes) makes COPY take each newline-terminated line verbatim
-                # into the single column. The default TEXT format instead processes
-                # backslash escapes, so a line containing a backslash or tab would be mangled
-                # or, worse, raise a COPY error -- which the server then logs together with
-                # the whole multi-line statement, adding un-timestamped lines to the log.
+                # A delimiter and quote that never occur in a JSON log line make COPY take
+                # each line verbatim. The default TEXT format processes backslash escapes,
+                # so a line containing one would be mangled or raise a COPY error.
                 printf "\\\\copy _visit_raw FROM STDIN WITH (FORMAT csv, DELIMITER E'\\\\x1f', QUOTE E'\\\\x01')\\n"
                 head -c "$consumed" "$NEW_BYTES"
                 printf '\\.\n'
@@ -323,12 +295,10 @@ FROM (
 ) s;
 SQL
             } > "$VISIT_SQL"
-            # Feed the script (commands + inline COPY data) to psql over stdin, which podman
-            # exec -i forwards into the container; \copy then reads the data from that same
-            # stream. Passing -f a host path would fail, since psql runs inside the container.
-            # Only advance the cursor -- by the complete-line bytes actually consumed, not the
-            # raw file size -- if the load succeeded, so a transient failure re-reads the same
-            # bytes next tick rather than dropping visits, and the cursor stays line-aligned.
+            # Over stdin, which podman exec -i forwards into the container and \copy reads
+            # the data from; -f with a host path would fail, psql running inside. The
+            # cursor advances by the bytes consumed, and only on success, so a transient
+            # failure re-reads them rather than dropping visits.
             if psql_exec < "$VISIT_SQL" >/dev/null 2>&1; then
                 printf '%s' "$((prev_size + consumed))" > "$OFFSET_FILE"
             fi

@@ -19,8 +19,8 @@ def _converter_choices():
 class DropzoneForm(forms.ModelForm):
     """Offers the registered check/convert functions as dropdowns.
 
-    The choices are callables, evaluated when the form renders, because the set of
-    functions comes from the image at startup rather than from a migration.
+    The choices are callables, evaluated at render time, the set of functions coming from
+    the image at startup rather than from a migration.
     """
 
     checker = forms.ChoiceField(
@@ -40,8 +40,8 @@ class DropzoneForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
-        # An SFTP or Arrow Flight login has no unguessable URL token standing in for a
-        # credential, so those methods need their secret (the password) up front.
+        # No unguessable URL token stands in for a credential on these methods, so the
+        # secret is their password and is needed up front.
         if cleaned.get("upload_method") == Dropzone.Method.SFTP and not cleaned.get(
             "secret"
         ):
@@ -52,8 +52,7 @@ class DropzoneForm(forms.ModelForm):
             self.add_error(
                 "secret", "The Arrow Flight upload needs a secret as its password."
             )
-        # A time period needs its dates from the uploader, and only the browser upload
-        # has a form to enter them on.
+        # Only the browser upload has a form to enter the dates on.
         if (
             cleaned.get("default_validity") == Dropzone.Validity.PERIOD
             and cleaned.get("upload_method") != Dropzone.Method.BROWSER
@@ -96,8 +95,7 @@ class DropzoneAdmin(ModelAdmin):
         "example",
     )
 
-    # The changelist shows the functions by their human-readable labels, like the
-    # dropdowns; a name whose function is gone from the image stays visible as-is.
+    # As in the dropdowns; a name whose function left the image stays visible as it is.
     @admin.display(description="checker", ordering="checker")
     def checker_label(self, obj):
         return dict(registry.checker_choices()).get(obj.checker, obj.checker)
@@ -108,8 +106,8 @@ class DropzoneAdmin(ModelAdmin):
 
     @admin.display(description="secret upload link")
     def upload_link(self, obj):
-        # The browser link stays clickable, the others are addresses rather than pages.
-        # The token exists only once the row is saved.
+        # The browser link stays clickable, the others being addresses rather than
+        # pages. The token exists only once the row is saved.
         if obj is None or not obj.pk:
             return "Available after saving."
         if obj.upload_method == Dropzone.Method.BROWSER:
@@ -118,7 +116,7 @@ class DropzoneAdmin(ModelAdmin):
 
     @admin.display(description="example")
     def example(self, obj):
-        # white-space:pre keeps the example's indentation intact.
+        # white-space:pre keeps the indentation intact.
         if obj is None or not obj.pk:
             return "Available after saving."
         return format_html(
@@ -131,9 +129,8 @@ class UploadFileInline(TabularInline):
     model = UploadFile
     extra = 0
     can_delete = False
-    # Link to the authenticated download view rather than the raw FileField, whose
-    # default display would point at an unserved MEDIA URL. text-link is the class
-    # Unfold puts on its own readonly links, so the styling matches.
+    # The authenticated download view rather than the raw FileField, whose default
+    # display would point at an unserved MEDIA URL.
     fields = ("file_link",)
     readonly_fields = ("file_link",)
 
@@ -154,8 +151,8 @@ class UploadFileInline(TabularInline):
 class UploadAdmin(ModelAdmin):
     """Read-only view of the uploads the pipeline created.
 
-    Uploads are never made by hand, so adding is off and most fields are read-only. The
-    validity dates stay editable for corrections.
+    Uploads are never made by hand, so adding is off; only the validity dates stay
+    editable, for corrections.
     """
 
     list_display = (
@@ -186,8 +183,8 @@ class UploadAdmin(ModelAdmin):
 
     @admin.display(description="delete")
     def delete_link(self, obj):
-        # Django's own delete view, so the confirmation page and the permission
-        # checks stay in charge; this only saves opening the upload first.
+        # Django's own delete view, so its confirmation page and permission checks stay
+        # in charge.
         return format_html(
             '<a href="{}">Delete</a>',
             reverse("admin:dropzones_upload_delete", args=[obj.pk]),

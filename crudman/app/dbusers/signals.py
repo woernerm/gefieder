@@ -1,8 +1,7 @@
 """Keeping the database role in step with the Django account it belongs to.
 
-Both receivers are deliberately forgiving: a failure leaves the role momentarily out of
-step, which the next login corrects, whereas letting it propagate would turn a database
-hiccup into a failed login.
+Both receivers swallow failures: the next login corrects the role, whereas propagating
+would turn a database hiccup into a failed login.
 """
 import logging
 
@@ -12,8 +11,8 @@ logger = logging.getLogger(__name__)
 def sync_on_login(sender, request, user, **kwargs):
     """Reconcile the person's database rank, and hand them a password if one is owed.
 
-    The password is issued here rather than at enrollment because this is the only moment
-    the account's owner is the one looking at the screen.
+    Issued here rather than at enrollment: this is the only moment the account's owner is
+    the one looking at the screen.
 
     Args:
         sender: The signal sender, unused.
@@ -40,8 +39,7 @@ def sync_on_login(sender, request, user, **kwargs):
     if secret is None:
         return
 
-    # A warning rather than a success message: this is the only time the password is ever
-    # shown, and it has to survive being skimmed past.
+    # A warning rather than a success message: the password is shown only this once.
     backend = get_backend()
     role_name = user.database_user.role_name
     messages.warning(
@@ -54,8 +52,8 @@ def sync_on_login(sender, request, user, **kwargs):
 def disable_on_user_delete(sender, instance, **kwargs):
     """Disable the database role of an administrator being removed.
 
-    The role is not dropped, so what they created keeps its owner; see ``delete_db_user``
-    in postgresql/initdb/gf_0003.
+    Not dropped, so what they created keeps its owner; see ``delete_db_user`` in
+    postgresql/initdb/gf_0003.
 
     Args:
         sender: The signal sender, unused.

@@ -1,8 +1,7 @@
 """Default check and convert functions shipped with the system.
 
-They cover the common cases — rejecting empty files, converting the usual source
-formats to Parquet — and double as templates for custom functions: add a decorated
-function to a module in this folder and rebuild the image.
+They also serve as templates: add a decorated function to a module in this folder and
+rebuild the image.
 """
 
 from pathlib import Path
@@ -29,9 +28,7 @@ def csv_to_parquet(files: list[Path], out_dir: Path) -> None:
 
 @converter("Excel to Parquet (one file per sheet)")
 def excel_to_parquet(files: list[Path], out_dir: Path) -> None:
-    """Store every sheet of every uploaded Excel file as its own Parquet file.
-
-    Each is named after the source file and the sheet."""
+    """Store every sheet as its own Parquet file, named after source file and sheet."""
     for path in files:
         for sheet, frame in pl.read_excel(path, sheet_id=0).items():
             frame.write_parquet(out_dir / f"{path.stem}_{sheet}.parquet")
@@ -39,8 +36,6 @@ def excel_to_parquet(files: list[Path], out_dir: Path) -> None:
 
 @converter("JSON to Parquet")
 def json_to_parquet(files: list[Path], out_dir: Path) -> None:
-    """Store every uploaded JSON file as Parquet, named after the source file.
-
-    One object or an array of objects."""
+    """Store every uploaded JSON file (one object or an array) as Parquet."""
     for path in files:
         pl.read_json(path).write_parquet(out_dir / (path.stem + ".parquet"))

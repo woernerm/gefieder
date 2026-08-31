@@ -1,10 +1,9 @@
 """The dropzones SFTP endpoint: sessions become uploads, bad credentials bounce.
 
-The suite creates SFTP dropzones directly in the database (as the crudman role, which
-owns the tables) and then connects to the published SFTP port exactly like an uploader
-would: username = dropzone name, password = the dropzone's secret, put files,
-disconnect. The dropzones use the default checker/converter functions baked into the
-image (reject_empty_files, csv_to_parquet), so the whole pipeline is exercised.
+The dropzones are created directly in the database as the crudman role, then reached on
+the published port exactly as an uploader would: username = dropzone name, password = its
+secret, put files, disconnect. They use the default checker and converter baked into the
+image, so the whole pipeline is exercised.
 """
 import time
 import uuid
@@ -17,7 +16,7 @@ from conftest import SFTP_PORT, volume_mountpoint
 
 SECRET = "sftp-suite-secret"
 
-# name -> (checker, converter); all created as enabled SFTP dropzones by the fixture.
+# name -> (checker, converter), all created as enabled SFTP dropzones.
 DROPZONES = {
     "sftp-suite-checked": ("reject_empty_files", ""),
     "sftp-suite-parquet": ("reject_empty_files", "csv_to_parquet"),
@@ -44,7 +43,7 @@ def sftp_dropzones(crudman_db):
                 (name, checker, converter, str(uuid.uuid4()), SECRET),
             )
             ids[name] = cur.fetchone()[0]
-        # A browser dropzone whose name must NOT work as an SFTP login.
+        # A browser dropzone, whose name must not work as an SFTP login.
         cur.execute(
             """
             INSERT INTO crudman.dropzones_dropzone
@@ -58,7 +57,7 @@ def sftp_dropzones(crudman_db):
         )
         ids["sftp-suite-browser"] = cur.fetchone()[0]
     yield ids
-    # Raw cleanup (no Django signals): the stack and its volumes are throwaway.
+    # Raw cleanup, no Django signals: the stack and its volumes are throwaway.
     with crudman_db.cursor() as cur:
         cur.execute(
             "DELETE FROM crudman.dropzones_uploadfile WHERE upload_id IN "
@@ -106,8 +105,8 @@ def _uploads(db, dropzone_id):
 
 
 def _wait_for_uploads(db, dropzone_id, count=1, timeout=60):
-    # The upload is stored asynchronously after the disconnect, so poll for the rows;
-    # each row and its files are committed together, so a visible row is complete.
+    # Stored asynchronously after the disconnect, so poll; a row and its files are
+    # committed together, so a visible row is complete.
     deadline = time.time() + timeout
     while time.time() < deadline:
         rows = _uploads(db, dropzone_id)
@@ -129,7 +128,7 @@ class TestSftpUpload:
         _, stored = uploads[0]
         assert sorted(Path(f).name for f in stored) == sorted(files)
 
-        # The stored paths resolve on the uploads volume with the uploaded content.
+        # The stored paths resolve on the uploads volume.
         mountpoint = Path(volume_mountpoint("uploads_data"))
         for stored_file in stored:
             assert (mountpoint / stored_file).read_bytes() == files[
@@ -147,7 +146,7 @@ class TestSftpUpload:
         uploads = _wait_for_uploads(crudman_db, sftp_dropzones["sftp-suite-parquet"])
         assert len(uploads) == 1, f"expected exactly one upload, got {uploads}"
         _, stored = uploads[0]
-        # Only the converted files are stored; the uploaded CSVs are discarded.
+        # Only the converted files are stored.
         assert sorted(Path(f).name for f in stored) == ["feb.parquet", "jan.parquet"]
 
         mountpoint = Path(volume_mountpoint("uploads_data"))
@@ -159,11 +158,11 @@ class TestSftpUpload:
     def test_a_rejected_session_shall_store_neither_file(
         self, sftp_dropzones, crudman_db
     ):
-        # The empty file makes reject_empty_files reject the whole set, so the valid
-        # file of the same session must not be stored either (all or nothing).
+        # reject_empty_files rejects the whole set, so the valid file of the same session
+        # must not be stored either.
         _upload("sftp-suite-strict", {"empty.csv": b"", "good.csv": b"a,b\n1,2\n"})
-        # Sessions are processed in disconnect order, so once a later marker session
-        # is stored, the rejected one's verdict is final.
+        # Sessions are processed in disconnect order, so a later stored session makes the
+        # rejection final.
         _upload("sftp-suite-strict", {"marker.csv": b"m\n1\n"})
 
         uploads = _wait_for_uploads(crudman_db, sftp_dropzones["sftp-suite-strict"])
@@ -176,9 +175,8 @@ class TestSftpUpload:
             _upload("sftp-suite-checked", {}, password="wrong-secret")
 
     def test_a_wrong_address_shall_be_denied(self, sftp_dropzones):
-        # The dropzone name is the SFTP "address" (the login): an unknown name and
-        # the name of a non-SFTP dropzone must both be refused, even with the right
-        # secret, exactly like an unknown token answers 404 on the web routes.
+        # The dropzone name is the login, so an unknown one and a non-SFTP one must both
+        # be refused even with the right secret.
         with pytest.raises(paramiko.AuthenticationException):
             _upload("sftp-suite-unknown", {})
         with pytest.raises(paramiko.AuthenticationException):

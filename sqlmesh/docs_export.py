@@ -1,15 +1,12 @@
 """Export the SQLMesh project's documentation as JSON, for crudman to render.
 
-Runs at image build time, where no database exists yet: loading a Context parses the
-project files and needs no connection, so the export is a build step rather than
-something the running engine has to produce. What ships is plain text only -- the
-structure, not its presentation -- so the same file can feed the docs pages and, later,
-an MCP server without either inheriting the other's markup.
+Runs at image build time: loading a Context parses the project files and needs no
+connection. What ships is plain text only, the structure rather than its presentation, so
+the same file can feed the docs pages and later an MCP server.
 
 Descriptions come from the models themselves: SQLMesh reads the comment block above a
 MODEL() statement as its description and the inline comments on the projections as the
-column descriptions, so documenting a model means writing it in the file where the model
-already lives.
+column descriptions.
 """
 
 import json
@@ -27,8 +24,7 @@ def _model_name(reference: str) -> str:
     """A dependency written the way a model names itself.
 
     SQLMesh states a dependency fully qualified and quoted (``"postgres"."silver"."x"``)
-    while a model's own name carries neither catalog nor quotes, so the two have to be
-    brought together before the lineage can be drawn between them.
+    while a model's own name carries neither catalog nor quotes.
 
     Args:
         reference: The dependency as SQLMesh states it.
@@ -47,9 +43,8 @@ def _layer_and_tenant(model) -> tuple[str | None, str | None]:
         model: The loaded SQLMesh model.
 
     Returns:
-        The layer name and the tenant folder below it, either of which is None when the
-        model does not live under models/<layer>/ -- an external model, say, whose path
-        is outside the project.
+        The layer name and the tenant folder below it, either None when the model does
+        not live under models/<layer>/ -- an external model, say.
     """
     path = getattr(model, "_path", None)
     if path is None:  # A model defined outside a file, e.g. one loaded from state.
@@ -59,8 +54,7 @@ def _layer_and_tenant(model) -> tuple[str | None, str | None]:
     for index, part in enumerate(parts):
         if part in LAYERS:
             rest = parts[index + 1 :]
-            # One folder per tenant below the layer; a file directly in the layer folder
-            # (silver/issues.sql) belongs to no single tenant.
+            # A file directly in the layer folder belongs to no single tenant.
             return part, rest[0] if len(rest) > 1 else None
     return None, None
 
@@ -74,15 +68,12 @@ def model_entry(model, dialect: str) -> dict:
 
     Returns:
         The fields the docs pages show. Rendering the definition rather than reading the
-        file gives the statement SQLMesh actually runs, formatted the same way for every
-        model.
+        file gives the statement SQLMesh runs, formatted the same way for every model.
 
-        ``include_python`` drops the source of the macros a model merely calls: a macro
-        is machinery, not a documented model, and printing it in full would bury the
-        model it belongs to. A Python model overrides the flag and keeps its own
-        function, its definition being nothing else. ``render_query`` then expands the
-        macro calls, so what is shown is the fully qualified SQL SQLMesh would run rather
-        than the ``@macro()`` standing in for it.
+        ``include_python`` drops the source of the macros a model merely calls, which
+        would bury the model itself; a Python model overrides the flag and keeps its own
+        function. ``render_query`` then expands the macro calls, so the SQL shown is what
+        SQLMesh would run rather than the ``@macro()`` standing in for it.
     """
     layer, tenant = _layer_and_tenant(model)
     columns = model.columns_to_types or {}
@@ -127,8 +118,8 @@ def export(project: Path) -> dict:
 
     Returns:
         The models that belong to a medallion layer, grouped by layer. Anything outside
-        the three layers is left out: an external model documents a source this project
-        does not own.
+        the three is left out, an external model documenting a source this project does
+        not own.
     """
     context = Context(paths=project)
     dialect = context.config.model_defaults.dialect or "postgres"

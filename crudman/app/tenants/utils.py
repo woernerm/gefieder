@@ -1,9 +1,8 @@
 """The bridge between the ``Tenant`` model and the PostgreSQL functions in gf_0003.
 
-A tenant is not a row in a table but a PostgreSQL login role owning a ``bronze_<name>``
-schema. These helpers create, configure and list tenants by calling the database
-functions and reading the catalog, so the admin can present tenants as ordinary model
-instances.
+A tenant is a login role owning a ``bronze_<name>`` schema, so these helpers work through
+the database functions and the catalog, letting the admin present tenants as ordinary
+model instances.
 """
 import os
 import re
@@ -11,10 +10,10 @@ import re
 from django.db import connection, transaction
 
 _BRONZE_PREFIX = os.environ.get("BRONZE_SCHEMA_PREFIX", "bronze_")
-"""Prefix every tenant's bronze schema carries, used to discover tenants in the catalog.
+"""Prefix every tenant's bronze schema carries, used to find tenants in the catalog.
 
-From BRONZE_SCHEMA_PREFIX in buildtime.env, which render.sh baked into create_tenant and
-the crudman quadlet passes in here; the two have to agree or no tenant is found.
+From BRONZE_SCHEMA_PREFIX in buildtime.env, which render.sh also bakes into
+create_tenant; the two have to agree or no tenant is found.
 """
 
 
@@ -25,9 +24,8 @@ def slugify_tenant_name(display_name: str) -> str:
         display_name: The human-readable tenant name.
 
     Returns:
-        The slug, which becomes the tenant's role and bronze schema name and so obeys
-        the rules create_tenant enforces: only ``[a-z0-9_]`` and no leading digit, which
-        is prefixed with ``t_``.
+        The slug, obeying what create_tenant enforces for a role and schema name: only
+        ``[a-z0-9_]``, and a leading digit prefixed with ``t_``.
     """
     slug = re.sub(r"[^a-z0-9]+", "_", display_name.strip().lower()).strip("_")
     if slug and slug[0].isdigit():
@@ -91,8 +89,8 @@ def set_tenant_limits(
 def set_tenant_display_name(tenant_name: str, display_name: str) -> bool:
     """Update a tenant's human-readable name via ``set_tenant_display_name``.
 
-    Keeps the bronze schema's comment — the catalog's copy of the name — in sync, so a
-    later changelist resync does not revert a rename.
+    Keeps the bronze schema's comment in sync, so a later resync does not revert a
+    rename.
 
     Args:
         tenant_name: The tenant's slug.
@@ -114,9 +112,9 @@ def delete_tenant(tenant_name: str) -> bool:
 def _call(sql: str, params: list) -> bool:
     """Run a tenant database function.
 
-    The call gets its own atomic block so a database error rolls back only this
-    statement. Without the savepoint it would leave the surrounding request transaction
-    aborted, and every later query — Django's own admin log write included — would fail.
+    Its own atomic block, so an error rolls back this statement alone. Without the
+    savepoint the surrounding request transaction would be left aborted, failing every
+    later query including Django's admin log write.
 
     Args:
         sql: The statement calling the function.
@@ -137,14 +135,14 @@ def get_tenants() -> list:
     """One unsaved ``Tenant`` instance per tenant discovered in the database.
 
     Tenants are recognised by their ``bronze_<name>`` schema, read from ``pg_namespace``
-    rather than ``information_schema.schemata``: the latter lists only schemas crudman
-    has privileges on, and the bronze schemas belong to the tenant roles.
+    because ``information_schema.schemata`` lists only schemas crudman has privileges on
+    and the bronze schemas belong to the tenant roles.
 
     Returns:
         The tenants, with their limits read from ``pg_roles`` and ``pg_db_role_setting``.
         A missing value means no per-tenant cap.
     """
-    # Imported here to avoid a circular import at module load.
+    # Imported here to avoid a circular import.
     from .models import Tenant
 
     query = """
@@ -176,11 +174,10 @@ def get_tenants() -> list:
         tenants.append(
             Tenant(
                 name=name,
-                # A schema without a comment reads as None; str() falls back to the slug.
+                # No comment reads as None; str() falls back to the slug.
                 display_name=display_name or "",
-                # An unset catalog value means no limit, spelled with the same sentinels
-                # the add form and set_tenant_limits use, so a tenant looks identical
-                # right after creation and after a later changelist sync.
+                # An unset catalog value means no limit, spelled with the sentinels the
+                # add form and set_tenant_limits use.
                 connection_limit=(
                     Tenant.UNLIMITED_COUNT if conn_limit is None else conn_limit
                 ),
@@ -195,16 +192,15 @@ def get_tenants() -> list:
 def sync_tenants() -> None:
     """Reconcile the ``Tenant`` cache table with the tenants found in PostgreSQL.
 
-    The schemas and roles are the source of truth; this table only mirrors them so the
-    admin changelist has a real queryset. Rows for tenants that no longer exist go.
+    The schemas and roles are the source of truth; rows for tenants that no longer exist
+    go.
     """
     from .models import Tenant
 
     tenants = get_tenants()
     names = [t.name for t in tenants]
     for tenant in tenants:
-        # The catalog carries the human name too, so a resync reflects a name set or
-        # changed in PostgreSQL.
+        # The catalog carries the human name too, so a rename made there is picked up.
         Tenant.objects.update_or_create(
             name=tenant.name,
             defaults={

@@ -1,10 +1,9 @@
 """The dropzones Arrow Flight endpoint: committed uploads are stored, the rest is not.
 
-The suite creates Arrow Flight dropzones directly in the database (as the crudman role,
-which owns the tables) and then connects to the published Flight port exactly like an
-uploader would: authenticate with the dropzone's name and secret, send one table per
-DoPut, close the upload with the commit action. The dropzones use the default
-checker/converter functions baked into the image, so the whole pipeline is exercised.
+The dropzones are created directly in the database as the crudman role, then reached on
+the published port exactly as an uploader would: authenticate with the dropzone's name and
+secret, send one table per DoPut, close with the commit action. They use the default
+checker and converter baked into the image, so the whole pipeline is exercised.
 """
 import uuid
 from pathlib import Path
@@ -17,7 +16,7 @@ from conftest import FLIGHT_PORT, volume_mountpoint
 
 SECRET = "flight-suite-secret"
 
-# name -> (checker, converter); all created as enabled Arrow Flight dropzones.
+# name -> (checker, converter), all created as enabled Arrow Flight dropzones.
 DROPZONES = {
     "flight-suite-plain": ("", ""),
     "flight-suite-multi": ("", ""),
@@ -44,7 +43,7 @@ def flight_dropzones(crudman_db):
                 (name, checker, converter, str(uuid.uuid4()), SECRET),
             )
             ids[name] = cur.fetchone()[0]
-        # A browser dropzone whose name must NOT work as a Flight login.
+        # A browser dropzone, whose name must not work as a Flight login.
         cur.execute(
             """
             INSERT INTO crudman.dropzones_dropzone
@@ -58,7 +57,7 @@ def flight_dropzones(crudman_db):
         )
         ids["flight-suite-browser"] = cur.fetchone()[0]
     yield ids
-    # Raw cleanup (no Django signals): the stack and its volumes are throwaway.
+    # Raw cleanup, no Django signals: the stack and its volumes are throwaway.
     with crudman_db.cursor() as cur:
         cur.execute(
             "DELETE FROM crudman.dropzones_uploadfile WHERE upload_id IN "
@@ -76,7 +75,7 @@ def flight_dropzones(crudman_db):
 
 
 def _connect(name, secret=SECRET):
-    """An authenticated client and its call options, like an uploader's first lines."""
+    """An authenticated client and its call options."""
     client = flight.connect(f"grpc://localhost:{FLIGHT_PORT}")
     options = flight.FlightCallOptions(
         headers=[client.authenticate_basic_token(name.encode(), secret.encode())]
@@ -140,7 +139,7 @@ class TestFlightUpload:
         _, stored = uploads[0]
         assert [Path(f).name for f in stored] == ["issues.parquet"]
 
-        # The stored path resolves on the uploads volume and holds a parquet file.
+        # The stored path resolves on the uploads volume.
         mountpoint = Path(volume_mountpoint("uploads_data"))
         assert (mountpoint / stored[0]).read_bytes().startswith(b"PAR1")
 
@@ -159,7 +158,7 @@ class TestFlightUpload:
         uploads = _uploads(crudman_db, flight_dropzones["flight-suite-multi"])
         assert len(uploads) == 1, f"expected exactly one upload, got {uploads}"
         _, stored = uploads[0]
-        # One upload, one file per table, each named after its table.
+        # One upload, one file per table, named after it.
         assert sorted(Path(f).name for f in stored) == [
             "builds.parquet",
             "commits.parquet",
@@ -175,10 +174,7 @@ class TestFlightUpload:
     def test_a_disconnect_without_commit_shall_store_nothing(
         self, flight_dropzones, crudman_db
     ):
-        """Nothing is stored until the commit.
-
-        A client that sends tables and then disconnects must leave no upload row
-        and no files on the volume."""
+        """An uncommitted upload leaves no row and no files on the volume."""
         mountpoint = Path(volume_mountpoint("uploads_data"))
         dropzone_id = flight_dropzones["flight-suite-abandoned"]
         before = set(mountpoint.rglob("*"))
@@ -190,8 +186,8 @@ class TestFlightUpload:
             commit=False,
         )
 
-        # A committed upload to the same dropzone afterwards proves the endpoint kept
-        # working and that the abandoned session's verdict is final, not merely late.
+        # A later committed upload proves the endpoint kept working and that the
+        # abandoned session's verdict is final rather than merely late.
         _upload("flight-suite-abandoned", {"marker": pyarrow.table({"m": [1]})})
 
         uploads = _uploads(crudman_db, dropzone_id)
@@ -200,8 +196,7 @@ class TestFlightUpload:
         ] == [["marker.parquet"]], (
             f"the abandoned session left uploads behind: {uploads}"
         )
-        # No stray directory or file from the abandoned session either: the only new
-        # paths on the volume belong to the marker upload.
+        # The only new paths on the volume belong to the marker upload.
         new = set(mountpoint.rglob("*")) - before
         assert all("marker.parquet" in str(p) or p.is_dir() for p in new), (
             f"the abandoned session left files behind: {sorted(map(str, new))}"
@@ -215,8 +210,8 @@ class TestFlightUpload:
             _connect("flight-suite-plain", secret="wrong-secret")
 
     def test_a_wrong_dropzone_name_shall_be_denied(self, flight_dropzones):
-        # The dropzone name is the Flight login: an unknown name and the name of a
-        # non-Flight dropzone must both be refused, even with the right secret.
+        # The dropzone name is the login, so an unknown one and a non-Flight one must
+        # both be refused even with the right secret.
         with pytest.raises(flight.FlightUnauthenticatedError):
             _connect("flight-suite-unknown")
         with pytest.raises(flight.FlightUnauthenticatedError):

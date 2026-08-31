@@ -16,9 +16,8 @@ from .utils import (
 class TenantAdmin(ModelAdmin):
     """Admin for the ``Tenant`` model.
 
-    The changelist resyncs the cache table from the live schemas, and creating, editing
-    or deleting a tenant calls the matching PostgreSQL function before the cache row is
-    written. Only documented Django admin hooks are overridden.
+    The changelist resyncs the cache table from the live schemas, and every change calls
+    the matching PostgreSQL function before the cache row is written.
     """
 
     list_display = (
@@ -32,9 +31,8 @@ class TenantAdmin(ModelAdmin):
     form = TenantChangeForm
     add_form = TenantCreationForm
 
-    # The changelist would otherwise show the "no limit" sentinels as bare numbers. Only
-    # those are replaced with "infinite"; @admin.display keeps each column orderable by
-    # its underlying field.
+    # The changelist would otherwise show the "no limit" sentinels as bare numbers.
+    # @admin.display keeps each column orderable by its underlying field.
 
     @admin.display(description="connection limit", ordering="connection_limit")
     def connection_limit_display(self, obj):
@@ -60,15 +58,13 @@ class TenantAdmin(ModelAdmin):
         return "infinite" if value == Tenant.UNLIMITED_SIZE else value
 
     def get_form(self, request, obj=None, **kwargs):
-        # Mirror Django's UserAdmin: use the creation form (with a password field) when
-        # adding, and the change form when editing.
+        # As Django's UserAdmin does: the creation form carries a password field.
         if obj is None:
             kwargs["form"] = self.add_form
         return super().get_form(request, obj, **kwargs)
 
     def get_queryset(self, request):
-        # Refresh the cache from the live schemas so the changelist reflects the tenants
-        # that actually exist in PostgreSQL, then hand back a normal queryset.
+        # Refresh the cache so the changelist reflects the schemas that exist.
         sync_tenants()
         return super().get_queryset(request)
 
@@ -79,8 +75,8 @@ class TenantAdmin(ModelAdmin):
         ):
             messages.error(request, f"Could not create tenant '{obj.name}'.")
             return
-        # On edit, propagate a renamed display name to the schema comment so a later
-        # resync does not revert it; on create, create_tenant just set it.
+        # A rename reaches the schema comment, so a later resync does not revert it; on
+        # create, create_tenant has just set it.
         if change and not set_tenant_display_name(obj.name, obj.display_name):
             messages.warning(
                 request,
@@ -99,14 +95,13 @@ class TenantAdmin(ModelAdmin):
         super().save_model(request, obj, form, change)
 
     def delete_model(self, request, obj):
-        # Drop the tenant in PostgreSQL first; remove the cache row only if that worked.
+        # The cache row goes only once PostgreSQL has dropped the tenant.
         if not delete_tenant(obj.name):
             messages.error(request, f"Could not delete tenant '{obj.name}'.")
             return
         super().delete_model(request, obj)
 
     def delete_queryset(self, request, queryset):
-        # One at a time, so every tenant goes through delete_tenant rather than a single
-        # SQL DELETE on the cache table.
+        # One at a time, so every tenant goes through delete_tenant.
         for obj in queryset:
             self.delete_model(request, obj)

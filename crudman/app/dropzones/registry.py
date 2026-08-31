@@ -4,8 +4,8 @@ Functions live in the package named by ``FUNCTIONS_PACKAGE`` and register themse
 with the ``@checker`` and ``@converter`` decorators. ``autodiscover()`` imports every
 module there at startup (``DropzonesConfig.ready``).
 
-A function registers under its own name, which is the identifier a dropzone stores, so
-renaming a function orphans dropzones still referencing the old name.
+A function registers under its own name, the identifier a dropzone stores, so renaming
+one orphans the dropzones referencing the old name.
 
 Typical usage example:
 
@@ -28,15 +28,14 @@ FUNCTIONS_PACKAGE = "dropzones.functions"
 
 _checkers = {}
 _converters = {}
-# Dropdown labels, keyed like the function tables; a function registered without a
-# label falls back to its name.
+# Dropdown labels, keyed like the function tables; without one, the name is used.
 _checker_labels = {}
 _converter_labels = {}
 
 
 def _register(table, labels, kind, label, func):
-    # Re-registering the same function (e.g. a module imported twice) is harmless, but
-    # two different functions under one name would make a dropzone ambiguous.
+    # Re-registering one function is harmless, but two under one name would make a
+    # dropzone ambiguous.
     name = func.__name__
     registered = table.get(name)
     if registered is not None and registered is not func:
@@ -51,8 +50,8 @@ def checker(label=None):
     """Register the decorated function as a file checker, named after itself.
 
     Args:
-        label: Dropdown label shown in the admin, or the decorated function when used
-            bare as ``@checker``. Defaults to the function name.
+        label: Dropdown label for the admin, or the decorated function when used bare as
+            ``@checker``. Defaults to the function name.
 
     Returns:
         The decorator, or the registered function when used bare.
@@ -66,8 +65,8 @@ def converter(label=None):
     """Register the decorated function as a file converter, named after itself.
 
     Args:
-        label: Dropdown label shown in the admin, or the decorated function when used
-            bare as ``@converter``. Defaults to the function name.
+        label: Dropdown label for the admin, or the decorated function when used bare as
+            ``@converter``. Defaults to the function name.
 
     Returns:
         The decorator, or the registered function when used bare.

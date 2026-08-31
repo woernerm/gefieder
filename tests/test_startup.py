@@ -1,8 +1,7 @@
 """The stack starts cleanly: every container runs, healthchecks pass, nothing loops.
 
-Startup health is asserted positively (containers reach running/healthy, no restarts)
-rather than by grepping logs for the word "error", which the database, Grafana and
-Django all emit harmlessly at startup.
+Asserted positively -- containers reach running and healthy, none restarts -- rather than
+by grepping logs for "error", which the database, Grafana and Django all emit harmlessly.
 """
 import time
 
@@ -28,15 +27,13 @@ class TestStartup:
 
     @pytest.mark.parametrize("container", CONTAINERS)
     def test_no_container_shall_have_restarted_during_startup(self, container):
-        # A crash-looping container (e.g. failed provisioning) shows a rising restart count.
+        # A crash-looping container shows a rising restart count.
         assert _inspect(container)["RestartCount"] == 0, f"{container} has restarted"
 
     @pytest.mark.parametrize("container", ["postgresql", "crudman"])
     def test_all_containers_shall_pass_their_healthchecks(self, container):
-        # These two gate the rest of the pod (the others depend on the database and the
-        # app being healthy), so the suite checks their healthchecks. A container may
-        # still be within its start_period when the apps already answer, so poll until
-        # it settles.
+        # These two gate the rest of the pod. A container may still be within its
+        # start_period when the apps already answer, so poll until it settles.
         deadline = time.time() + RESTART_TIMEOUT
         while True:
             health = _inspect(container)["State"].get("Health", {}).get("Status")

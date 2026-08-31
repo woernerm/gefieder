@@ -1,10 +1,8 @@
 """Django settings for the crudman project.
 
-Values come from the environment: buildtime.env through the quadlet for what is fixed at
-build time, runtime.env on the target machine for the rest. Credentials are read from the
-podman secrets mounted under /run/secrets.
-
-See https://docs.djangoproject.com/en/6.0/ref/settings/ for the settings themselves.
+Values come from the environment: buildtime.env for what is fixed at build time,
+runtime.env for the rest. Credentials are read from the podman secrets under
+/run/secrets.
 """
 
 import os
@@ -22,8 +20,7 @@ def secret_path(setting, default):
     """The file podman mounts one of our secrets at.
 
     Args:
-        setting: Environment variable naming the secret, since a machine that already
-            held a secret of that name will have had it renamed in buildtime.env.
+        setting: Environment variable naming the secret, which buildtime.env may rename.
         default: The name this repository ships, used when the variable is unset.
 
     Returns:
@@ -36,8 +33,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY_FILE = secret_path("SECRET_DJANGO_KEY", "django_secret_key")
 
-# A throwaway key when the secret is missing: it keeps a checkout runnable and invalidates
-# every session on restart, rather than shipping a known key.
+# A throwaway key when the secret is missing: it keeps a checkout runnable and
+# invalidates every session on restart, rather than shipping a known key.
 SECRET_KEY = (
     SECRET_KEY_FILE.read_text().strip()
     if SECRET_KEY_FILE.exists()
@@ -46,7 +43,7 @@ SECRET_KEY = (
 
 DEBUG = os.environ.get("DEBUG", "false").strip().lower() == "true"
 
-# The public host name of the server, set via runtime.env on the host.
+# Public host name of the server, from runtime.env.
 SERVER_NAME = os.environ.get("SERVER_NAME", "localhost")
 
 # Must match CRUDMAN_PATH of the proxy service and the URL configuration in urls.py.
@@ -56,9 +53,8 @@ ALLOWED_HOSTS = ["localhost", "127.0.0.1", SERVER_NAME]
 
 CSRF_TRUSTED_ORIGINS = [f"http://{SERVER_NAME}", f"https://{SERVER_NAME}"]
 
-# Django matches the Origin including scheme and port, so a dev setup reached on a
-# non-default port needs that exact origin listed; the local dev runner sets the variable
-# to the address it publishes. Only in DEBUG, so production trusts SERVER_NAME alone.
+# Django matches the Origin including scheme and port, so a dev setup on a non-default
+# port needs that exact origin listed. DEBUG only, so production trusts SERVER_NAME.
 if DEBUG:
     CSRF_TRUSTED_ORIGINS += [
         origin.strip()
@@ -66,17 +62,15 @@ if DEBUG:
         if origin.strip()
     ]
 
-# In production the TLS-terminating reverse proxy is the only way in, so cookies are
-# restricted to HTTPS and the forwarded protocol header is trusted. In development
-# (DEBUG=true) the proxy serves plain HTTP instead.
+# In production the TLS-terminating proxy is the only way in, so its forwarded protocol
+# header can be trusted. In development the proxy serves plain HTTP instead.
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
 
-# Django's own default sends handled exceptions to "mail_admins" alone once DEBUG is off,
-# so without an ADMINS address a 500 leaves no trace at all: the traceback dies with the
-# response Django returns in its place. Route every record to stderr instead, which is
+# Django's default sends handled exceptions to "mail_admins" alone once DEBUG is off, so
+# without an ADMINS address a 500 leaves no trace. Route every record to stderr instead,
 # where journald picks the container's log up.
 LOGGING = {
     "version": 1,
@@ -94,8 +88,8 @@ LOGGING = {
     },
     "root": {"handlers": ["console"], "level": "INFO"},
     "loggers": {
-        # Tracebacks of the 500s a user reports, which is what this configuration exists
-        # for. propagate=False keeps the root handler from logging each one twice.
+        # Tracebacks of reported 500s; propagate=False keeps them from being logged
+        # twice.
         "django.request": {
             "handlers": ["console"],
             "level": "ERROR",
@@ -109,14 +103,15 @@ LOGGING = {
 
 INSTALLED_APPS = [
     "unfold",  # before django.contrib.admin
-    "unfold.contrib.filters",  # optional, if special filters are needed
-    "unfold.contrib.forms",  # optional, if special form elements are needed
-    "unfold.contrib.inlines",  # optional, if special inlines are needed
-    "unfold.contrib.import_export",  # optional, if django-import-export package is used
-    "unfold.contrib.guardian",  # optional, if django-guardian package is used
-    "unfold.contrib.simple_history",  # optional, if django-simple-history package is used
-    "unfold.contrib.location_field",  # optional, if django-location-field package is used
-    "unfold.contrib.constance",  # optional, if django-constance package is used
+    # Optional, each needed only for the feature or package it names.
+    "unfold.contrib.filters",
+    "unfold.contrib.forms",
+    "unfold.contrib.inlines",
+    "unfold.contrib.import_export",
+    "unfold.contrib.guardian",
+    "unfold.contrib.simple_history",
+    "unfold.contrib.location_field",
+    "unfold.contrib.constance",
     'django.contrib.admin',
     # django.contrib.auth itself, under a heading of its own; see sso/apps.py.
     'sso.apps.AccessConfig',
@@ -125,17 +120,17 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    # An empty app as "manage.py startapp" leaves it, and the place to start when this
-    # template grows a data model of its own. Nothing else refers to it.
+    # An empty "manage.py startapp" scaffold: where a data model of this template's own
+    # would go. Nothing else refers to it.
     'example.apps.ExampleConfig',
     'tenants.apps.TenantsConfig',
     'dropzones.apps.DropzonesConfig',
     # After sso, whose role groups decide the database rank a person is provisioned with.
     'dbusers.apps.DbUsersConfig',
-    # Always installed, even with single sign-on off, so its post_migrate receiver keeps
-    # the three role groups present and assignable by hand.
+    # Installed even with single sign-on off, so its post_migrate receiver keeps the
+    # three role groups present and assignable by hand.
     'sso.apps.SsoConfig',
-    # The SQLMesh model documentation; ordinary views, open from the viewer rank up.
+    # The SQLMesh model documentation, open from the viewer rank up.
     'docs.apps.DocsConfig',
 ]
 
@@ -233,20 +228,19 @@ USE_TZ = True
 STATIC_URL = f'/{CRUDMAN_PATH}/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-# Where the dropzones app stores uploaded files: the uploads volume, which the sqlmesh
-# container mounts read-only at the same path so analytics models can open the files
-# under the very paths the database rows point at.
+# Uploaded files go to the uploads volume, which sqlmesh mounts read-only at the same
+# path so models can open them under the paths the database rows point at.
 MEDIA_ROOT = Path(os.environ.get('UPLOADS_DIR', BASE_DIR / 'media'))
 
 # The dropzones SFTP endpoint (manage.py sftpserver). SFTP_DIR holds its generated host
-# key. SFTP_PORT is both the port the server listens on and the one the admin shows in a
-# dropzone's SFTP address, so it must match the port main.pod publishes.
+# key. SFTP_PORT also appears in the address the admin shows, so it must match the port
+# main.pod publishes.
 SFTP_DIR = Path(os.environ.get('SFTP_DIR', BASE_DIR / 'sftp'))
 SFTP_PORT = int(os.environ.get('SFTP_PORT', '2222'))
 
 # The dropzones Arrow Flight endpoint (manage.py flightserver). FLIGHT_PORT must match
-# the port main.pod publishes, like SFTP_PORT. FLIGHT_SESSION_TIMEOUT is how long an
-# upload may stay open between calls before it is abandoned and discarded.
+# the port main.pod publishes. FLIGHT_SESSION_TIMEOUT is how long an upload may stay open
+# between calls before it is discarded.
 FLIGHT_PORT = int(os.environ.get('FLIGHT_PORT', '8815'))
 FLIGHT_SESSION_TIMEOUT = int(os.environ.get('FLIGHT_SESSION_TIMEOUT', '1800'))
 
@@ -267,8 +261,8 @@ def _site_url(request):
         request: The request Unfold is rendering for, unused.
 
     Returns:
-        "/" once a root route exists, otherwise None to hide the link; no site root is
-        served today, so the default "/" would lead to a broken page.
+        "/" once a root route exists, otherwise None to hide the link. Nothing serves a
+        site root today, so the default "/" would lead to a broken page.
     """
     try:
         resolve("/")
@@ -280,31 +274,27 @@ def _site_url(request):
 # Single sign-on
 # https://docs.allauth.org/en/latest/socialaccount/providers/openid_connect.html
 
-# All read from the operator's runtime.env. Off by default: a fresh installation has the
-# local login.
+# All read from runtime.env. Off by default: a fresh installation has the local login.
 OIDC_ENABLED = os.environ.get("OIDC_ENABLED", "false").strip().lower() == "true"
 OIDC_ISSUER = os.environ.get("OIDC_ISSUER", "").strip()
 OIDC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID", "").strip()
 
-# Where signing out sends the browser afterwards, so the provider's own session ends too.
-# Empty means it keeps that session, and the next page view signs the person back in.
+# Where signing out sends the browser, so the provider's session ends too. Empty means it
+# keeps that session and the next page view signs the person back in.
 OIDC_LOGOUT_URL = os.environ.get("OIDC_LOGOUT_URL", "").strip()
 
-# Not a setting: runtime.env values cannot contain spaces, and with the redirect below
-# there is no page left that shows this to anyone.
+# Not configurable: runtime.env values cannot contain spaces, and no page shows it.
 OIDC_PROVIDER_NAME = "Single sign-on"
 
-# Names the provider in URLs, so it appears in the redirect URI registered with the
-# provider. A constant, because changing it would invalidate that registration.
+# Appears in the redirect URI registered with the provider, so changing it would
+# invalidate that registration.
 OIDC_PROVIDER_ID = "sso"
 
-# Worked out from the issuer rather than configured; see sso/scopes.py for why it cannot
-# be discovered. The OIDC_SCOPES variable overrules it, and is empty unless there is a
-# reason for it not to be.
+# Derived from the issuer; see sso/scopes.py for why it cannot be discovered. The
+# OIDC_SCOPES variable overrules it.
 OIDC_SCOPES = scopes_for(OIDC_ISSUER, os.environ.get("OIDC_SCOPES", ""))
 
-# The provider's client secret, mounted by the quadlet. The placeholder the installer
-# creates is inert while OIDC_ENABLED is false.
+# The placeholder the installer creates is inert while OIDC_ENABLED is false.
 OIDC_CLIENT_SECRET_FILE = secret_path("SECRET_OIDC_CLIENT", "oidc_client_secret")
 
 OIDC_CLIENT_SECRET = (
@@ -323,19 +313,18 @@ if OIDC_ENABLED:
     MIDDLEWARE += [
         'allauth.account.middleware.AccountMiddleware',
         # After the authentication middleware, whose user object it decorates with the
-        # profile picture the provider published.
+        # provider's profile picture.
         'sso.avatars.middleware',
     ]
 
-    # ModelBackend stays first and enabled: it is how the local superuser gets in when
-    # the provider is unreachable or misconfigured.
+    # ModelBackend stays first: it is how the local superuser gets in when the provider
+    # is unreachable or misconfigured.
     AUTHENTICATION_BACKENDS = [
         'django.contrib.auth.backends.ModelBackend',
         'allauth.account.auth_backends.AuthenticationBackend',
     ]
 
-    # A list of issuers rather than a single one, so a second identity provider is an
-    # entry here rather than another dependency.
+    # A list, so a second identity provider is an entry here rather than a dependency.
     SOCIALACCOUNT_PROVIDERS = {
         "openid_connect": {
             "APPS": [
@@ -350,24 +339,21 @@ if OIDC_ENABLED:
         },
     }
 
-    # Where a sign-in that named no destination ends up; allauth would send it to
-    # /accounts/profile/, which this project does not serve.
+    # Where a sign-in that named no destination ends up; allauth's default
+    # /accounts/profile/ is not served here.
     LOGIN_REDIRECT_URL = f'/{CRUDMAN_PATH}/'
 
     # Roles are applied on every login, in the adapter.
     SOCIALACCOUNT_ADAPTER = 'sso.adapters.SSOAccountAdapter'
 
-    # Follow the provider on a GET instead of showing allauth's "continue" page, which
-    # would defeat the point of sending people straight through.
+    # Follow the provider on a GET instead of showing allauth's "continue" page.
     SOCIALACCOUNT_LOGIN_ON_GET = True
 
-    # The provider vouches for the address; confirming it by mail would be a second
-    # identity check on top of the one that just succeeded.
+    # The provider vouches for the address, so a confirmation mail adds nothing.
     SOCIALACCOUNT_EMAIL_VERIFICATION = 'none'
     SOCIALACCOUNT_EMAIL_REQUIRED = False
 
-    # Nothing calls the provider's API on the user's behalf, so the tokens are of no use
-    # after login and are not worth storing.
+    # Nothing calls the provider's API on the user's behalf, so the tokens are unused.
     SOCIALACCOUNT_STORE_TOKENS = False
 
 

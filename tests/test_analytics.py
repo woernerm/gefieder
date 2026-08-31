@@ -2,16 +2,15 @@
 
 run-tests.sh seeds a fresh stack with the three example tenants and lets SQLMesh backfill
 bronze -> silver -> gold. These tests read the result as the read-only grafana role, the
-actual consumer of gold.
+consumer of gold.
 
-project_c is the first point of interest: its bronze layer is a polars Python model rather
-than a SQL transform, so a missing dependency or a tenant left out of the silver union
-shows up here as project_c missing from gold while the others pass.
+project_c's bronze layer is a polars Python model rather than a SQL transform, so a
+missing dependency or a tenant left out of the silver union shows up here as project_c
+missing from gold while the others pass.
 
-The second is silver.issue_risk_history, the same history built two ways — project_a's by
-PostgreSQL with the @temporal_join macro, project_b's by DuckDB with a native ASOF JOIN.
-Both assertions run against PostgreSQL, which the SQLMesh unit tests cannot cover: those
-run on DuckDB, so SQL that PostgreSQL rejects would pass there and fail here.
+silver.issue_risk_history is the same history built two ways -- project_a's by PostgreSQL
+with the @temporal_join macro, project_b's by DuckDB with a native ASOF JOIN. Both run
+against PostgreSQL, which the SQLMesh unit tests cannot cover: those run on DuckDB.
 """
 import subprocess
 import time
@@ -19,7 +18,7 @@ import time
 import pytest
 from conftest import GOLD_SCHEMA, SILVER_SCHEMA
 
-# The example tenants seeded into a fresh stack. project_c is the polars Python-model one.
+# Seeded into a fresh stack; project_c is the polars Python-model one.
 EXAMPLE_TENANTS = {"project_a", "project_b", "project_c"}
 
 
@@ -27,11 +26,9 @@ EXAMPLE_TENANTS = {"project_a", "project_b", "project_c"}
 def wait_for_backfill(grafana_db):
     """Block until the first SQLMesh plan has backfilled the tables asserted below.
 
-    The session-wide wait_for_stack only waits for the sqlmesh *state* schema, which is
-    created at the start of the first plan — before bronze/silver/gold are backfilled. The
-    analytics assertions below read finished tables, so wait specifically for them to appear
-    and fill, rather than racing a slow first plan. Both are waited for: they are unrelated
-    branches of the DAG, so either can finish first.
+    wait_for_stack waits only for the sqlmesh *state* schema, created at the start of the
+    first plan, before bronze/silver/gold are backfilled. Both tables are waited for, being
+    unrelated branches of the DAG.
     """
     tables = (f"{GOLD_SCHEMA}.issue_metrics", f"{SILVER_SCHEMA}.issue_risk_history")
     deadline = time.time() + 180
@@ -65,28 +62,25 @@ def tenants_in(conn, table):
 
 class TestAnalyticsPipeline:
     def test_gold_has_all_example_tenants(self, grafana_db):
-        # The headline check: gold is the precomputed metrics layer dashboards read, and it
-        # must carry a row for every tenant. Catches the polars bronze model (project_c)
-        # silently dropping out of the pipeline.
+        # gold is the precomputed layer dashboards read, so it must carry a row per
+        # tenant. Catches the polars bronze model dropping out of the pipeline.
         present = tenants_in(grafana_db, f"{GOLD_SCHEMA}.issue_metrics")
         assert EXAMPLE_TENANTS <= present, (
             f"{GOLD_SCHEMA}.issue_metrics is missing tenants: {EXAMPLE_TENANTS - present}"
         )
 
     def test_silver_has_all_example_tenants(self, grafana_db):
-        # silver is where the per-tenant transforms are unioned together; confirming all
-        # three appear here too pinpoints a regression to the union/transform rather than
-        # to the gold aggregation if the gold check above fails.
+        # silver is where the per-tenant transforms are unioned, so this pins a failure
+        # above to the union rather than to the gold aggregation.
         present = tenants_in(grafana_db, f"{SILVER_SCHEMA}.issues")
         assert EXAMPLE_TENANTS <= present, (
             f"{SILVER_SCHEMA}.issues is missing tenants: {EXAMPLE_TENANTS - present}"
         )
 
     def test_project_c_metrics_are_correct(self, grafana_db):
-        # project_c's numbers come entirely from the polars transform decoding its seed
-        # (seeds/project_c_issues.csv): five issues, the two "resolved" ones mapped to
-        # closed, effort summed from the "weight" column (13+5+8+3+8). Asserting the exact
-        # values proves the harmonization ran, not just that some rows arrived.
+        # Entirely from the polars transform decoding seeds/project_c_issues.csv: five
+        # issues, the two "resolved" ones mapped to closed, effort summed from "weight".
+        # The exact values prove the harmonization ran, not just that rows arrived.
         with grafana_db.cursor() as cur:
             cur.execute(
                 """
@@ -103,13 +97,11 @@ class TestAnalyticsPipeline:
         )
 
     def test_issue_risk_history_is_a_history_of_changes(self, grafana_db):
-        # The @temporal_join example: project_a's issue history joined with the history of
-        # the component each issue belongs to (sqlmesh/models/silver/project_a). It is the
-        # one model here whose output is not a row per input row, so it is asserted whole,
-        # against the seeds. Two component changes are deliberately absent — C-PWR on the
-        # 12th, while PA-1 is still on C-NAV, and C-PWR again on the 20th, which
-        # reclassified it to what it already was — while PA-4's reopening on the 14th, a
-        # row identical to its own first row but for the timestamp, is deliberately there.
+        # The @temporal_join example: project_a's issue history joined with each issue's
+        # component history. Its output is not a row per input row, so it is asserted
+        # whole. Two component changes are deliberately absent -- C-PWR on the 12th, while
+        # PA-1 is still on C-NAV, and C-PWR on the 20th, reclassified to what it already
+        # was -- while PA-4's reopening on the 14th is deliberately there.
         with grafana_db.cursor() as cur:
             cur.execute(
                 """
@@ -138,15 +130,12 @@ class TestAnalyticsPipeline:
         ]
 
     def test_issue_risk_history_is_built_by_the_duckdb_gateway_too(self, grafana_db):
-        # project_b's half of the same silver model is built by the same macro on the
-        # DuckDB gateway (sqlmesh/config.py), which attaches this very database as its only
-        # catalog: the engine is DuckDB, the storage is still PostgreSQL. So this assertion
-        # is the proof that the gateway works end to end — the rows are read back from
-        # PostgreSQL, as the grafana role, from a table a DuckDB ASOF JOIN wrote.
+        # project_b's half is built by the same macro on the DuckDB gateway, which
+        # attaches this database as its only catalog: DuckDB computes, PostgreSQL stores.
+        # So these rows, read back as the grafana role, prove the gateway end to end.
         #
         # Two of A-DATA's changes are deliberately absent: the one on the 12th happens
-        # while 2001 is still on A-API, and the one on the 20th reclassified it to the
-        # class it already had.
+        # while 2001 is still on A-API, and the one on the 20th changed nothing.
         with grafana_db.cursor() as cur:
             cur.execute(
                 """
@@ -175,12 +164,9 @@ class TestAnalyticsPipeline:
         ]
 
     def test_sqlmesh_unit_tests_pass(self):
-        # The SQLMesh unit tests (sqlmesh/tests/*.yaml) state the awkward cases of
-        # @temporal_join as input rows and expected output rows, which the seeded pipeline
-        # above cannot: they run the models against fixtures instead of against the seeds,
-        # one per gateway. They are run here, in the deployed container, because that is
-        # where the engine and its dependencies are — the suite itself has no SQLMesh
-        # installation.
+        # The yaml tests state @temporal_join's awkward cases as input and expected rows,
+        # one per gateway, which the seeded pipeline cannot. Run in the deployed container,
+        # which is where the engine and its dependencies are.
         result = subprocess.run(
             ["podman", "exec", "sqlmesh", "uv", "run", "--project", "/sqlmesh", "sqlmesh", "test"],
             capture_output=True, text=True,
@@ -188,11 +174,9 @@ class TestAnalyticsPipeline:
         assert result.returncode == 0, result.stdout + result.stderr
 
     def test_the_temporal_join_macro_agrees_across_gateways(self):
-        # The macro emits a different join per gateway, so the one thing neither yaml test
-        # can show is that the two say the same thing: they run different tenants over
-        # different data. sqlmesh/tests/test_temporal_join.py renders both branches over
-        # one fixture and compares them row for row, and runs in the container for the same
-        # reason as the tests above.
+        # Neither yaml test can show that the two joins say the same thing, running
+        # different tenants over different data. test_temporal_join.py renders both
+        # branches over one fixture and compares them row for row.
         result = subprocess.run(
             ["podman", "exec", "sqlmesh", "uv", "run", "--project", "/sqlmesh",
              "python", "/sqlmesh/app/tests/test_temporal_join.py"],

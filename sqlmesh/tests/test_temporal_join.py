@@ -1,17 +1,14 @@
 """Unit tests for the @temporal_join macro itself (macros/temporal_join.py).
 
-The two yaml tests beside this file cover the macro through a model, one per branch. What
-they cannot do is hold the branches side by side: they run different tenants over different
-data, so "project_a is right and project_b is right" never becomes "both say the same
-thing". That is what this file is for — it renders the macro twice over one fixture, once
-for each gateway, and compares the two results row for row.
+The yaml tests beside this file cover the macro through a model, one per branch, but over
+different tenants and different data, so they never say "both branches agree". This file
+renders the macro twice over one fixture, once per gateway, and compares row for row.
 
-Both are executed on DuckDB, which can run either: the ASOF form because it is DuckDB's
-own, and the PostgreSQL form because LATERAL, window functions and IS DISTINCT FROM are
-common ground. The integration suite is what proves the PostgreSQL branch on PostgreSQL.
+Both run on DuckDB, which understands either form; the integration suite is what proves
+the PostgreSQL branch on PostgreSQL.
 
-Written as a plain script rather than a pytest module so it runs with nothing but the
-dependencies the sqlmesh image already ships:
+A plain script rather than a pytest module, so it runs on the dependencies the sqlmesh
+image already ships:
 
     uv run --project /sqlmesh python /sqlmesh/app/tests/test_temporal_join.py
 """
@@ -47,9 +44,8 @@ COLUMNS = {
 }
 
 # One item per awkward case, the same set the yaml tests state as rows: PA-1 moves to
-# another component (so C-PWR's change on the 12th is not its change, and the one on the
-# 20th changes nothing), PA-2 has no component at all, PA-3's component is classified only
-# later, and PA-4 is reopened into a state it already held.
+# another component, PA-2 has no component, PA-3's component is classified only later,
+# and PA-4 is reopened into a state it already held.
 ISSUES = [
     ("PA-1", "2026-06-10", "To Do", 5, "C-NAV"),
     ("PA-1", "2026-06-14", "In Progress", 5, "C-NAV"),
@@ -108,8 +104,7 @@ def render(gateway, dialect, sql=MODEL):
     evaluator = MacroEvaluator(
         dialect=dialect, schema=schema, runtime_stage=RuntimeStage.EVALUATING
     )
-    # Where SQLMesh puts a model's variables, and where evaluator.gateway reads it back
-    # from: the loader scopes them to the gateway the MODEL block names.
+    # Where SQLMesh puts a model's variables and evaluator.gateway reads them back.
     evaluator.locals[c.SQLMESH_VARS] = {c.GATEWAY: gateway}
     return evaluator.transform(parse_one(sql, dialect=dialect)).sql(dialect="duckdb")
 
@@ -152,8 +147,8 @@ def test_both_gateways_produce_the_same_history():
 
 
 def test_a_duckdb_gateway_model_must_be_written_in_duckdb():
-    # Emitting ASOF into any other dialect would not fail: the word parses as a table
-    # alias, and the query would quietly return the wrong rows. So it has to be refused.
+    # ASOF in any other dialect parses as a table alias, so the query would quietly
+    # return the wrong rows.
     try:
         render(DUCKDB_GATEWAY, "postgres")
     except SQLMeshError as error:

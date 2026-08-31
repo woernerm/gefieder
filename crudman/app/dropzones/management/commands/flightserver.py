@@ -18,6 +18,6 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        # No timestamp in the format: journald stamps every line it captures.
+        # No timestamp: journald stamps every line.
         logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
         serve(options["port"])

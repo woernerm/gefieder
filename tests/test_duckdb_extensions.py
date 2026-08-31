@@ -1,18 +1,17 @@
 """The DuckDB community extensions ship inside the image, so no internet is needed.
 
-The extensions used to be downloaded by gf_0002 on first start, which made provisioning
-fail on a machine without internet access. They are now fetched during the image build
-into duckdb.extension_directory. These tests pin that down from both ends: the files are
-in the image, and the server reports them installed from there and can actually run one.
+The extensions are fetched during the image build into duckdb.extension_directory rather
+than downloaded on first start, which used to make provisioning fail on a machine without
+internet access. Pinned down from both ends: the files are in the image, and the server
+reports them installed from there and can run one.
 """
 import os
 import subprocess
 
 import pytest
 
-# The extensions the build was told to ship, straight from DUCKDB_EXTENSIONS in
-# buildtime.env (run-tests.sh exports it), so trimming that list does not leave these
-# tests asserting on extensions the image no longer contains.
+# Straight from DUCKDB_EXTENSIONS in buildtime.env, so trimming that list does not leave
+# these tests asserting on extensions the image no longer contains.
 EXTENSIONS = [
     ext.strip()
     for ext in os.environ.get("DUCKDB_EXTENSIONS", "").split(",")
@@ -23,10 +22,7 @@ EXTENSION_DIR = "/opt/duckdb-extensions"
 
 
 def test_the_suite_shall_know_which_extensions_to_expect():
-    """The setting reached pytest at all.
-
-    An empty list would drop every parametrized test below and leave the suite green
-    without having checked anything."""
+    """An empty list would drop every parametrized test below and leave the suite green."""
     assert EXTENSIONS, (
         "DUCKDB_EXTENSIONS is empty; run-tests.sh exports it from buildtime.env"
     )
@@ -51,8 +47,8 @@ def in_sqlmesh_duckdb(sql):
 def in_postgresql(*args):
     """Run a command in the postgresql container, returning stdout ('' on non-zero exit).
 
-    Unlike conftest's podman(), a non-zero exit is not an error here: the callers run
-    find and grep, where "no match" is a meaningful answer the assertion reports itself.
+    Unlike conftest's podman(), a non-zero exit is no error: the callers run find and grep,
+    where "no match" is an answer the assertion reports itself.
     """
     result = subprocess.run(
         ["podman", "exec", "postgresql", *args], capture_output=True, text=True,
@@ -84,15 +80,15 @@ class TestExtensionsShipInTheImage:
 
     @pytest.mark.parametrize("extension", EXTENSIONS)
     def test_extension_file_shall_be_in_the_image(self, extension):
-        # Look in the container filesystem rather than the database: this is what makes
-        # the deployment independent of the network, regardless of what DuckDB reports.
+        # The container filesystem rather than the database: this is what makes the
+        # deployment independent of the network.
         found = in_postgresql("find", EXTENSION_DIR, "-name", f"{extension}.duckdb_extension")
         assert found, f"{extension} was not pre-downloaded into {EXTENSION_DIR}"
 
     @pytest.mark.parametrize("extension", EXTENSIONS)
     def test_extension_shall_have_its_info_sidecar(self, extension):
-        # DuckDB treats an extension without the .info metadata file as not installed and
-        # silently tries to download it again, which is exactly what must not happen.
+        # Without the .info metadata file DuckDB treats it as not installed and downloads
+        # it again.
         found = in_postgresql(
             "find", EXTENSION_DIR, "-name", f"{extension}.duckdb_extension.info"
         )
@@ -112,7 +108,7 @@ class TestServerReadsExtensionsFromTheImage:
         assert extension in installed, (
             f"DuckDB does not report {extension} as installed"
         )
-        # A path under the data volume would mean the server downloaded it at runtime.
+        # A path under the data volume would mean a runtime download.
         assert installed[extension].startswith(EXTENSION_DIR), (
             f"{extension} is served from {installed[extension]}, not from the image"
         )
@@ -122,10 +118,9 @@ class TestVersionsMatch:
     """The shipped extension tree matches the DuckDB that pg_duckdb actually runs."""
 
     def test_shipped_tree_shall_match_the_running_duckdb_version(self, admin_db):
-        # The tree is version-scoped (<version>/<platform>/), so extensions built for
-        # another version are invisible and the server would fall back to downloading
-        # them. The Dockerfile derives the version from the base image's libduckdb.so to
-        # keep these two in step; this asserts that derivation actually held.
+        # The tree is version-scoped, so extensions built for another version are
+        # invisible and get downloaded instead. The Dockerfile derives the version from
+        # the base image's libduckdb.so; this asserts that derivation held.
         with admin_db.cursor() as cur:
             running = duckdb_query(cur, "SELECT version()")
         shipped = in_postgresql("ls", EXTENSION_DIR)
@@ -137,16 +132,14 @@ class TestVersionsMatch:
 class TestSqlmeshGatewayCarriesTheSameExtensions:
     """The duckdb gateway (sqlmesh/config.py) is the second DuckDB in the system.
 
-    It runs inside the sqlmesh container, so it has its own copy of the extensions and its
-    own DuckDB version — and a version-scoped extension tree makes the two inseparable:
-    a community extension is built per DuckDB release, so if the gateway's DuckDB ever
-    drifts from pg_duckdb's, DUCKDB_EXTENSIONS stops being installable for both.
+    It runs inside the sqlmesh container with its own copy of the extensions and its own
+    DuckDB version. A community extension is built per DuckDB release, so if the gateway's
+    DuckDB drifts from pg_duckdb's, DUCKDB_EXTENSIONS stops being installable for both.
     """
 
     def test_the_gateway_duckdb_shall_match_pg_duckdb(self):
-        # sqlmesh/pyproject.toml pins duckdb to what the pgduckdb base image runs. This is
-        # the check that says so out loud when a base image bump moves one and not the
-        # other; the fix is to bump the pin to the version named here.
+        # sqlmesh/pyproject.toml pins duckdb to what the pgduckdb base image runs; when a
+        # base image bump moves one and not the other, bump the pin to the version here.
         gateway = in_sqlmesh_duckdb("SELECT version()")
         shipped = in_postgresql("ls", EXTENSION_DIR)
         assert gateway == shipped, (
@@ -156,8 +149,8 @@ class TestSqlmeshGatewayCarriesTheSameExtensions:
 
     @pytest.mark.parametrize("extension", EXTENSIONS)
     def test_extension_shall_load_in_the_gateway_without_a_download(self, extension):
-        # LOAD without INSTALL is the offline proof: it fails outright unless the image
-        # build already put the extension where this DuckDB looks for it.
+        # LOAD without INSTALL fails unless the build put the extension where this DuckDB
+        # looks for it.
         loaded = in_sqlmesh_duckdb(f"LOAD {extension}; SELECT '{extension}'")
         assert loaded == extension, (
             f"{extension} does not load in the sqlmesh image; it was not pre-installed "
@@ -166,7 +159,7 @@ class TestSqlmeshGatewayCarriesTheSameExtensions:
 
 
 class TestExtensionsAreUsable:
-    """A pre-downloaded extension actually loads and runs; the files are not just present."""
+    """A pre-downloaded extension loads and runs, rather than merely being present."""
 
     @pytest.mark.parametrize("extension", EXTENSIONS)
     def test_extension_shall_load(self, admin_db, extension):
@@ -183,8 +176,8 @@ class TestExtensionsAreUsable:
         "yaml" not in EXTENSIONS, reason="yaml is not in DUCKDB_EXTENSIONS"
     )
     def test_loaded_extension_shall_run_its_functions(self, admin_db):
-        # yaml stands in for the whole set: proving one loaded extension does real work
-        # shows the shipped files are complete and version-compatible, not just present.
+        # yaml stands in for the set: one extension doing real work shows the shipped
+        # files are complete and version-compatible.
         with admin_db.cursor() as cur:
             cur.execute("SELECT duckdb.load_extension('yaml')")
             value = duckdb_query(cur, "SELECT value_to_yaml({'offline': true})")
@@ -196,11 +189,11 @@ class TestNoRuntimeDownload:
 
     def test_initdb_shall_not_install_extensions_at_runtime(self):
         # duckdb.install_extension() downloads from community-extensions.duckdb.org on
-        # first start, which is the internet dependency this change removes.
+        # first start, which is the internet dependency to avoid.
         offenders = in_postgresql(
             "grep", "-rn", "--exclude-dir=.*",
-            # Anchored to a statement, so the "---" prose in gf_0002 that documents the
-            # call it no longer makes is not mistaken for an executed one.
+            # Anchored to a statement, so gf_0002's prose about the call it no longer
+            # makes is not mistaken for one.
             "-E", r"^[[:space:]]*(SELECT|PERFORM).*duckdb\.install_extension",
             "/docker-entrypoint-initdb.d/",
         )
@@ -209,9 +202,8 @@ class TestNoRuntimeDownload:
         )
 
     def test_data_volume_shall_hold_no_downloaded_extensions(self):
-        # A runtime download lands in the default directory under $PGDATA. Finding an
-        # extension there means the server fetched it itself, so a machine without
-        # internet access would have failed here — regardless of what the image ships.
+        # A runtime download lands in the default directory under $PGDATA, so an
+        # extension there means a machine without internet access would have failed.
         downloaded = in_postgresql(
             "find", "/var/lib/postgresql/data/pg_duckdb", "-name", "*.duckdb_extension",
         )

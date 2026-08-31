@@ -1,14 +1,11 @@
 """One menu section for who may sign in and what they may do.
 
-Users and groups are Django's, and are administered here whether single sign-on is on or
-off. What this module is really for is the rest of that heading: allauth registers four
-more pages under two further headings, all about authentication and none saying so.
-Three are dead weight here; the fourth comes back as an inline on the user it describes.
+Users and groups are Django's, administered here whether single sign-on is on or off.
+allauth registers four more pages under two further headings: three are dead weight, the
+fourth comes back as an inline on the user it describes.
 
-Database access is a switch on this page rather than a section of its own, because it is
-one more thing a person either has or does not, alongside active and staff status. The
-dbusers app keeps the model and the PostgreSQL bridge but registers no page: an operator
-asks "who may reach the database", which is a column here, not a list elsewhere.
+Database access is a switch on this page rather than a section of its own, being one more
+thing a person either has or does not, alongside active and staff status.
 """
 import logging
 
@@ -27,28 +24,25 @@ logger = logging.getLogger(__name__)
 
 if settings.OIDC_ENABLED:
     # Imported for their side effect: a page must be registered before it can be
-    # unregistered, and autodiscovery reaches allauth only after this module, so leaving
-    # it to do the importing would mean unregistering what is not there yet.
+    # unregistered, and autodiscovery reaches allauth only after this module.
     import allauth.account.admin  # noqa: F401
     import allauth.socialaccount.admin  # noqa: F401
     from allauth.account.models import EmailAddress
     from allauth.socialaccount.models import SocialAccount, SocialApp, SocialToken
 
-    # Social applications: the provider is configured in settings.py, from runtime.env, so
-    #   a row added here would be a second and conflicting source for the same thing.
-    # Social application tokens: SOCIALACCOUNT_STORE_TOKENS is off, so the page is empty.
-    # Email addresses: no address is ever confirmed here, and the user already carries it.
-    # Social accounts: kept, as the inline below rather than as a list beside the users.
+    # SocialApp: the provider is configured in settings.py, so a row here would be a
+    #   second and conflicting source. SocialToken: SOCIALACCOUNT_STORE_TOKENS is off.
+    # EmailAddress: no address is confirmed here, and the user already carries it.
+    # SocialAccount: kept, as the inline below rather than as a list beside the users.
     for model in (EmailAddress, SocialApp, SocialToken, SocialAccount):
         admin.site.unregister(model)
 
     class SingleSignOnInline(TabularInline):
         """The directory account behind a user, on the user rather than beside them.
 
-        It answers one question — "the provider says I am an admin, so why am I not?" —
-        from extra_data, the claims exactly as they arrived. Read only: every field is
-        written again on the next login, and the row is what a returning login is
-        recognised by, so removing it would strand the account.
+        Answers "the provider says I am an admin, so why am I not?" from extra_data, the
+        claims exactly as they arrived. Read only: every field is rewritten on the next
+        login, and removing the row would strand the account.
         """
 
         model = SocialAccount
@@ -68,8 +62,8 @@ if settings.OIDC_ENABLED:
 class DatabaseAccessFilter(admin.SimpleListFilter):
     """Filter the user list by whether a database account exists.
 
-    A filter of its own rather than Django's boolean filter, because the flag is not a
-    field on the user: it is the presence of the related dbusers row.
+    Not Django's boolean filter: the flag is not a field but the presence of the related
+    dbusers row.
     """
 
     title = "database access"
@@ -89,13 +83,12 @@ class DatabaseAccessFilter(admin.SimpleListFilter):
 class UserWithDatabaseAccessForm(UserChangeForm):
     """The user form with the database-access switch added.
 
-    Not a model field: the account lives in the dbusers table and, more to the point, in
-    PostgreSQL, so the switch reports what exists rather than storing an intention. The
-    save is what reconciles the two.
+    Not a model field: the account lives in PostgreSQL, so the switch reports what exists
+    rather than storing an intention, and the save reconciles the two.
     """
 
-    # Unfold's formfield_overrides reach model fields only, so the widget that makes the
-    # switch look like is_staff beside it has to be named here.
+    # Unfold's formfield_overrides reach model fields only, so the widget that makes this
+    # look like is_staff beside it has to be named here.
     database_access = forms.BooleanField(
         label="Database access",
         required=False,
@@ -118,9 +111,8 @@ class UserWithDatabaseAccessForm(UserChangeForm):
             return
 
         # A role of that name may exist without being ours -- the deployment's superuser
-        # is the plain case. The person reaches the database through it, so the switch
-        # tells the truth by being on, and is read-only because the provisioning functions
-        # refuse a role they did not create.
+        # is the plain case. The person reaches the database through it, so the switch is
+        # on, and read-only because the provisioning functions refuse a foreign role.
         existing = unmanaged_role(user)
         if existing:
             self.fields["database_access"].initial = True
@@ -130,9 +122,8 @@ class UserWithDatabaseAccessForm(UserChangeForm):
             )
             return
 
-        # The password is handed over on the next sign-in here, so someone who cannot
-        # reach the admin would be given an account they never learn the password to.
-        # Staff status first, saved, and only then the switch.
+        # The password is handed over at the next sign-in here, so someone who cannot
+        # reach the admin would never learn it. Staff status first, saved, then this.
         if not user.is_staff:
             self.fields["database_access"].disabled = True
             self.fields["database_access"].help_text = (
@@ -140,10 +131,9 @@ class UserWithDatabaseAccessForm(UserChangeForm):
             )
             return
 
-        # Without a rank there is no privilege set to grant, so the switch would promise
-        # an account that enroll() would refuse; saying so beats failing on save. A
-        # superuser is exempt: with single sign-on off nobody carries a role group, and
-        # the local administrator is then the one person who must still get an account.
+        # Without a rank there is nothing to grant and enroll() would refuse; saying so
+        # beats failing on save. A superuser is exempt: with single sign-on off nobody
+        # carries a role group, and the local administrator still needs an account.
         if db_role_for_user(user) is None and not user.is_superuser:
             self.fields["database_access"].disabled = True
             self.fields["database_access"].help_text = (
@@ -161,8 +151,7 @@ class UserAdmin(BaseUserAdmin, ModelAdmin):
     add_form = UserCreationForm
     change_password_form = AdminPasswordChangeForm
 
-    # Both are stamped by Django on login and on creation; an edit here would only make
-    # them disagree with what actually happened.
+    # Stamped by Django on login and on creation; an edit would only make them lie.
     readonly_fields = ("last_login", "date_joined")
 
     list_display = BaseUserAdmin.list_display + ("has_database_access",)
@@ -188,17 +177,16 @@ class UserAdmin(BaseUserAdmin, ModelAdmin):
         ("Important dates", {"fields": ("last_login", "date_joined")}),
     )
 
-    # Nothing to show without single sign-on, where the inline's model does not even exist.
+    # Without single sign-on the inline's model does not exist.
     inlines = [SingleSignOnInline] if settings.OIDC_ENABLED else []
 
     def get_queryset(self, request):
-        # The column and the filter both ask about the related row; without this each
-        # listed user costs a query of their own.
+        # The column and the filter both ask about the related row.
         return super().get_queryset(request).select_related("database_user")
 
     def get_inlines(self, request, obj=None):
-        # Someone being created here has signed in nowhere yet, so the add page would
-        # carry an empty box and then insist on its formset before saving the user.
+        # Someone created here has signed in nowhere yet, so the add page would carry an
+        # empty box and then insist on its formset before saving.
         return super().get_inlines(request, obj) if obj else []
 
     @admin.display(description="database access", boolean=True)
@@ -209,9 +197,8 @@ class UserAdmin(BaseUserAdmin, ModelAdmin):
         """Save the user, then bring their database account in line with the switch.
 
         After the user is saved, because the rank enroll() reads comes from the groups
-        this save may itself have changed. A database failure is reported and the user
-        edit still stands: the switch shows the account that exists, so the next save
-        retries rather than leaving the two silently disagreeing.
+        this save may have changed. A database failure is reported and the user edit still
+        stands, so the next save retries.
 
         Args:
             request: The admin request, for the result message.
@@ -226,7 +213,7 @@ class UserAdmin(BaseUserAdmin, ModelAdmin):
 
         wanted = form.cleaned_data.get("database_access", False)
         # Re-read rather than trusting the form's initial value: the groups saved above
-        # may have just changed what the person is entitled to.
+        # may have changed what the person is entitled to.
         current = hasattr(obj, "database_user")
         if wanted == current:
             return

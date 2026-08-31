@@ -1,12 +1,9 @@
-# Create the dedicated database users with the passwords from the mounted secrets.
-# The password is passed as a psql variable and expanded via format() outside of any
-# quoted string, because psql does not interpolate variables inside dollar-quoted
-# (DO $$ ... $$) blocks.
+# The dedicated database users, with the passwords from the mounted secrets. The password
+# is a psql variable expanded through format() outside any quoted string, psql not
+# interpolating inside a dollar-quoted DO block.
 #
-# The role name and the secret are passed separately because they need not agree: both come
-# from buildtime.env (postgresql/render.sh substituted them above), but a role may be
-# renamed to avoid a collision in the cluster while the secret keeps the name of the
-# component that owns the password, and vice versa.
+# The role name and the secret are passed separately because they need not agree: a role
+# may be renamed to dodge a collision while the secret keeps the component's name.
 create_user() {
   local user="$1"
   local secret="$2"
@@ -29,8 +26,7 @@ create_user '${CRUDMAN_DB_USER}' '${SECRET_CRUDMAN_PASSWORD}'
 create_user '${SQLMESH_DB_USER}' '${SECRET_SQLMESH_PASSWORD}'
 create_user '${GRAFANA_DB_USER}' '${SECRET_GRAFANA_PASSWORD}'
 
-# SQLMesh creates and owns its own schemas (state schema as well as the physical and
-# view schemas of its models), so it only needs the CREATE privilege on the database.
+# SQLMesh creates and owns its own schemas, so it needs only CREATE on the database.
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
   -v db="$POSTGRES_DB" -v user='${SQLMESH_DB_USER}' <<'SQL'
 GRANT CREATE ON DATABASE :"db" TO :"user";

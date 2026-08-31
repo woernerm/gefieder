@@ -1,16 +1,15 @@
 """The SQLMesh example models sit in the schemas buildtime.env configures.
 
 The medallion schema names are configurable and render.sh bakes them into the init
-scripts. The example models cannot join in: a model name is parsed by SQLMesh, which
-never reads buildtime.env, so those names are written out in full.
+scripts. The example models cannot join in: SQLMesh parses a model name and never reads
+buildtime.env, so those names are written out in full.
 
-That leaves one way to drift. Rename a layer in buildtime.env and the database creates and
-grants the new schema while every shipped model still writes to the old name. Nothing
-fails: the plan succeeds and the dashboards are simply empty.
+So renaming a layer in buildtime.env leaves the database creating and granting the new
+schema while every shipped model still writes to the old name. Nothing fails: the plan
+succeeds and the dashboards are empty.
 
-A failure here therefore means one of two edits is missing — finish the rename in
-sqlmesh/models/, or put the schema name back. Read from the repository rather than the
-running stack, so it reports the mismatch before the stack is built on it.
+A failure here means finishing the rename in sqlmesh/models/, or putting the schema name
+back. Read from the repository, so it reports the mismatch before the stack is built.
 """
 import re
 from pathlib import Path
