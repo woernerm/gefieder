@@ -106,6 +106,42 @@ def _bearer_token(request):
     return value.strip() if scheme.lower() == "bearer" else ""
 
 
+def _refusal(request, dropzone, verb, wrong_verb_message):
+    """The error answer an unattended upload gets before it is even read, or None.
+
+    Both endpoints accept exactly one verb and authenticate by bearer token, so the two
+    refusals are the same question asked of a different verb.
+
+    Args:
+        request: The incoming request.
+        dropzone: The dropzone it addresses.
+        verb: The only method this endpoint answers.
+        wrong_verb_message: What to say to any other method.
+
+    Returns:
+        A 405 or 401 JSON response, or None when the call may proceed.
+    """
+    if request.method != verb:
+        return JsonResponse({"error": wrong_verb_message}, status=405)
+    if not dropzone.api_secret_matches(_bearer_token(request)):
+        return JsonResponse({"error": "Invalid or missing API token."}, status=401)
+    return None
+
+
+def _stored(upload):
+    """The 201 an accepted upload answers with, identical for every JSON endpoint."""
+    return JsonResponse(
+        {
+            "upload_id": upload.pk,
+            "files": upload.files.count(),
+            "sha256": upload.sha256,
+            "valid_from": upload.valid_from,
+            "valid_until": upload.valid_until,
+        },
+        status=201,
+    )
+
+
 def _api_validity(post, default):
     """Turn the API's validity fields into the ``(valid_from, valid_until)`` pair.
 
@@ -167,10 +203,8 @@ def api_upload(request, token):
     dropzone = get_object_or_404(
         Dropzone, token=token, enabled=True, upload_method=Dropzone.Method.API
     )
-    if request.method != "POST":
-        return JsonResponse({"error": "Use POST to upload."}, status=405)
-    if not dropzone.api_secret_matches(_bearer_token(request)):
-        return JsonResponse({"error": "Invalid or missing API token."}, status=401)
+    if refusal := _refusal(request, dropzone, "POST", "Use POST to upload."):
+        return refusal
     files = request.FILES.getlist("files")
     try:
         valid_from, valid_until = _api_validity(request.POST, dropzone.default_validity)
@@ -180,16 +214,7 @@ def api_upload(request, token):
         )
     except UploadError as error:
         return JsonResponse({"error": str(error)}, status=400)
-    return JsonResponse(
-        {
-            "upload_id": upload.pk,
-            "files": upload.files.count(),
-            "sha256": upload.sha256,
-            "valid_from": upload.valid_from,
-            "valid_until": upload.valid_until,
-        },
-        status=201,
-    )
+    return _stored(upload)
 
 
 WEBHOOK_MAX_PARAMS = 100
@@ -265,30 +290,16 @@ def webhook_upload(request, token):
     dropzone = get_object_or_404(
         Dropzone, token=token, enabled=True, upload_method=Dropzone.Method.WEBHOOK
     )
-    if request.method != "GET":
-        return JsonResponse({"error": "Use GET with query parameters."}, status=405)
-    if not dropzone.api_secret_matches(_bearer_token(request)):
-        return JsonResponse({"error": "Invalid or missing API token."}, status=401)
-    # The query string is payload, so a call carries no validity fields and the
-    # dropzone's default applies, as for an SFTP upload.
-    valid_from = (
-        None
-        if dropzone.default_validity == Dropzone.Validity.ALWAYS
-        else timezone.now()
-    )
+    if refusal := _refusal(request, dropzone, "GET", "Use GET with query parameters."):
+        return refusal
     try:
+        # The query string is payload, so a call carries no validity fields and the
+        # dropzone's default applies, as for an SFTP upload.
         upload = process_upload(
-            dropzone, [_webhook_file(request.GET)], valid_from=valid_from
+            dropzone,
+            [_webhook_file(request.GET)],
+            valid_from=dropzone.default_valid_from(),
         )
     except UploadError as error:
         return JsonResponse({"error": str(error)}, status=400)
-    return JsonResponse(
-        {
-            "upload_id": upload.pk,
-            "files": upload.files.count(),
-            "sha256": upload.sha256,
-            "valid_from": upload.valid_from,
-            "valid_until": upload.valid_until,
-        },
-        status=201,
-    )
+    return _stored(upload)

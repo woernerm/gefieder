@@ -9,6 +9,7 @@ from django.db.models import Q
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.urls import reverse
+from django.utils import timezone
 
 from . import examples
 
@@ -207,6 +208,15 @@ class Dropzone(models.Model):
             port=port,
             host=settings.SERVER_NAME,
         )
+
+    def default_valid_from(self):
+        """The start of validity for an upload that carries no validity of its own.
+
+        The unattended methods (webhook, SFTP, Arrow Flight) send files and nothing else,
+        so the dropzone's default decides: "always" leaves the lower bound open, every
+        other mode starts the upload now.
+        """
+        return None if self.default_validity == self.Validity.ALWAYS else timezone.now()
 
     def user_may_upload(self, user):
         if not self.require_login:

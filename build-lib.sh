@@ -46,6 +46,30 @@ build_image() {  # engine, service
   "$engine" build "$@" -t "${REGISTRY}/${svc}:${IMAGE_TAG}" -f "${svc}/Dockerfile" .
 }
 
+# --- podman secrets ---------------------------------------------------------------------
+# The stack does not start without them: a quadlet whose Secret= names a missing secret
+# refuses to run. Only what is absent is created -- an existing secret may hold the
+# credentials of a database volume being reused, and rotating crudman_password would lock
+# the app out of it.
+#
+# Shared by dev.sh and run-tests.sh so the set cannot drift between them; install.sh keeps
+# its own copy, being shipped standalone as a release asset with no build-lib.sh beside it.
+# The superuser password is each caller's own business -- install.sh prompts for it, the
+# other two take the build-time default -- so it is not created here.
+create_secret() {  # name, value
+  podman secret exists "$1" 2>/dev/null || printf '%s' "$2" | podman secret create "$1" - >/dev/null
+}
+
+create_service_secrets() {
+  create_secret "$SECRET_DJANGO_KEY"       "$(openssl rand -hex 32)"
+  create_secret "$SECRET_CRUDMAN_PASSWORD" "$(openssl rand -hex 32)"
+  create_secret "$SECRET_SQLMESH_PASSWORD" "$(openssl rand -hex 32)"
+  create_secret "$SECRET_GRAFANA_PASSWORD" "$(openssl rand -hex 32)"
+  # A placeholder for the single sign-on a development or test stack leaves off. It still
+  # has to exist: the crudman and grafana quadlets name it in a Secret=.
+  create_secret "$SECRET_OIDC_CLIENT" "unconfigured"
+}
+
 # --- running the stack from the quadlets ------------------------------------------------
 # dev.sh runs the stack with plain `podman run` rather than through systemd, so it works on
 # a machine without a user manager and never touches the deployment in

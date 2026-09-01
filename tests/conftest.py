@@ -122,15 +122,13 @@ OIDC_ISSUER = os.environ.get("TEST_OIDC_ISSUER", "")
 OIDC_CLIENT_ID = os.environ.get("TEST_OIDC_CLIENT_ID", "")
 APP_CONFIG_DIR = os.environ.get("TEST_APP_CONFIG_DIR", "")
 
-# The names of the containers that make up the stack.
+# The names of the containers that make up the stack. Each is also the systemd unit whose
+# journal holds that service's log: every service logs to stdout/stderr only, and podman
+# forwards the stream to journald. One list, so a service added to the stack cannot reach
+# the startup checks while the logging checks silently skip it.
 CONTAINERS = ["postgresql", "crudman", "sftp", "flight", "sqlmesh", "grafana",
               "proxy"]
-
-# The systemd unit of each service, whose journal holds its log. Every service logs to
-# stdout/stderr only; podman forwards the stream to journald.
-LOGGING_UNITS = [
-    "postgresql", "crudman", "sftp", "flight", "sqlmesh", "grafana", "proxy",
-]
+LOGGING_UNITS = CONTAINERS
 
 # In the production profile the proxy serves a self-signed certificate, so TLS
 # verification is disabled for the test run.

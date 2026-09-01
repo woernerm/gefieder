@@ -6,7 +6,6 @@ dropzone rather than a Django session. Only the protocol differs between them.
 
 from django.core.files import File
 from django.db import close_old_connections, connections
-from django.utils import timezone
 
 from .models import Dropzone
 from .services import process_upload
@@ -47,16 +46,13 @@ def authenticate(method, name, secret):
 def store_session(dropzone_id, paths):
     """Feed a finished session's files into the upload pipeline as one upload."""
     dropzone = Dropzone.objects.get(pk=dropzone_id)
-    # Neither protocol carries a validity form, so the dropzone's default applies.
-    valid_from = (
-        None
-        if dropzone.default_validity == Dropzone.Validity.ALWAYS
-        else timezone.now()
-    )
     streams = [path.open("rb") for path in paths]
     try:
         files = [File(stream, name=path.name) for path, stream in zip(paths, streams)]
-        return process_upload(dropzone, files, valid_from=valid_from)
+        # Neither protocol carries a validity form, so the dropzone's default applies.
+        return process_upload(
+            dropzone, files, valid_from=dropzone.default_valid_from()
+        )
     finally:
         for stream in streams:
             stream.close()

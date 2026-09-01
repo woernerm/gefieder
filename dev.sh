@@ -148,18 +148,8 @@ for svc in $SERVICES; do
 done
 
 # --- secrets --------------------------------------------------------------------------
-# Generated as install.sh does, and only if missing: rotating crudman_password would lock
-# the app out of the existing database.
-create_secret() {  # name, value
-  podman secret exists "$1" 2>/dev/null || printf '%s' "$2" | podman secret create "$1" - >/dev/null
-}
-create_secret "$SECRET_DJANGO_KEY"       "$(openssl rand -hex 32)"
-create_secret "$SECRET_CRUDMAN_PASSWORD" "$(openssl rand -hex 32)"
-create_secret "$SECRET_SQLMESH_PASSWORD" "$(openssl rand -hex 32)"
-create_secret "$SECRET_GRAFANA_PASSWORD" "$(openssl rand -hex 32)"
-# A placeholder for the single sign-on a development system leaves off. It still has to
-# exist: the crudman and grafana quadlets name it in a Secret=.
-create_secret "$SECRET_OIDC_CLIENT" "unconfigured"
+# create_service_secrets is in build-lib.sh, shared with run-tests.sh.
+create_service_secrets
 
 # SUPERUSER_DEFAULT_PASSWORD from buildtime.env, so the stack comes up unattended and the
 # printed credentials are always right. Set on every run, replacing whatever a previous

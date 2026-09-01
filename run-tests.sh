@@ -103,19 +103,9 @@ make_tempdir() {
 }
 
 # --- secrets ----------------------------------------------------------------------------
-# The stack does not start without them, and the suite reads them back to connect as each
-# role. Whatever is missing is created here, as dev.sh does; an existing secret is left
-# alone, the host possibly holding the credentials of a reused database volume.
-create_secret() {  # name, value
-  podman secret exists "$1" 2>/dev/null || printf '%s' "$2" | podman secret create "$1" - >/dev/null
-}
-create_secret "$SECRET_DJANGO_KEY"       "$(openssl rand -hex 32)"
-create_secret "$SECRET_CRUDMAN_PASSWORD" "$(openssl rand -hex 32)"
-create_secret "$SECRET_SQLMESH_PASSWORD" "$(openssl rand -hex 32)"
-create_secret "$SECRET_GRAFANA_PASSWORD" "$(openssl rand -hex 32)"
-# Single sign-on is off, but the placeholder must exist: the crudman and grafana quadlets
-# name it in a Secret=, and podman will not start them without it.
-create_secret "$SECRET_OIDC_CLIENT" "unconfigured"
+# create_service_secrets is in build-lib.sh, shared with dev.sh. The suite reads them back
+# to connect as each role.
+create_service_secrets
 # The build-time default rather than a random value, so the tests run unattended.
 create_secret "$SECRET_SUPERUSER_PASSWORD" "$SUPERUSER_DEFAULT_PASSWORD"
 

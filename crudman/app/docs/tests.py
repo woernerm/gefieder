@@ -12,52 +12,47 @@ from sso.roles import GROUP_FOR_RANK
 
 from . import lineage, views
 
+def _model(name, layer, **overrides):
+    """One model as the SQLMesh export writes it.
+
+    The pages read a handful of these fields; the rest are structure the export always
+    carries and no test varies, so they sit here once rather than in every fixture.
+    """
+    return {
+        "name": name, "layer": layer, "tenant": None, "description": "",
+        "kind": "VIEW", "cron": "@daily", "owner": None, "stamp": None,
+        "tags": [], "grains": [], "references": [], "audits": [],
+        "depends_on": [], "columns": [], "sql": "SELECT 1",
+        **overrides,
+    }
+
+
 DOCS = {
     "layers": [
         {
             "name": "bronze",
             "models": [
-                {
-                    "name": "bronze_project_a.issues",
-                    "layer": "bronze",
-                    "tenant": "project_a",
-                    "description": "Project A's raw issues.",
-                    "kind": "VIEW",
-                    "cron": "@daily",
-                    "owner": None,
-                    "stamp": None,
-                    "tags": [],
-                    "grains": [],
-                    "references": [],
-                    "audits": [],
-                    "depends_on": [],
-                    "columns": [
+                _model(
+                    "bronze_project_a.issues",
+                    "bronze",
+                    tenant="project_a",
+                    description="Project A's raw issues.",
+                    columns=[
                         {"name": "issue_key", "type": "TEXT", "description": "The key."}
                     ],
-                    "sql": "SELECT issue_key FROM jira.issues",
-                }
+                    sql="SELECT issue_key FROM jira.issues",
+                )
             ],
         },
         {
             "name": "silver",
             "models": [
-                {
-                    "name": "silver.issues",
-                    "layer": "silver",
-                    "tenant": None,
-                    "description": "The harmonized issues.",
-                    "kind": "VIEW",
-                    "cron": "@daily",
-                    "owner": None,
-                    "stamp": None,
-                    "tags": [],
-                    "grains": [],
-                    "references": [],
-                    "audits": [],
-                    "depends_on": ["bronze_project_a.issues"],
-                    "columns": [],
-                    "sql": "SELECT 1",
-                }
+                _model(
+                    "silver.issues",
+                    "silver",
+                    description="The harmonized issues.",
+                    depends_on=["bronze_project_a.issues"],
+                )
             ],
         },
         {"name": "gold", "models": []},
