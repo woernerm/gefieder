@@ -23,10 +23,16 @@ both direct and well as indirect/architectural gains through refactoring. Your t
 to find refactoring opportunities and architectural tweaks that reduce the amount of code.
 
 1. Read the code of this repository to find large sections with literal or 
-close-to-literal code duplication.
+close-to-literal code duplication. Based on the findings, create a list of the 10
+refactoring opportunities ordered by number of code lines a fix likely reduces.
+Write these to a temporary markdown file (title, summary, proposed fix, estimated lines
+saved) in a chapter called "Literal Code Duplication". Don't fix anything yet.
 
 2. Read the code of this repository to find repeated occurence of the same magic 
-string values.
+string values. Based on the findings, create a list of the 10 most duplicated string 
+occurrences, the string with the most duplications first. Append this list to the 
+temporary markdown file (title, summary, proposed fix, number of duplications) in a 
+chapter called "Magic String Values". Don't fix anything yet.
 
 3. Read these pages and their subpages: 
 - https://refactoring.guru/refactoring/smells
@@ -38,23 +44,22 @@ string values.
 - https://refactoring.guru/refactoring/how-to
 
 
-4. Read the code of this repository to find refactoring opportunities based on the 
-resources above. 
+Then, read the code of this repository again to find refactoring opportunities based on 
+the resources above. Create a list of the 10 refactoring opportunities ordered by number 
+of code lines a fix likely reduces. Include easy wins for other quality aspects if found, 
+but the focus is reducing code. Exclude anything that would be bad practice, bad design 
+or very complex regardless of how much it removes. Also consider removing features that 
+may not be that useful or even obsolete. Append this list of refactoring opportunities 
+to the temporary markdown file (pattern/technique/smell name as title, summary, 
+proposed fix, estimated lines saved by the fix, negative sideeffects) in a chapter 
+called "Refactoring Opportunities". Don't fix anything yet.
 
-5. Based on the findings of the previous steps, create a list of the 10 refactoring 
-opportunities ordered by number of code lines a fix likely reduces. Include easy wins 
-for other quality aspects if found, but the focus is reducing code. Exclude anything 
-that would be bad practice, bad design or very complex regardless of how much it 
-removes. Also consider removing features that may not be that useful or 
-even obsolete, dead code and literal code duplication (closely matching code lines).
-
-Don't fix anything yet, just provide a sorted table — with the applicable 
-pattern/technique/smell name (see refactoring guru), a short description of what's 
-proposed, any negative side effects, the benefit and an estimate of the total lines
-that the implementation/fix might save. Under 500 words.
+4. Read the temporary markdown file. Sort the findings across chapters, with the fix 
+providing the most return of investment first (e.g. little effort, little risk, high 
+reduction in code or high quality gain). Present the top 12 in less than 500 words.
 
 ## Fixing
-Ask the user which refactoring opportunities from above shall be fixed. Then, use the 
+Ask the user which findings from the above list shall be fixed. Then, use the 
 `count-code-lines.sh` script to measure how many code lines there are now in the entire 
 code base (not counting comment-like or empty lines).
 
