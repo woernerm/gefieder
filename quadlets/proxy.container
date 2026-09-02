@@ -22,6 +22,7 @@ Timezone=local
 EnvironmentFile=%h/.config/${APP_NAME}/runtime.env
 Environment=CRUDMAN_PATH=${CRUDMAN_PATH}
 Environment=GRAFANA_PATH=${GRAFANA_PATH}
+Environment=MCP_PATH=${MCP_PATH}
 # The certificate directory as it looks on the host, for the entrypoint's message when one
 # is missing: inside the container only the mount point is visible. systemd resolves "%h".
 Environment=CERTIFICATE_HINT=${CERTIFICATE_PATH}

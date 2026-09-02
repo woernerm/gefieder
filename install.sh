@@ -47,9 +47,9 @@ fi
 trap 'rm -rf "$WORK"' EXIT
 
 # Keep in sync with the workflow's matrix and the quadlets/ directory.
-IMAGES="postgresql crudman sqlmesh proxy grafana"
+IMAGES="postgresql crudman sqlmesh proxy grafana grafana_mcp"
 QUADLETS="main.pod postgresql.container crudman.container sftp.container \
-  flight.container sqlmesh.container grafana.container proxy.container \
+  flight.container sqlmesh.container grafana.container grafana_mcp.container proxy.container \
   postgresql_data.volume \
   grafana_data.volume sftp_data.volume \
   proxy_data.volume uploads_data.volume"
@@ -431,7 +431,7 @@ for u in $QUADLETS; do
   esac
 done
 
-UNITS="postgresql crudman sftp flight sqlmesh grafana proxy"
+UNITS="postgresql crudman sftp flight sqlmesh grafana grafana_mcp proxy"
 stack_start="$(date +%s)"
 if systemctl --user restart main-pod.service 2>/dev/null; then
   for u in $UNITS; do

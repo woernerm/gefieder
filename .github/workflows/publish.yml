@@ -71,12 +71,12 @@ jobs:
       - name: Stage the release assets
         run: |
           mkdir -p dist
-          for svc in postgresql crudman sqlmesh proxy grafana; do
+          for svc in postgresql crudman sqlmesh proxy grafana grafana_mcp; do
             docker save "${REGISTRY}/${svc}:${IMAGE_TAG}" -o "dist/${svc}.tar"
           done
 
           # Only the known tokens, so nginx's $host and Grafana's %(domain)s survive.
-          VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_USER_PREFIX} ${ROLE_PREFIX} ${BRONZE_SCHEMA_PREFIX} ${SECRET_SUPERUSER_PASSWORD} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD} ${SECRET_DJANGO_KEY} ${SECRET_OIDC_CLIENT}'
+          VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_USER_PREFIX} ${ROLE_PREFIX} ${BRONZE_SCHEMA_PREFIX} ${SECRET_SUPERUSER_PASSWORD} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD} ${SECRET_DJANGO_KEY} ${SECRET_OIDC_CLIENT}'
           for f in quadlets/* serverstats/server-stats.service serverstats/server-stats.timer; do
             envsubst "$VARS" < "$f" > "dist/$(basename "$f")"
           done
@@ -92,6 +92,7 @@ jobs:
             echo "SUPERUSER_DEFAULT_PASSWORD=${SUPERUSER_DEFAULT_PASSWORD}"
             echo "CRUDMAN_PATH=${CRUDMAN_PATH}"
             echo "GRAFANA_PATH=${GRAFANA_PATH}"
+            echo "MCP_PATH=${MCP_PATH}"
             echo "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}"
             echo "PG_DATABASE=${PG_DATABASE}"
             echo "SECRET_SUPERUSER_PASSWORD=${SECRET_SUPERUSER_PASSWORD}"

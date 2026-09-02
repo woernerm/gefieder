@@ -168,7 +168,7 @@ QUADLET_DIR="$HOME/.config/containers/systemd"
 SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 mkdir -p "$QUADLET_DIR"
 
-UNITS="postgresql crudman sftp flight sqlmesh grafana proxy"
+UNITS="postgresql crudman sftp flight sqlmesh grafana grafana_mcp proxy"
 # The volumes the current deployment uses, plus crudman_data/sqlmesh_data, which held the
 # logs that now go to journald and linger on an older installation.
 VOLUMES="postgresql_data grafana_data sftp_data proxy_data uploads_data \
@@ -226,7 +226,7 @@ fi
 
 # As the release workflow does: only the known tokens, so nginx's $host and Grafana's
 # %(domain)s survive.
-VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_USER_PREFIX} ${ROLE_PREFIX} ${BRONZE_SCHEMA_PREFIX} ${SECRET_SUPERUSER_PASSWORD} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD} ${SECRET_DJANGO_KEY} ${SECRET_OIDC_CLIENT}'
+VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_USER_PREFIX} ${ROLE_PREFIX} ${BRONZE_SCHEMA_PREFIX} ${SECRET_SUPERUSER_PASSWORD} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD} ${SECRET_DJANGO_KEY} ${SECRET_OIDC_CLIENT}'
 for f in quadlets/*; do
   envsubst "$VARS" < "$f" > "$QUADLET_DIR/$(basename "$f")"
 done

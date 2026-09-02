@@ -1,0 +1,39 @@
+# The Grafana MCP server, which lets an AI assistant work the Grafana instance through its
+# API. Reached at /${MCP_PATH}/mcp through the proxy, never on a port of its own.
+[Unit]
+Description=${APP_NAME} Grafana MCP server
+After=grafana.service
+
+[Container]
+ContainerName=grafana_mcp
+Pod=main.pod
+Image=${REGISTRY}/grafana_mcp:${IMAGE_TAG}
+# The containers share one network namespace, so Grafana is on localhost. Its own address,
+# not the proxy's: the request is already inside the pod and needs no second TLS hop.
+Environment=GRAFANA_URL=http://localhost:3000/${GRAFANA_PATH}
+# What gives a caller exactly the rights the person behind it has in Grafana, and nothing
+# more. Each MCP call carries the caller's own credential -- a service-account token in
+# Authorization, or the grafana_session cookie a signed-in browser holds -- and the server
+# copies it onto every Grafana API request it makes. So Grafana, not this server, decides
+# what the call may do, and an Admin, Editor and Viewer differ here exactly as they do in
+# the user interface.
+#
+# There is deliberately no GRAFANA_SERVICE_ACCOUNT_TOKEN beside it: a shared account would
+# be the ceiling for everyone and would answer a caller who presented no credential at all.
+# Without one an unauthenticated call reaches Grafana unauthenticated and is refused.
+Environment=GRAFANA_FORWARD_HEADERS=Authorization,Cookie,X-Grafana-Org-Id
+# The image carries neither wget nor curl, so the probe is bash's own /dev/tcp. Reading the
+# status line rather than only opening the socket: a listener that accepts and then answers
+# 500 is not healthy. Direct to the container's port, the proxy not being what is under
+# test here.
+HealthCmd=bash -c 'exec 3<>/dev/tcp/127.0.0.1/8001 && printf "GET /healthz HTTP/1.0\r\n\r\n" >&3 && head -1 <&3 | grep -q " 200 "'
+HealthInterval=10s
+HealthTimeout=5s
+HealthRetries=10
+HealthStartPeriod=20s
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

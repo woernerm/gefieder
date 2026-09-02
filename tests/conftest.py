@@ -84,6 +84,7 @@ SECRETS = {
 }
 CRUDMAN_PATH = os.environ["CRUDMAN_PATH"]
 GRAFANA_PATH = os.environ["GRAFANA_PATH"]
+MCP_PATH = os.environ["MCP_PATH"]
 
 # The database login roles the init scripts created, and the prefix on the roles that
 # belong to people. The access-control checks connect as these, so they have to be the
@@ -126,7 +127,7 @@ APP_CONFIG_DIR = os.environ.get("TEST_APP_CONFIG_DIR", "")
 # journal holds that service's log: every service logs to stdout/stderr only, and podman
 # forwards the stream to journald. One list, so a service added to the stack cannot reach
 # the startup checks while the logging checks silently skip it.
-CONTAINERS = ["postgresql", "crudman", "sftp", "flight", "sqlmesh", "grafana",
+CONTAINERS = ["postgresql", "crudman", "sftp", "flight", "sqlmesh", "grafana", "grafana_mcp",
               "proxy"]
 LOGGING_UNITS = CONTAINERS
 

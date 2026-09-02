@@ -137,6 +137,8 @@ is `main.pod`, so the systemd unit is `main-pod.service`) of seven containers:
 - `sqlmesh` — the SQLMesh analytics engine, running models on their cron schedules
 - `grafana` — the Grafana dashboards, with the database pre-configured as a read-only
   data source and the extra panel types from `GRAFANA_PLUGINS` ready to use
+- `grafana_mcp` — the Grafana MCP server, which lets an AI assistant read and change Grafana on
+  your behalf (see [AI assistant access](#ai-assistant-access))
 - `proxy` — an nginx reverse proxy that serves the admin panel and Grafana under
   `SERVER_NAME` and publishes the pod's ports 80/443
 
@@ -161,11 +163,13 @@ adjust:
 | `SUPERUSER_DEFAULT_PASSWORD` | the password used when the installer's password prompt is left empty |
 | `CRUDMAN_PATH` | the base path of the admin panel, e.g. `crudman` → `https://SERVER_NAME/crudman/` |
 | `GRAFANA_PATH` | the base path of Grafana, e.g. `grafana` → `https://SERVER_NAME/grafana/` |
+| `MCP_PATH` | the base path of the AI assistant endpoint, e.g. `ai/grafana_mcp` → `https://SERVER_NAME/ai/grafana_mcp/mcp`. The `/ai/` prefix leaves room for further assistant endpoints beside it |
 | `PG_DATABASE` | the database everything lives in; change it if the cluster already has one named `postgres` |
 | `SERVER_STATS_SCHEMA` | the schema that holds the server-usage and query statistics (see [Server statistics](#server-statistics)) |
 | `SERVER_STATS_INTERVAL` | how often, in seconds, the server statistics are sampled (default 60) |
 | `DUCKDB_EXTENSIONS` | the DuckDB extensions baked into the database image, comma-separated; they are downloaded at build time, so the server needs no internet access to use them |
 | `GRAFANA_PLUGINS` | the extra panel types baked into the Grafana image, comma-separated plugin ids; downloaded at build time as well, so the dashboards can use them offline |
+| `GRAFANA_MCP_TOOLS` | what an AI assistant may ask the system to do, comma-separated (see [AI assistant access](#ai-assistant-access)) |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | company proxy for image builds (empty = direct) |
 | `PYTHON_INDEX` | additional Python package index for the build, e.g. a company mirror (empty = PyPI) |
 | `DOCKER_IO_MIRROR`, `GHCR_IO_MIRROR` | where the build pulls its base images from; set them to a company mirror if `docker.io` and `ghcr.io` are slow to reach |
@@ -322,6 +326,53 @@ Client secrets expire — Entra ID allows two years at most. When one does, ever
 fails at once, so note the date somewhere and replace the secret with the command above
 before it arrives.
 
+## AI assistant access
+An AI assistant — Claude, Copilot, Cursor or anything else that speaks the Model Context
+Protocol — can work with your Grafana instance directly: find a dashboard, explain what a
+panel measures, run a panel's query, build a new dashboard, check which alerts are firing.
+It is reachable at:
+
+```
+https://SERVER_NAME/ai/grafana_mcp/mcp
+```
+
+**It gives whoever uses it exactly the access they already have, and nothing more.** Each
+request carries that person's own credential, and Grafana answers it the same way it
+answers them in the browser: a `Viewer` asking the assistant to change a dashboard is
+refused, an `Editor` is not. There is no shared account behind it, so nobody gains rights
+by going through the assistant, and a request that carries no credential is refused
+outright.
+
+To connect one, each person creates a token for themselves in Grafana under
+**Administration → Users and access → Service accounts**, giving it their own role, and
+puts it in their assistant's configuration. In Claude Code that is one command:
+
+```bash
+claude mcp add --transport http gefieder https://SERVER_NAME/ai/grafana_mcp/mcp \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+Other assistants take the same two values as a configuration file instead:
+
+```json
+{
+  "mcpServers": {
+    "gefieder": {
+      "type": "http",
+      "url": "https://SERVER_NAME/ai/grafana_mcp/mcp",
+      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+    }
+  }
+}
+```
+
+Treat that token like a password: it carries the holder's access. Delete it in the same
+screen when it is no longer needed, and prefer one token per person over a shared one, so
+a single one can be withdrawn without disturbing anyone else.
+
+`GRAFANA_MCP_TOOLS` in `buildtime.env` bounds what any assistant can be asked to do, whoever
+is using it — trim the list to leave a capability out entirely.
+
 ## Certificates
 In production mode the proxy needs a TLS certificate for `SERVER_NAME`. It is the only
 host-local config (it is a secret, so it is never baked into an image), placed in
@@ -368,10 +419,10 @@ special permissions to read them:
 ```bash
 journalctl --user -f -u crudman                   # follow one component
 journalctl --user -u crudman --since '2 hours ago'
-journalctl --user -f -u main-pod -u postgresql -u crudman -u sftp -u flight -u sqlmesh -u grafana -u proxy
+journalctl --user -f -u main-pod -u postgresql -u crudman -u sftp -u flight -u sqlmesh -u grafana -u grafana_mcp -u proxy
 ```
 
-Use `postgresql`, `crudman`, `sftp`, `flight`, `sqlmesh`, `grafana` or `proxy` as the
+Use `postgresql`, `crudman`, `sftp`, `flight`, `sqlmesh`, `grafana`, `grafana_mcp` or `proxy` as the
 component name. The SFTP and Arrow Flight endpoints are part of the crudman application
 but run as their own services, so they have their own logs. The last command combines all
 of them into one stream, and the cheat sheet the installer prints repeats it.

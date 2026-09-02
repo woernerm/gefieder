@@ -14,7 +14,7 @@
 # output.
 
 # The services with a Dockerfile. Each builds independently, so the order is arbitrary.
-SERVICES="postgresql crudman sqlmesh proxy grafana"
+SERVICES="postgresql crudman sqlmesh proxy grafana grafana_mcp"
 
 # The templated parts of the two images whose Dockerfiles COPY them in: Grafana's dashboard
 # JSON, which Grafana cannot interpolate, and the psql init scripts, whose role names sit
@@ -36,7 +36,8 @@ build_image() {  # engine, service
     --build-arg "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}" \
     --build-arg "SECRET_SUPERUSER_PASSWORD=${SECRET_SUPERUSER_PASSWORD}" \
     --build-arg "DUCKDB_EXTENSIONS=${DUCKDB_EXTENSIONS}" \
-    --build-arg "GRAFANA_PLUGINS=${GRAFANA_PLUGINS}"
+    --build-arg "GRAFANA_PLUGINS=${GRAFANA_PLUGINS}" \
+    --build-arg "GRAFANA_MCP_TOOLS=${GRAFANA_MCP_TOOLS}"
   if [ "$engine" = "docker" ]; then
     set -- "$@" \
       --build-arg "http_proxy=${HTTP_PROXY}" \

@@ -1,7 +1,7 @@
 # Requirements for deployment, build and installation
 
 The units here describe the whole system to systemd: `main.pod`, one `*.container` per
-service (`postgresql`, `crudman`, `sqlmesh`, `grafana`, `proxy`, `sftp`, `flight`) and one
+service (`postgresql`, `crudman`, `sqlmesh`, `grafana`, `grafana_mcp`, `proxy`, `sftp`, `flight`) and one
 `*_data.volume` per volume. They are shipped and installed as one set, so they live in this
 one directory rather than one directory per service. The reasoning behind the choices below
 is in `CLAUDE.md`.
@@ -15,6 +15,16 @@ is in `CLAUDE.md`.
 - The services shall log to stdout/stderr only, carry no second timestamp of their own, and
   be readable with `journalctl` on the host by the host user. The proxy's `visits.log` is
   exempt.
+
+# AI assistant access
+- The system shall expose a Model Context Protocol endpoint through the proxy, so an AI
+  assistant can work the Grafana instance through its API.
+- A caller shall be granted exactly the permissions the person behind it holds in Grafana,
+  and no others: its credential shall be carried through to Grafana, which decides. The
+  server shall therefore hold no Grafana credential of its own, and a call carrying none
+  shall be refused rather than served with a shared account's rights.
+- Which capabilities exist at all shall be a build-time setting, bounding every caller
+  from above regardless of role.
 
 # Configuration
 - There shall be a `buildtime.env` configuration file for all variables that need to be

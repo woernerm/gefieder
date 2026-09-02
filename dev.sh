@@ -205,6 +205,10 @@ run_quadlet grafana \
   -e "SERVER_NAME=${SERVER_NAME}" \
   -e "GF_SERVER_ROOT_URL=http://${HOST_ADDR}:${HTTP_PORT}/${GRAFANA_PATH}/"
 
+# Nothing to override: it reaches Grafana on localhost inside the pod, and its callers'
+# credentials arrive with each request rather than from the environment.
+run_quadlet grafana_mcp
+
 # DEBUG=true picks the plain-HTTP template, so the certificate directory the quadlet
 # mounts is only created for the mount to resolve.
 mkdir -p "$(quadlet_expand "$CERTIFICATE_PATH" | sed "s|%h|${HOME}|g")"
