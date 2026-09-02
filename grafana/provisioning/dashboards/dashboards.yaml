@@ -15,3 +15,14 @@ providers:
       # an earlier image provisioned into the root. A JSON directly in `path` lands in the
       # root "General" folder.
       foldersFromFilesStructure: true
+
+  # The dashboards whose text the entrypoint rewrites at start, because it carries a value
+  # only known then: the assistant instructions print the MCP address, built from the
+  # runtime SERVER_NAME and DEBUG. It reads them from provisioning/dashboards-runtime/ and
+  # writes the substituted copies here, which is why this path is under the data volume.
+  - name: ${APP_NAME}-runtime
+    type: file
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards-runtime
+      foldersFromFilesStructure: true

@@ -76,7 +76,7 @@ class McpClient:
         response = self._post({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": {"protocolVersion": PROTOCOL_VERSION, "capabilities": {},
-                       "clientInfo": {"name": "gefieder-tests", "version": "1"}},
+                       "clientInfo": {"name": "integration-tests", "version": "1"}},
         })
         assert response.status_code == 200, (
             f"the mcp handshake failed: {response.status_code} {response.text[:200]}"

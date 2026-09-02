@@ -6,12 +6,14 @@ rather than from the repository files. The plugins likewise: they are installed 
 /var/lib/grafana precisely so the data volume cannot hide them.
 """
 import os
+import re
 
 import httpx
 import pytest
 
 from conftest import (
-    APP_NAME, BASE_URL, GRAFANA_PATH, SUPERUSER_NAME, SUPERUSER_PASSWORD, VERIFY_TLS,
+    APP_NAME, BASE_URL, GRAFANA_PATH, MCP_PATH, SUPERUSER_NAME, SUPERUSER_PASSWORD,
+    VERIFY_TLS,
 )
 
 # Straight from GRAFANA_PLUGINS in buildtime.env, so trimming that list does not leave
@@ -60,6 +62,97 @@ class TestDashboardProvisioning:
         assert folder == "Default", (
             f"server-monitoring dashboard is in folder {folder!r}, expected 'Default' "
             "(it must be provisioned into the Default folder, not the root)"
+        )
+
+
+class TestHomeDashboard:
+    """The home page is ours, not Grafana's built-in one.
+
+    Grafana's own home page carries a "Basics" panel whose cards are compiled into the
+    frontend bundle, so a card cannot be added to it; default_home_dashboard_path replaces
+    the whole page instead. These assert the replacement actually took, because a wrong
+    path is not an error: Grafana quietly falls back to the built-in page.
+    """
+
+    def test_the_home_dashboard_shall_be_the_provisioned_one(self, grafana_api):
+        resp = grafana_api.get("/api/dashboards/home")
+        assert resp.status_code == 200, f"home dashboard failed: {resp.status_code}"
+        dashboard = resp.json().get("dashboard", {})
+        assert dashboard.get("uid") == f"{APP_NAME}-home", (
+            f"the home page is {dashboard.get('uid')!r}, not the provisioned one; "
+            "default_home_dashboard_path in custom.ini did not take"
+        )
+
+    def test_the_home_page_shall_link_to_the_assistant_instructions(self, grafana_api):
+        """The card this exists for: a link that 404s is worse than no card."""
+        home = grafana_api.get("/api/dashboards/home").json()["dashboard"]
+        content = "".join(panel.get("options", {}).get("content", "")
+                          for panel in home.get("panels", []))
+        assert f"{APP_NAME}-ai-assistant" in content, (
+            "the home page has no card linking to the assistant instructions"
+        )
+        target = grafana_api.get(f"/api/dashboards/uid/{APP_NAME}-ai-assistant")
+        assert target.status_code == 200, (
+            f"the card links to {APP_NAME}-ai-assistant, which is not provisioned "
+            f"({target.status_code})"
+        )
+
+    def test_every_card_link_shall_resolve(self, grafana_api):
+        """A relative href resolves against the dashboard's own URL, not the Grafana root,
+        so it 404s. Grafana's own dashboard URLs are absolute below GRAFANA_PATH, and the
+        cards have to be written the same way."""
+        home = grafana_api.get("/api/dashboards/home").json()["dashboard"]
+        content = "".join(panel.get("options", {}).get("content", "")
+                          for panel in home.get("panels", []))
+        links = re.findall(r'href="([^"]+)"', content)
+        assert links, "the home page has no links at all"
+        for link in links:
+            assert link.startswith(f"/{GRAFANA_PATH}/"), (
+                f"{link!r} does not start with /{GRAFANA_PATH}/; a relative or root-level "
+                "link does not resolve when Grafana is served from a subpath"
+            )
+            # Followed against the running stack, so a typo in a uid fails here.
+            resp = grafana_api.get(link.removeprefix(f"/{GRAFANA_PATH}"))
+            assert resp.status_code == 200, (
+                f"the card link {link} answers {resp.status_code}"
+            )
+
+    def test_the_cards_shall_not_rely_on_a_style_block(self, grafana_api):
+        """The text panel's sanitizer drops <style>, which would leave the cards unstyled:
+        the markup renders, but as a bare list of text. Inline style attributes survive."""
+        home = grafana_api.get("/api/dashboards/home").json()["dashboard"]
+        content = "".join(panel.get("options", {}).get("content", "")
+                          for panel in home.get("panels", []))
+        assert "<style" not in content.lower(), (
+            "the home page carries a <style> block, which the panel's sanitizer strips; "
+            "the cards would render unstyled"
+        )
+        assert 'style="' in content, "the cards carry no inline styling at all"
+
+    def test_the_instructions_shall_print_the_address_people_copy(self, grafana_api):
+        """The whole point of the page: a command that works when pasted unchanged.
+
+        MCP_PATH is substituted at build time, but the host and scheme are not knowable
+        then -- they come from the runtime SERVER_NAME and DEBUG -- so grafana's entrypoint
+        rewrites @@MCP_URL@@ at container start. Both halves have to have happened.
+        """
+        dashboard = grafana_api.get(
+            f"/api/dashboards/uid/{APP_NAME}-ai-assistant").json()["dashboard"]
+        content = "".join(panel.get("options", {}).get("content", "")
+                          for panel in dashboard.get("panels", []))
+        assert "@@MCP_URL@@" not in content, (
+            "the entrypoint did not substitute @@MCP_URL@@; the page still shows the "
+            "placeholder instead of an address to copy"
+        )
+        assert "${" not in content, (
+            f"an unsubstituted build-time token is left in the instructions: {content[:200]}"
+        )
+        # The address the tests themselves reach the stack under, so this asserts the
+        # entrypoint derived it from the real root URL rather than a default.
+        expected = f"{BASE_URL}/{MCP_PATH}/mcp"
+        assert expected in content, (
+            f"the instructions do not print {expected}; they say: "
+            f"{[line for line in content.splitlines() if 'claude mcp add' in line]}"
         )
 
 

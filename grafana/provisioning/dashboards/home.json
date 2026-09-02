@@ -1,0 +1,51 @@
+{
+    "__comment": "The home dashboard, provisioned from grafana/provisioning/dashboards and named by default_home_dashboard_path in grafana.ini. It replaces Grafana's built-in home page, whose \"Basics\" cards are compiled into the frontend bundle and cannot be added to. The cards here are plain HTML in a text panel, so a new one is an edit to this file. They carry inline style attributes because the panel's sanitizer drops a <style> block, and their links are absolute below GRAFANA_PATH, as Grafana's own dashboard URLs are: a relative href resolves against the current dashboard's URL and 404s.",
+    "annotations": {
+        "list": []
+    },
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 0,
+    "links": [],
+    "panels": [
+        {
+            "type": "text",
+            "title": "",
+            "id": 1,
+            "gridPos": {
+                "h": 10,
+                "w": 24,
+                "x": 0,
+                "y": 0
+            },
+            "options": {
+                "mode": "html",
+                "code": {
+                    "language": "plaintext",
+                    "showLineNumbers": false,
+                    "showMiniMap": false
+                },
+                "content": "\n<h1 style=\"font-size:1.6rem;margin:0 0 .25rem 0;\">Welcome to ${APP_NAME}</h1>\n<p style=\"color:#9aa0a6;margin:0 0 1.25rem 0;\">Dashboards, data and analytics for your projects.</p>\n<div style=\"display:flex;flex-wrap:wrap;gap:1rem;\">\n<a style=\"display:block;flex:1 1 260px;min-width:240px;padding:1rem 1.15rem;border:1px solid rgba(127,127,127,.35);border-radius:4px;background:rgba(127,127,127,.07);text-decoration:none;\" href=\"/${GRAFANA_PATH}/d/${APP_NAME}-server-monitoring\"><div style=\"font-weight:600;margin-bottom:.3rem;\">Server monitoring</div><div style=\"color:#9aa0a6;font-size:.88rem;line-height:1.35;\">How much CPU, memory and disk the server is using, and how that is trending.</div><div style=\"color:#6ccf8e;font-size:.82rem;margin-top:.5rem;\">&#10003; ready</div></a>\n<a style=\"display:block;flex:1 1 260px;min-width:240px;padding:1rem 1.15rem;border:1px solid rgba(127,127,127,.35);border-radius:4px;background:rgba(127,127,127,.07);text-decoration:none;\" href=\"/${GRAFANA_PATH}/dashboards\"><div style=\"font-weight:600;margin-bottom:.3rem;\">Browse dashboards</div><div style=\"color:#9aa0a6;font-size:.88rem;line-height:1.35;\">Every dashboard on the system, including the ones your team has built.</div></a>\n<a style=\"display:block;flex:1 1 260px;min-width:240px;padding:1rem 1.15rem;border:1px solid rgba(127,127,127,.35);border-radius:4px;background:rgba(127,127,127,.07);text-decoration:none;\" href=\"/${GRAFANA_PATH}/d/${APP_NAME}-ai-assistant\"><div style=\"font-weight:600;margin-bottom:.3rem;\">Add the MCP server to your AI</div><div style=\"color:#9aa0a6;font-size:.88rem;line-height:1.35;\">Let Claude or Copilot read and build dashboards for you &mdash; with exactly your own permissions.</div></a>\n</div>\n"
+            },
+            "transparent": true
+        }
+    ],
+    "refresh": "",
+    "schemaVersion": 39,
+    "tags": [
+        "${APP_NAME}"
+    ],
+    "templating": {
+        "list": []
+    },
+    "time": {
+        "from": "now-6h",
+        "to": "now"
+    },
+    "timepicker": {},
+    "timezone": "",
+    "title": "Home",
+    "uid": "${APP_NAME}-home",
+    "version": 1,
+    "weekStart": ""
+}

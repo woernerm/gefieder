@@ -129,3 +129,42 @@ def test_the_two_unit_allowlists_shall_agree():
 def test_every_substituted_unit_token_shall_be_declared(script):
     missing = allowlisted(script) - declared_settings()
     assert not missing, f"{script} substitutes settings buildtime.env lacks: {sorted(missing)}"
+
+
+# --- provisioned dashboards -------------------------------------------------------------
+# Grafana identifies a dashboard by its uid, not its filename, and two provisioning
+# providers scanning different directories will happily load the same uid from both. There
+# is no error: whichever the scan reaches last wins, so the page served is decided by scan
+# order rather than by intent.
+#
+# That is not hypothetical. ai-assistant.json is the one dashboard whose text is rewritten
+# at container start (grafana/entrypoint.sh substitutes @@MCP_URL@@ into a copy under
+# /var/lib/grafana), and a stale second copy left in the build-time tree served the
+# unsubstituted placeholder instead -- on a fresh volume, with the suite green.
+DASHBOARD_TREE = REPO / "grafana/provisioning"
+
+
+def dashboard_files():
+    return sorted(DASHBOARD_TREE.rglob("*.json"))
+
+
+def test_the_suite_shall_find_the_provisioned_dashboards():
+    """An empty list would leave the check below asserting nothing."""
+    assert dashboard_files(), f"no dashboard JSON under {DASHBOARD_TREE}"
+
+
+def test_no_dashboard_uid_shall_be_provisioned_twice():
+    import json
+
+    seen = {}
+    for path in dashboard_files():
+        uid = json.loads(path.read_text()).get("uid")
+        if uid is None:
+            continue
+        seen.setdefault(uid, []).append(str(path.relative_to(REPO)))
+
+    duplicates = {uid: paths for uid, paths in seen.items() if len(paths) > 1}
+    assert not duplicates, (
+        "the same dashboard uid is provisioned from more than one file, and which one "
+        f"Grafana serves is decided by scan order: {duplicates}"
+    )

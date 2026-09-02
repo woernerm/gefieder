@@ -1,0 +1,51 @@
+{
+    "__comment": "How to connect an AI assistant, linked from the home dashboard's third card. Markdown rather than HTML so the code blocks are selectable to copy. @@MCP_URL@@ is the one value that cannot be baked in -- it carries SERVER_NAME and DEBUG, both runtime settings -- so grafana/entrypoint.sh substitutes it into a writable copy of this file at container start, deriving it from the same GF_SERVER_ROOT_URL Grafana itself uses. MCP_PATH and GRAFANA_PATH are substituted at build time by grafana/render.sh.",
+    "annotations": {
+        "list": []
+    },
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 0,
+    "links": [],
+    "panels": [
+        {
+            "type": "text",
+            "title": "",
+            "id": 1,
+            "gridPos": {
+                "h": 26,
+                "w": 24,
+                "x": 0,
+                "y": 0
+            },
+            "options": {
+                "mode": "markdown",
+                "code": {
+                    "language": "plaintext",
+                    "showLineNumbers": false,
+                    "showMiniMap": false
+                },
+                "content": "\n# Add the MCP server to your AI\n\nYour assistant can then search dashboards, run a panel's query, explain what a metric means\nand build new dashboards &mdash; doing exactly what you are allowed to do, and nothing more.\n\n### 1. Make yourself a token\n\nGo to **Administration &rarr; Users and access &rarr; Service accounts**, click\n**Add service account**, give it your own role (`Viewer`, `Editor` or `Admin`), then\n**Add service account token** and copy the token.\n\nThe token carries your access, so treat it like a password. A `Viewer` token cannot change\nanything, whoever uses it.\n\n### 2. Point your assistant at this server\n\nThis is the address of this system, so the commands below are ready to copy as they stand.\n\n**Claude Code** &mdash; one command:\n\n```\nclaude mcp add --transport http ${APP_NAME} @@MCP_URL@@ -H \"Authorization: Bearer YOUR_TOKEN\"\n```\n\n**Claude Desktop, Copilot, Cursor and others** &mdash; the same two values in the\nconfiguration file:\n\n```\n{\n  \"mcpServers\": {\n    \"${APP_NAME}\": {\n      \"type\": \"http\",\n      \"url\": \"@@MCP_URL@@\",\n      \"headers\": { \"Authorization\": \"Bearer YOUR_TOKEN\" }\n    }\n  }\n}\n```\n\n### 3. Try it\n\nAsk your assistant *\"which dashboards exist here?\"* or *\"what is the server monitoring\ndashboard showing?\"*. If it answers, you are set up.\n\nIf it cannot connect, check that you copied the whole token, and that the address above is\nthe one you reach this page under &mdash; behind a different name or port, use that instead.\n"
+            },
+            "transparent": true
+        }
+    ],
+    "refresh": "",
+    "schemaVersion": 39,
+    "tags": [
+        "${APP_NAME}"
+    ],
+    "templating": {
+        "list": []
+    },
+    "time": {
+        "from": "now-6h",
+        "to": "now"
+    },
+    "timepicker": {},
+    "timezone": "",
+    "title": "Add the MCP server to your AI",
+    "uid": "${APP_NAME}-ai-assistant",
+    "version": 1,
+    "weekStart": ""
+}

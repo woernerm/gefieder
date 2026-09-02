@@ -27,7 +27,8 @@ here="$(dirname "$0")"
 # what the data source connects as, the same settings postgresql/render.sh baked into the
 # init scripts. The two SECRET_* names are the files the passwords are read from at
 # runtime; only the name is substituted, the $__file{} around it being Grafana's.
-VARS='${APP_NAME} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${GRAFANA_DB_USER} ${SECRET_GRAFANA_PASSWORD} ${SECRET_OIDC_CLIENT}'
+# GRAFANA_PATH and MCP_PATH are the two paths the AI-assistant dashboard spells out.
+VARS='${APP_NAME} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${GRAFANA_DB_USER} ${SECRET_GRAFANA_PASSWORD} ${SECRET_OIDC_CLIENT} ${GRAFANA_PATH} ${MCP_PATH}'
 
 # The Readme.md explaining this folder is for the repository, not the image, and its prose
 # shows the ${...} syntax literally.
