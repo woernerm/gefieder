@@ -606,6 +606,36 @@ class VersionsPageTest(RepositoryTestCase):
 
         self.assertNotEqual(repo.deployed_sha(), self.older)
 
+    def test_a_deployment_still_running_is_marked_as_such(self):
+        self._user("paul", "editor")
+
+        page = self.client.get(self.versions).content.decode()
+
+        # The spinner and the reload that stops it: the engine closes the row from another
+        # container, so a page rendered while it works would otherwise sit there forever
+        # claiming the deployment is still applying. Matched on the label rather than on
+        # the animation class, which Unfold's own layout also uses.
+        self.assertIn('aria-label="Applying"', page)
+        self.assertIn('http-equiv="refresh"', page)
+
+    def test_a_finished_deployment_neither_spins_nor_reloads(self):
+        self._user("paul", "editor")
+        Deployment.objects.update(status=Deployment.SUCCEEDED)
+
+        page = self.client.get(self.versions).content.decode()
+
+        self.assertNotIn('aria-label="Applying"', page)
+        self.assertNotIn('http-equiv="refresh"', page)
+
+    def test_a_failed_deployment_says_why(self):
+        self._user("paul", "editor")
+        Deployment.objects.update(status=Deployment.FAILED, message="the plan did not run")
+
+        page = self.client.get(self.versions).content.decode()
+
+        # The only prose the page carries, and only a failure produces it.
+        self.assertIn("the plan did not run", page)
+
     def test_an_editor_sees_the_history_and_may_put_a_version_back(self):
         self._user("paul", "editor")
 
@@ -625,6 +655,44 @@ class VersionsPageTest(RepositoryTestCase):
         self.client.post(self.deploy, {"sha": "0" * 40})
 
         self.assertEqual(repo.deployed_sha(), deployed)
+
+
+class StrandedVersionTest(RepositoryTestCase):
+    """A commit can leave the branch while it is still what production runs.
+
+    A force-push or a rebase on the git host does it. The page is the list of versions, so
+    the one that is running has to be on it whatever the branch says; a reader who cannot
+    see what is deployed cannot put anything else back either.
+    """
+
+    def force_push(self, sha):
+        """Move the branch back to an earlier commit, as a rebase on the host would."""
+        work = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, work, True)
+        repo.git("clone", repo.ORIGIN, str(work), cwd=repo.MODELS_DIR)
+        repo.git("reset", "--hard", sha, cwd=work)
+        repo.git("push", "--force", "origin", repo.BRANCH, cwd=work)
+        repo.fetch()
+
+    def test_the_deployed_commit_is_listed_after_the_branch_moves_away(self):
+        repo.poll()
+        first = repo.deployed_sha()
+        stranded = self.commit("A change that is later rebased away")
+        repo.poll()
+
+        self.force_push(first)
+
+        listed = [commit["sha"] for commit in repo.log()]
+        self.assertEqual(repo.deployed_sha(), stranded)
+        self.assertIn(stranded, listed)
+        self.assertIn(first, listed)
+
+    def test_a_commit_is_listed_once_when_the_branch_does_reach_it(self):
+        repo.poll()
+
+        listed = [commit["sha"] for commit in repo.log()]
+
+        self.assertEqual(len(listed), len(set(listed)))
 
 
 class LostOriginTest(RepositoryTestCase):

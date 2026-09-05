@@ -145,6 +145,9 @@ class TestTheShippedRepository:
         row = wait_for(admin_db, deployed_sha(), "succeeded")
         # The documentation pages read this, there being no export baked into an image.
         assert len(row["docs"]["layers"]) == 3
+        # A plan that worked has nothing to say. Its log is thousands of lines of progress
+        # written for a terminal, and the page shows whatever is stored.
+        assert row["message"] == ""
 
 
 class TestDeployingAPush:
@@ -203,6 +206,35 @@ class TestARefusedCommit:
         assert latest(admin_db)["sha"] == before["sha"]
 
 
+class TestAModelThatCannotBuild:
+    """A plan that fails is reported, and reported so a person can read it.
+
+    Not a refused deployment: a plan needs the database and can fail for reasons that have
+    nothing to do with the commit, so the commit is checked out and the failure is news
+    rather than a rejection.
+    """
+
+    def test_the_failure_is_recorded_against_the_commit(self, branch, admin_db):
+        pushed = push(
+            "Add a model that cannot build",
+            {
+                f"{PROJECT}/models/gold/broken.sql":
+                    "MODEL (\n"
+                    "  name gold.broken,\n"
+                    "  kind FULL\n"
+                    ");\n\n"
+                    "SELECT * FROM silver.a_table_that_does_not_exist"
+            },
+        )
+
+        row = wait_for(admin_db, pushed, "failed")
+
+        assert row["message"], "a failed plan has to say why"
+        # The log is written for a terminal and read in a browser, so the colour codes
+        # would render as text in the middle of the sentence they were meant to colour.
+        assert "\x1b[" not in row["message"]
+
+
 class TestWhoMayReadAndDeploy:
     """Choosing what production computes is administration, not documentation."""
 
@@ -218,8 +250,7 @@ class TestWhoMayReadAndDeploy:
         assert "Model versions" not in page
 
     def test_no_clone_address_is_offered_that_nobody_can_reach(self, admin_session):
-        # The default repository lives on this volume alone. Printing a clone command
-        # that cannot work would be worse than saying so.
+        # The default repository lives on this volume alone, reachable from inside the
+        # container and nowhere else. A clone command that cannot work is worse than none.
         page = admin_session.get(f"/{CRUDMAN_PATH}/system/deployment/").text
-        assert "hosted on this server alone" in page
         assert "git clone" not in page

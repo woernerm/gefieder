@@ -5,6 +5,16 @@
 
 {% block title %}{{ title }} | {{ site_title }}{% endblock %}
 
+{% block extrahead %}
+    {{ block.super }}
+    {% if current.is_applying %}
+        {# The engine closes the row from another container, so this page cannot be told #}
+        {# when a deployment finishes. While one is running it looks again by itself, #}
+        {# which is also what stops the spinner. #}
+        <meta http-equiv="refresh" content="5">
+    {% endif %}
+{% endblock %}
+
 {% block branding %}
     {% include "unfold/helpers/site_branding.html" %}
 {% endblock %}
@@ -13,48 +23,21 @@
     <div class="{{ form_classes.prose }} max-w-4xl">
         <h1>{{ title }}</h1>
 
-        <p>
-            The analytics models are a git repository. What is committed to
-            <code>main</code> is what this system computes, so a change reaches production
-            as a commit rather than as a release of the system itself.
-        </p>
-
         {% if clone_url %}
-            <p>Clone it, add your database password, and start:</p>
-            <pre class="not-prose"><code>git clone {{ clone_url }}
-cd {{ project }}
-uv sync
-echo "SQLMESH_PASSWORD=&lt;your password&gt;" &gt; .env</code></pre>
-        {% else %}
-            <p class="not-prose border-l-4 border-amber-500 pl-4 py-2 text-sm">
-                This repository is hosted on this server alone, so it cannot be cloned from
-                your machine and its history exists in no other place. Set
-                <code>REPO_MODELS</code> in <code>buildtime.env</code> to a git repository
-                to change both.
-            </p>
+            {# The one thing on this page a developer has to copy. Everything else the #}
+            {# table below says better than a sentence could. #}
+            <pre class="not-prose"><code>git clone {{ clone_url }}</code></pre>
+        {% endif %}
+
+        {% if current.message %}
+            {# Only a failure has anything to say: the engine records nothing for a plan #}
+            {# that worked. So this block appearing at all is the news. #}
+            <p class="not-prose border-l-4 border-red-500 pl-4 py-2 text-sm whitespace-pre-wrap">{{ current.message }}</p>
         {% endif %}
     </div>
 
-    {% if current %}
-        <div class="{{ form_classes.prose }} max-w-4xl">
-            <h2>Now running</h2>
-            <p>
-                Version <code>{{ current.short_sha }}</code>,
-                {{ current.get_status_display|lower }}{% if current.requested_by %},
-                chosen by {{ current.requested_by }}{% endif %}.
-            </p>
-            {% if current.message %}
-                <p class="not-prose border-l-4 border-red-500 pl-4 py-2 text-sm whitespace-pre-wrap">{{ current.message }}</p>
-            {% endif %}
-        </div>
-    {% endif %}
-
-    <div class="{{ form_classes.prose }} max-w-4xl">
-        <h2>History</h2>
-    </div>
-
-    {# Outside the prose column: a table of commits is wider than a column of text, and
-       scrolls on its own rather than widening the page. #}
+    {# Outside the prose column: a table of commits is wider than a column of text, and #}
+    {# scrolls on its own rather than widening the page. #}
     <div class="border border-base-200 mb-8 overflow-x-auto rounded-default dark:border-base-800">
         <table class="w-full text-sm">
             <thead class="border-b border-base-200 dark:border-base-800">
@@ -72,7 +55,8 @@ echo "SQLMESH_PASSWORD=&lt;your password&gt;" &gt; .env</code></pre>
                         <td class="px-4 py-3 whitespace-nowrap">
                             <code>{{ commit.short_sha }}</code>
                             {% if commit.sha == current_sha %}
-                                <span class="bg-primary-600 ml-1 px-2 py-0.5 rounded-full text-white text-xs">
+                                <span class="bg-primary-600 gap-1 inline-flex items-center ml-1 px-2 py-0.5 rounded-full text-white text-xs">
+                                    {% if current.is_applying %}{% include "system/applying.html" %}{% endif %}
                                     {{ current.get_status_display }}
                                 </span>
                             {% elif forloop.first %}

@@ -210,6 +210,11 @@ def deployed_sha() -> str | None:
 def log(limit: int = 50) -> list[dict]:
     """The branch's history, newest first.
 
+    The deployed commit is named alongside the branch, so it is listed even when the branch
+    no longer reaches it. A force-push or a rebase on the git host is enough to strand it,
+    and a list of versions that omits the running one is the one thing this page must never
+    do. git deduplicates it when it is on the branch, which is the ordinary case.
+
     Args:
         limit: How many commits to read.
 
@@ -217,9 +222,13 @@ def log(limit: int = 50) -> list[dict]:
         One dict per commit with its sha, author, ISO-8601 date and subject. Empty before
         the first clone, so the page renders rather than failing.
     """
+    revisions = [f"origin/{BRANCH}"]
+    if deployed := deployed_sha():
+        revisions.append(deployed)
+
     try:
         output = git(
-            "log", f"origin/{BRANCH}", f"--max-count={limit}",
+            "log", *revisions, f"--max-count={limit}",
             # Unit separator: a subject may hold anything a person can type, but not this.
             "--format=%H%x1f%an%x1f%aI%x1f%s",
         )

@@ -3,8 +3,9 @@
     ... | python status.py <sha> succeeded|failed [docs.json]
 
 crudman checks a commit out and records it as applying; this closes that row once the
-engine has planned it. The message is read from standard input, so a plan log is piped in
-rather than passed as an argument.
+engine has planned it. The plan log is piped in on standard input rather than passed as an
+argument, and is kept only when the plan failed: a successful one says nothing a person
+reading the page has to act on, and the page shows whatever is stored.
 
 Raw SQL rather than Django: this runs in the engine image, which has neither Django nor
 crudman in it. The engine's role is granted exactly SELECT and UPDATE on the one table.
@@ -12,19 +13,45 @@ crudman in it. The engine's role is granted exactly SELECT and UPDATE on the one
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
 import psycopg2
 
+SUCCEEDED = "succeeded"
+
 MESSAGE_LIMIT = 4000
-"""How much of the piped log to keep. The tail, that being where a failure says why."""
+"""How much of a failed plan's log to keep. The tail, that being where it says why."""
+
+ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+"""The colour codes SQLMesh writes for a terminal.
+
+The log reaches a browser rather than a terminal, where the codes are neither invisible
+nor meaningful: they render as text in the middle of the sentence they were meant to
+colour.
+"""
+
+
+def failure_message(log: str) -> str:
+    """What to show a person about a plan that did not work.
+
+    Args:
+        log: Everything the plan wrote.
+
+    Returns:
+        The tail, stripped of terminal colour codes. The tail because SQLMesh reports the
+        error last, after however many lines of progress it took to get there.
+    """
+    return ANSI.sub("", log).strip()[-MESSAGE_LIMIT:]
 
 
 def main() -> int:
     sha, status = sys.argv[1], sys.argv[2]
     docs = json.loads(Path(sys.argv[3]).read_text()) if len(sys.argv) > 3 else {}
-    message = sys.stdin.read().strip()[-MESSAGE_LIMIT:]
+    # Read either way, so the caller can pipe unconditionally.
+    log = sys.stdin.read()
+    message = "" if status == SUCCEEDED else failure_message(log)
 
     secret = Path("/run/secrets", os.environ.get("SECRET_SQLMESH_PASSWORD", "sqlmesh_password"))
     connection = psycopg2.connect(

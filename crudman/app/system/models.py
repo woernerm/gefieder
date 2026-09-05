@@ -146,3 +146,12 @@ class Deployment(models.Model):
     @property
     def short_sha(self) -> str:
         return self.sha[:8]
+
+    @property
+    def is_applying(self) -> bool:
+        """Whether the engine has yet to report on this deployment.
+
+        What the page spins a marker for, and what makes it reload: the row is closed by
+        the engine in another container, so nothing here knows when that happens.
+        """
+        return self.status == self.PENDING
