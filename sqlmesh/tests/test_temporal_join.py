@@ -10,7 +10,10 @@ the PostgreSQL branch on PostgreSQL.
 A plain script rather than a pytest module, so it runs on the dependencies the sqlmesh
 image already ships:
 
-    uv run --project /sqlmesh python /sqlmesh/app/tests/test_temporal_join.py
+    uv run python tests/test_temporal_join.py
+
+from the project directory. tests/test_analytics.py runs it against the deployed checkout
+as well, where the engine's own dependencies are.
 """
 
 import sys

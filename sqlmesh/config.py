@@ -39,7 +39,8 @@ variable its presence cannot accidentally be true elsewhere.
 if IN_CONTAINER:
     # The quadlet sets these; the pod shares one network namespace, so the database is
     # on localhost. The password comes from the secret rather than the environment, so
-    # `podman exec sqlmesh sqlmesh ...` works too.
+    # `podman exec sqlmesh sqlmesh ...` works too -- the wrapper on that container's PATH
+    # settles the project path and the log directory.
     host = os.environ.get("POSTGRES_HOST", "localhost")
     port = int(os.environ.get("POSTGRES_PORT", "5432"))
     database = os.environ.get("POSTGRES_DB", "postgres")
@@ -48,14 +49,34 @@ if IN_CONTAINER:
     user = os.environ.get("POSTGRES_USER", "sqlmesh")
 else:
     # Over the network on a developer's machine, on the port the pod publishes.
-    # SERVER_NAME names a local development stack as well as a server.
-    repo_root = Path(__file__).resolve().parent.parent
-    runtime_env = dotenv_values(repo_root / "runtime.env")
-    host = runtime_env["SERVER_NAME"]
-    port = 5432
-    # A build-time setting, so it comes from the other file; the quadlet fills
-    # POSTGRES_DB from the same value.
-    database = dotenv_values(repo_root / "buildtime.env")["PG_DATABASE"]
+    #
+    # Two ways to arrive here. A clone of the models repository carries server.env, which
+    # the system wrote when it created that repository, so cloning is the whole setup. A
+    # checkout of the gefieder repository has no such file and the same values live in the
+    # two env files beside the project. Either way an exported variable wins, which is how
+    # one checkout is pointed at a second installation.
+    project = Path(__file__).resolve().parent
+    server = dotenv_values(project / "server.env")
+    if not server:
+        repo_root = project.parent
+        runtime_env = dotenv_values(repo_root / "runtime.env")
+        buildtime_env = dotenv_values(repo_root / "buildtime.env")
+        server = {
+            # SERVER_NAME names a local development stack as well as a server.
+            "SQLMESH_HOST": runtime_env["SERVER_NAME"],
+            "SQLMESH_PORT": runtime_env.get("PG_PORT") or "5432",
+            # A build-time setting; the quadlet fills POSTGRES_DB from the same value.
+            "SQLMESH_DATABASE": buildtime_env["PG_DATABASE"],
+            "SQLMESH_USER_PREFIX": buildtime_env.get("DB_USER_PREFIX", "gf_"),
+        }
+
+    def setting(name: str) -> str:
+        """One connection setting, the environment overruling the file."""
+        return os.environ.get(name) or server[name]
+
+    host = setting("SQLMESH_HOST")
+    port = int(setting("SQLMESH_PORT"))
+    database = setting("SQLMESH_DATABASE")
     # SQLMesh loads sqlmesh/.env before importing this file, so an exported variable and
     # the gitignored file both work.
     password = os.environ.get("SQLMESH_PASSWORD")
@@ -69,9 +90,9 @@ else:
     # Developers connect as themselves, so the shared sqlmesh secret never leaves the
     # server, a query stays traceable to a person and a departure is one role disabled.
     # The name is derived as crudman derives it when provisioning (dbusers.utils.
-    # role_name_for), from the buildtime.env the database was initialised from. Someone
-    # whose local account is named differently overrides it with SQLMESH_USER.
-    role_prefix = dotenv_values(repo_root / "buildtime.env").get("DB_USER_PREFIX", "gf_")
+    # role_name_for). Someone whose local account is named differently overrides it with
+    # SQLMESH_USER.
+    role_prefix = setting("SQLMESH_USER_PREFIX")
     user = os.environ.get("SQLMESH_USER") or (
         role_prefix
         + re.sub(r"[^a-z0-9]+", "_", getpass.getuser().strip().lower()).strip("_")
@@ -105,6 +126,10 @@ def attach_path(**settings: object) -> str:
 duckdb_extensions = [e for e in os.environ.get("DUCKDB_EXTENSIONS", "").split(",") if e]
 
 config = Config(
+    # The deployed project is a read-only checkout, so SQLMesh's parsed-model cache cannot
+    # live beside it as it does on a developer's machine. Only in the container: a
+    # developer keeps the cache with the project, where "sqlmesh clean" expects it.
+    **({"cache_dir": "/tmp/sqlmesh-cache"} if IN_CONTAINER else {}),
     gateways={
         "postgres": GatewayConfig(
             connection=PostgresConnectionConfig(

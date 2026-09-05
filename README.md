@@ -156,6 +156,7 @@ adjust:
 | --- | --- |
 | `APP_NAME` | the name of the project (pod name, volume prefix, cert dir) |
 | `REPO` | your repository's full URL; the release workflow bakes it into `install.sh`, which downloads from `<REPO>/releases/latest/download`. It has no default — a release cannot be built without it |
+| `REPO_MODELS` | where the analytics models live. The default is a repository the system creates on its own volume, so a fresh installation needs no git host; set it to a git repository to develop the ordinary way (see [Writing analytics models](#writing-analytics-models)) |
 | `REGISTRY` | the path the images are named under, e.g. `ghcr.io/your-org/gefieder` → `…/gefieder/crudman` |
 | `IMAGE_TAG` | the image tag, e.g. `latest` |
 | `SUPERUSER_NAME` | the name of the PostgreSQL, Django and Grafana superuser |
@@ -187,6 +188,7 @@ on a reinstall, so your edits survive an upgrade.
 | `DEBUG` | development vs. production mode (see below) |
 | `HTTP_PORT`, `HTTPS_PORT` | the ports the two web interfaces are reached on; `80` and `443` (see [Using custom ports](#using-custom-ports)) |
 | `PG_PORT` | the port PostgreSQL is reached on; `5432` |
+| `MODELS_POLL_INTERVAL` | how often, in seconds, the system looks for a new commit of the analytics models; `20`, and `0` switches the automatic deployment off |
 | `SFTP_PORT`, `FLIGHT_PORT` | the ports the two dropzone upload endpoints are reached on; `2222` and `8815` |
 | `OIDC_ENABLED` | whether people sign in with their company account (see [Single sign-on](#single-sign-on)); `false` by default |
 | `OIDC_ISSUER` | the address of your identity provider |
@@ -404,6 +406,10 @@ user owns their contents):
 - `sftp_data` — the host key of the SFTP upload endpoint, so uploaders' SFTP clients
   keep trusting the server across updates
 - `proxy_data` — the page-visit records the server statistics are built from
+- `models_data` — the analytics models: the working tree the engine runs and, unless
+  `REPO_MODELS` points at a git host, the repository itself. **Back this one up.** With
+  the default setting it is the only copy of your models and their history; with a git
+  host configured it is a clone and can be thrown away
 
 They survive stopping the stack. Inspect them with `podman volume ls`. To delete the
 data, remove the volume explicitly, e.g. `podman volume rm postgresql_data`.
@@ -513,40 +519,44 @@ This walks you through changing a model and getting it into production. It follo
 example tenants that ship with the system, so you can do every step on a fresh
 installation before writing anything of your own.
 
-The models live in `sqlmesh/`, and they are ordinary files in your repository: bronze
-models per tenant under `models/bronze/`, the per-tenant transforms and the harmonized
-`silver.issues` under `models/silver/`, and the precomputed metrics under `models/gold/`.
-The example data comes from the CSVs in `seeds/`, so the pipeline runs without any
-external tooling.
+The models live in a git repository of their own, separate from the system that runs
+them. Inside it, `sqlmesh/models/bronze/` holds one folder per tenant,
+`sqlmesh/models/silver/` the per-tenant transforms and the harmonized `silver.issues`, and
+`sqlmesh/models/gold/` the precomputed metrics. The example data comes from the CSVs in
+`sqlmesh/seeds/`, so the pipeline runs without any external tooling.
+
+Where that repository lives is `REPO_MODELS` in `buildtime.env`. Out of the box it is a
+repository the system creates on its own volume the first time it starts, filled with the
+models shown here, so a fresh installation computes something immediately. Point it at your
+own git host — GitHub, GitLab, anything `git clone` accepts — and that becomes the origin.
+**Model versions** in the admin panel shows the address to clone and every commit on `main`.
 
 ### 1. Set up your machine
-You work on your own machine and connect to the server's database over the network. Get
-the password — it is the `sqlmesh_password` secret, so on the server run:
+You work on your own machine and connect to the server's database over the network. Ask an
+administrator for a database account; they create it in the admin panel under a person's
+**Database access**, and the password is shown to you once, the next time you sign in.
+
+Then clone the models and install SQLMesh:
 
 ```bash
-podman secret inspect --showsecret sqlmesh_password
+git clone <the address on the Model versions page> models
+cd models/sqlmesh
+uv sync                                       # creates .venv
+echo "SQLMESH_PASSWORD=<your password>" > .env
 ```
 
-Then, in your checkout:
-
-```bash
-uv sync --project sqlmesh                     # creates sqlmesh/.venv
-echo "SQLMESH_PASSWORD=<the secret>" > sqlmesh/.env
-```
-
-`sqlmesh/.env` is gitignored and never reaches an image; exporting `SQLMESH_PASSWORD`
-works just as well. Nothing else needs configuring: `sqlmesh/config.py` notices where it
-is running and connects to the database next to it in the container, or to `SERVER_NAME`
-from `runtime.env` on port 5432 from your machine.
+`.env` is gitignored and holds the only thing that is yours alone. Nothing else needs
+configuring: the repository carries a `server.env` naming this system's address and
+database, and `config.py` reads it.
 
 For the editor, install the **SQLMesh** extension, then run *Python: Select Interpreter*
-from the command palette and pick `sqlmesh/.venv/bin/python` — the extension needs an
+from the command palette and pick `.venv/bin/python` — the extension needs an
 interpreter that has SQLMesh installed. Its `sqlmesh` output channel tells you which one
 it found. After changing the config, run *SQLMesh: Restart Servers*. You then get column
 completion, lineage and errors as you type; the commands below stay the same either way.
 
 ### 2. Change a model
-Open `sqlmesh/models/gold/issue_metrics.sql` and add a column to the query — say
+Open `models/gold/issue_metrics.sql` and add a column to the query — say
 `AVG(effort) AS average_effort`. Models are plain SQL wrapped in a `MODEL (...)` block
 that names the model and says how it is materialized: `VIEW` for the thin harmonizing
 layer, `FULL` for the gold tables dashboards read, `SEED` for the example CSVs.
@@ -556,7 +566,6 @@ A *plan* compares your files against a target environment and shows what would c
 before anything happens:
 
 ```bash
-cd sqlmesh
 uv run sqlmesh plan
 ```
 
@@ -626,11 +635,24 @@ forgets the canonical key columns fails the plan instead of quietly polluting
 `silver.issues`. Audits block by default — the run stops rather than passing bad data on.
 
 ### 7. Ship it
-Commit your models. The server rebuilds its image from the repository, and the engine
-applies whatever it finds to `prod` when it starts, so committing is what makes a change
-permanent. Running `uv run sqlmesh plan prod` yourself applies it to production right
-away, which is useful when you cannot wait for a deployment — but if you skip the commit,
-the next deployment puts the old version back.
+Push to `main`. That is the whole deployment: the server notices within
+`MODELS_POLL_INTERVAL` seconds, checks your commit out and applies it to `prod`. Nothing is
+built and nothing restarts, because promoting a plan in SQLMesh swaps views rather than
+moving data. No release of the system is involved, and nobody has to log in to the server.
+
+**Model versions** in the admin panel then shows your commit as live, or tells you why it
+is not. Every earlier commit has a **Use this version** button beside it, so putting one
+back is a click and takes the same few seconds. That choice stands until somebody pushes
+again, and the push wins.
+
+One kind of change still needs a release of the system: editing `sqlmesh/pyproject.toml`.
+Dependencies are installed when the images are built, so such a commit is refused with that
+explanation rather than being checked out into an engine that cannot run it.
+
+### 8. If something is wrong
+The engine reports what happened on the **Model versions** page, including the plan's own
+output when it fails. A bad model is undone the same way it arrived — push a revert, or
+press **Use this version** on the commit before it.
 
 ### A note on state
 SQLMesh keeps its own record of every model version, what has been built and which
@@ -657,6 +679,7 @@ systemctl --user stop  main-pod.service   # stop the whole pod
 systemctl --user restart crudman.service  # restart a single service
 podman pod ps                             # show the pod and its containers
 podman logs -f sqlmesh                    # follow a container's live log
+podman exec sqlmesh sqlmesh test          # run a SQLMesh command on the deployed models
 ```
 
 ## Connecting directly

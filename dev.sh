@@ -160,7 +160,7 @@ printf '%s' "$SUPERUSER_DEFAULT_PASSWORD" | podman secret create "$SECRET_SUPERU
 
 # --- volumes --------------------------------------------------------------------------
 # Created up front so the rootless user owns their contents, as install.sh does.
-for vol in postgresql_data grafana_data sftp_data proxy_data uploads_data; do
+for vol in postgresql_data grafana_data sftp_data proxy_data uploads_data models_data; do
   podman volume exists "$vol" || podman volume create "$vol" >/dev/null
 done
 
@@ -185,11 +185,14 @@ podman pod create --name "$POD" \
 
 run_quadlet postgresql
 
+# PG_PORT among them: it is the port a developer's clone connects on, which crudman
+# writes into the models repository when it creates one, and no container can work it out.
 run_quadlet crudman \
   -e "SERVER_NAME=${SERVER_NAME}" \
   -e DEBUG=true \
   -e "CSRF_TRUSTED_ORIGINS=http://${HOST_ADDR}:${HTTP_PORT}" \
-  -e "SFTP_PORT=${SFTP_PORT}" -e "FLIGHT_PORT=${FLIGHT_PORT}"
+  -e "SFTP_PORT=${SFTP_PORT}" -e "FLIGHT_PORT=${FLIGHT_PORT}" \
+  -e "PG_PORT=${PG_PORT}"
 
 # The crudman image in its "sftp" and "flight" roles, which the quadlets' Exec= lines
 # select.
@@ -226,6 +229,7 @@ ${APP_NAME} is starting in development mode (plain HTTP, no certificate).
 
   Admin panel:  http://${HOST_ADDR}:${HTTP_PORT}/${CRUDMAN_PATH}/
   Model docs:   http://${HOST_ADDR}:${HTTP_PORT}/${CRUDMAN_PATH}/docs/
+  Versions:     http://${HOST_ADDR}:${HTTP_PORT}/${CRUDMAN_PATH}/versions/
   Grafana:      http://${HOST_ADDR}:${HTTP_PORT}/${GRAFANA_PATH}/
   Login:        ${SUPERUSER_NAME} / ${SUPERUSER_DEFAULT_PASSWORD}
 

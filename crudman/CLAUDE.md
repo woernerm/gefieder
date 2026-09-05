@@ -11,6 +11,9 @@ non-admin, non-technical users.
 - `app/dropzones/` — Multi-file uploads using one of sftp, HTTP POST, Browser upload,
    Apache Arrow Flight protocol and others, pipeline for checking and converting data.
 - `app/sso/` — OpenID Connect login via allauth
+- `app/docs/` — the deployed models, described; reads the export from the deployment row
+- `app/repository/` — the models repository: clone, poll, check out, and the versions page.
+   crudman is the only writer of the `models_data` volume.
 - `app/example/` — an empty scaffold; Perfect to quickly spin up forms for non-technical 
    users to input their data.
 

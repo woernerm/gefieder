@@ -1,17 +1,15 @@
 """The model documentation pages.
 
-Rendered from the JSON the SQLMesh image exported at build time (sqlmesh/docs_export.py),
-so the pages describe the models that shipped with this release without needing the
-project files or the engine.
+Rendered from the JSON the engine exported when it deployed the models
+(sqlmesh/docs_export.py), so the pages describe the models that are running rather than
+the ones some release happened to ship. The pages themselves need neither the project
+files nor a connection to the engine.
 
 Ordinary Django views rather than admin pages, the documentation being open from the
 viewer rank up while the admin requires staff. They still extend Unfold's layout.
 """
 
-import json
-import os
 from functools import cache
-from pathlib import Path
 
 from django.contrib import admin
 from django.http import Http404
@@ -25,25 +23,25 @@ from pygments.lexers import SqlLexer
 from . import lineage
 from .access import ViewerRequiredMixin
 
-DOCS_PATH = Path(os.environ.get("SQLMESH_DOCS_PATH", "/crudman/docs.json"))
-"""Where the exported documentation is baked into the image."""
-
 SQL_FORMATTER = HtmlFormatter(nowrap=True)
 """Highlights into bare spans, leaving the <pre> and its styling to the template so the
 code block matches Unfold."""
 
 
-@cache
 def documentation() -> dict:
-    """The exported documentation, read once per process.
+    """The documentation of the models that are deployed.
+
+    Not cached: a deployment replaces it, and a process that remembered the previous one
+    would describe models the engine has stopped running.
 
     Returns:
-        The layers and their models, or empty layers when the file is missing: a checkout
-        run without a build has no export, and an empty page beats a broken admin.
+        The layers and their models, or empty layers before the first deployment has been
+        planned -- an empty page beats a broken one.
     """
-    if not DOCS_PATH.exists():
-        return {"layers": []}
-    return json.loads(DOCS_PATH.read_text())
+    from repository.models import Deployment
+
+    latest = Deployment.objects.filter(status=Deployment.SUCCEEDED).first()
+    return latest.docs if latest and latest.docs else {"layers": []}
 
 
 @cache

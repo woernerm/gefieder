@@ -8,7 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # Write stdout/stderr immediately, so errors appear in the container log in real time.
 ENV PYTHONUNBUFFERED=1
 
-WORKDIR /sqlmesh/app
+WORKDIR /sqlmesh
 
 # For the dependency install below, so the build works from behind a corporate proxy.
 # Scoped to this stage and not persisted in the image; empty means a direct connection.
@@ -55,14 +55,21 @@ RUN test -n "${DUCKDB_EXTENSIONS}" \
 RUN uv run --project /sqlmesh python -c \
       "import duckdb; duckdb.connect().execute('INSTALL postgres')"
 
-# The engine logs to stdout and writes its files under /tmp, and the password comes from
-# the mounted secret, so a developer's sqlmesh/logs/ and sqlmesh/.env have no business
-# here. .dockerignore keeps them out of the context; the removal below is a second line of
-# defence for the password.
-COPY sqlmesh/ /sqlmesh/app/
-RUN rm -rf /sqlmesh/app/logs /sqlmesh/app/.env
+# The project itself is deliberately absent. crudman checks it out into the models volume
+# and the entrypoint runs whatever is there, so shipping a model is a commit rather than a
+# release, and this image changes only when its dependencies do.
+#
+# What is copied are the three container-side tools, and outside any project directory so
+# that a developer's clone never carries them. The venv installed above is theirs to use:
+# the engine runs "uv run --project /sqlmesh" from inside the checked-out tree, which keeps
+# the interpreter here and the models there.
+#
+# entrypoint.sh is committed executable, so a plain COPY preserves the mode without
+# BuildKit's --chmod.
+COPY sqlmesh/entrypoint.sh sqlmesh/docs_export.py sqlmesh/status.py /sqlmesh/
 
-# Committed executable, so a plain COPY preserves the mode without BuildKit's --chmod.
-COPY sqlmesh/entrypoint.sh /sqlmesh/entrypoint.sh
+# On PATH, so "podman exec sqlmesh sqlmesh <command>" reaches the deployed project. The
+# file itself says why the CLI needs help finding it.
+COPY sqlmesh/sqlmesh.sh /usr/local/bin/sqlmesh
 
 CMD ["/sqlmesh/entrypoint.sh"]

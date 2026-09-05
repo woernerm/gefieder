@@ -1,0 +1,104 @@
+{# Every commit on the models branch, and which one production is running. #}
+{% extends "unfold/layouts/base_simple.html" %}
+
+{% block title %}{{ title }} | {{ site_title }}{% endblock %}
+
+{% block branding %}
+    {% include "unfold/helpers/site_branding.html" %}
+{% endblock %}
+
+{% block content %}
+    <div class="{{ form_classes.prose }} max-w-4xl">
+        <h1>{{ title }}</h1>
+
+        <p>
+            The analytics models are a git repository. What is committed to
+            <code>main</code> is what this system computes, so a change reaches production
+            as a commit rather than as a release of the system itself.
+        </p>
+
+        {% if clone_url %}
+            <p>Clone it, add your database password, and start:</p>
+            <pre class="not-prose"><code>git clone {{ clone_url }}
+cd {{ project }}
+uv sync
+echo "SQLMESH_PASSWORD=&lt;your password&gt;" &gt; .env</code></pre>
+        {% else %}
+            <p class="not-prose border-l-4 border-amber-500 pl-4 py-2 text-sm">
+                This repository is hosted on this server alone, so it cannot be cloned from
+                your machine and its history exists in no other place. Set
+                <code>REPO_MODELS</code> in <code>buildtime.env</code> to a git repository
+                to change both.
+            </p>
+        {% endif %}
+    </div>
+
+    {% if current %}
+        <div class="{{ form_classes.prose }} max-w-4xl">
+            <h2>Now running</h2>
+            <p>
+                Version <code>{{ current.short_sha }}</code>,
+                {{ current.get_status_display|lower }}{% if current.requested_by %},
+                chosen by {{ current.requested_by }}{% endif %}.
+            </p>
+            {% if current.message %}
+                <p class="not-prose border-l-4 border-red-500 pl-4 py-2 text-sm whitespace-pre-wrap">{{ current.message }}</p>
+            {% endif %}
+        </div>
+    {% endif %}
+
+    <div class="{{ form_classes.prose }} max-w-4xl">
+        <h2>History</h2>
+    </div>
+
+    {# Outside the prose column: a table of commits is wider than a column of text, and
+       scrolls on its own rather than widening the page. #}
+    <div class="border border-base-200 mb-8 overflow-x-auto rounded-default dark:border-base-800">
+        <table class="w-full text-sm">
+            <thead class="border-b border-base-200 dark:border-base-800">
+                <tr class="text-left text-font-subtle-light dark:text-font-subtle-dark">
+                    <th class="font-medium px-4 py-3">Commit</th>
+                    <th class="font-medium px-4 py-3">Change</th>
+                    <th class="font-medium px-4 py-3">Author</th>
+                    <th class="font-medium px-4 py-3">Date</th>
+                    <th class="font-medium px-4 py-3"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for commit in commits %}
+                    <tr class="border-b border-base-100 last:border-0 dark:border-base-900">
+                        <td class="px-4 py-3 whitespace-nowrap">
+                            <code>{{ commit.short_sha }}</code>
+                            {% if commit.sha == current_sha %}
+                                <span class="bg-primary-600 ml-1 px-2 py-0.5 rounded-full text-white text-xs">
+                                    {{ current.get_status_display }}
+                                </span>
+                            {% elif forloop.first %}
+                                <span class="border border-base-300 ml-1 px-2 py-0.5 rounded-full text-xs dark:border-base-700">
+                                    Latest
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3">{{ commit.subject }}</td>
+                        <td class="px-4 py-3 whitespace-nowrap">{{ commit.author }}</td>
+                        <td class="px-4 py-3 whitespace-nowrap">{{ commit.date|slice:":16" }}</td>
+                        <td class="px-4 py-3 text-right whitespace-nowrap">
+                            {% if can_deploy and commit.sha != current_sha %}
+                                <form method="post" action="{% url 'repository:deploy' %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="sha" value="{{ commit.sha }}">
+                                    <button type="submit"
+                                            class="border border-base-300 px-3 py-1 rounded-default hover:bg-base-100 dark:border-base-700 dark:hover:bg-white/[.06]">
+                                        Use this version
+                                    </button>
+                                </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr><td class="px-4 py-6" colspan="5">No commits yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endblock %}

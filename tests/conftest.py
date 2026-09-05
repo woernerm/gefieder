@@ -179,6 +179,29 @@ DB_PASSWORDS = {
 }
 
 
+@pytest.fixture(scope="session")
+def admin_session():
+    """A browser session signed in to the admin panel as the superuser.
+
+    The pages that are not the admin's own -- the documentation and the model versions --
+    are still behind its login, so a test that reads one needs a signed-in client rather
+    than the anonymous ones above.
+    """
+    with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS, trust_env=False,
+                      follow_redirects=True, timeout=10) as client:
+        # The form is served by the admin itself; sso/views.login hands a POST to it, so
+        # the local credentials work whether or not single sign-on is configured.
+        login = f"/{CRUDMAN_PATH}/login/"
+        client.get(login)
+        client.post(login, data={
+            "csrfmiddlewaretoken": client.cookies["csrftoken"],
+            "username": SUPERUSER_NAME,
+            "password": SUPERUSER_PASSWORD,
+            "next": f"/{CRUDMAN_PATH}/",
+        }, headers={"Referer": f"{BASE_URL}{login}"})
+        yield client
+
+
 def _connect(user):
     conn = psycopg2.connect(
         host="localhost", port=PG_PORT, dbname=PG_DATABASE,

@@ -52,7 +52,7 @@ QUADLETS="main.pod postgresql.container crudman.container sftp.container \
   flight.container sqlmesh.container grafana.container grafana_mcp.container proxy.container \
   postgresql_data.volume \
   grafana_data.volume sftp_data.volume \
-  proxy_data.volume uploads_data.volume"
+  proxy_data.volume uploads_data.volume models_data.volume"
 
 # --- progress reporting ---------------------------------------------------------------
 # The tools' own progress bars, enabled only when stderr is a terminal: piped into a log
@@ -302,7 +302,7 @@ install -m 0755 "${WORK}/collect.sh" "$APP_CONFIG_DIR/serverstats/collect.sh"
 # container user mapped to a subuid, so reading those from the host needs `podman unshare`.
 # Owning them too would need UserNS=keep-id, which the PostgreSQL image does not survive.
 step "Creating data volumes"
-VOLUMES="postgresql_data grafana_data sftp_data proxy_data uploads_data"
+VOLUMES="postgresql_data grafana_data sftp_data proxy_data uploads_data models_data"
 for vol in $VOLUMES; do
   podman volume exists "$vol" || podman volume create "$vol" >/dev/null
 done
@@ -547,6 +547,7 @@ ${APP_NAME} Cheat sheet
 
   Admin panel:  ${BASE_URL}/${CRUDMAN_PATH}/
   Model docs:   ${BASE_URL}/${CRUDMAN_PATH}/docs/
+  Model versions: ${BASE_URL}/${CRUDMAN_PATH}/versions/
   Grafana:      ${BASE_URL}/${GRAFANA_PATH}/
   PostgreSQL:   host=${SERVER_NAME} port=${PG_PORT} dbname=${PG_DATABASE} user=${SUPERUSER_NAME}
                 psql "host=${SERVER_NAME} port=${PG_PORT} dbname=${PG_DATABASE} user=${SUPERUSER_NAME}"
@@ -560,6 +561,9 @@ Shut the system down:
 Start the system up again:
   systemctl --user start main-pod.service
 
+Run a SQLMesh command against the deployed models (plan, run, test, table_diff):
+  podman exec sqlmesh sqlmesh test
+
 Run a database backup now:
   podman exec postgresql sh -c 'pg_dumpall -U "\$POSTGRES_USER"' > backup-\$(date +%F).sql
 
@@ -569,6 +573,7 @@ Volume paths (cd into them to inspect data):
   proxy:      $(podman volume inspect proxy_data -f '{{.Mountpoint}}')
   sftp:       $(podman volume inspect sftp_data -f '{{.Mountpoint}}')
   uploads:    $(podman volume inspect uploads_data -f '{{.Mountpoint}}')
+  models:     $(podman volume inspect models_data -f '{{.Mountpoint}}')
 
 The postgresql and grafana volumes are written by a user inside the container, so
 reading their contents from the host needs: podman unshare ls <path>

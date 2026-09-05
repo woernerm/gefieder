@@ -1,0 +1,12 @@
+# The analytics models: a git repository and the working tree the engine runs from.
+#
+# crudman writes it -- it clones REPO_MODELS, checks a commit out under deployed/ and, when
+# REPO_MODELS is the local default, hosts the bare origin.git beside it. sqlmesh mounts the
+# same volume read-only and runs whatever is checked out, so a model reaches production as
+# a commit rather than as a release.
+#
+# It survives stopping the stack. Removing it discards the working tree, and with the local
+# default it discards the history as well; with a git host configured that history is a
+# clone away.
+[Volume]
+VolumeName=models_data

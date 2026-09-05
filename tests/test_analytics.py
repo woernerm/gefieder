@@ -18,6 +18,9 @@ import time
 import pytest
 from conftest import GOLD_SCHEMA, SILVER_SCHEMA
 
+DEPLOYED_PROJECT = "/var/lib/app/models/deployed/sqlmesh"
+"""Where the engine finds the project: a checkout on the models volume, not the image."""
+
 # Seeded into a fresh stack; project_c is the polars Python-model one.
 EXAMPLE_TENANTS = {"project_a", "project_b", "project_c"}
 
@@ -166,9 +169,10 @@ class TestAnalyticsPipeline:
     def test_sqlmesh_unit_tests_pass(self):
         # The yaml tests state @temporal_join's awkward cases as input and expected rows,
         # one per gateway, which the seeded pipeline cannot. Run in the deployed container,
-        # which is where the engine and its dependencies are.
+        # which is where the engine and its dependencies are. The wrapper on its PATH
+        # points the CLI at the checked-out project, the models living on the volume.
         result = subprocess.run(
-            ["podman", "exec", "sqlmesh", "uv", "run", "--project", "/sqlmesh", "sqlmesh", "test"],
+            ["podman", "exec", "sqlmesh", "sqlmesh", "test"],
             capture_output=True, text=True,
         )
         assert result.returncode == 0, result.stdout + result.stderr
@@ -178,8 +182,9 @@ class TestAnalyticsPipeline:
         # different tenants over different data. test_temporal_join.py renders both
         # branches over one fixture and compares them row for row.
         result = subprocess.run(
-            ["podman", "exec", "sqlmesh", "uv", "run", "--project", "/sqlmesh",
-             "python", "/sqlmesh/app/tests/test_temporal_join.py"],
+            ["podman", "exec", "--workdir", DEPLOYED_PROJECT, "sqlmesh",
+             "uv", "run", "--project", "/sqlmesh",
+             "python", f"{DEPLOYED_PROJECT}/tests/test_temporal_join.py"],
             capture_output=True, text=True,
         )
         assert result.returncode == 0, result.stdout + result.stderr

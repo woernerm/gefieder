@@ -171,7 +171,7 @@ mkdir -p "$QUADLET_DIR"
 UNITS="postgresql crudman sftp flight sqlmesh grafana grafana_mcp proxy"
 # The volumes the current deployment uses, plus crudman_data/sqlmesh_data, which held the
 # logs that now go to journald and linger on an older installation.
-VOLUMES="postgresql_data grafana_data sftp_data proxy_data uploads_data \
+VOLUMES="postgresql_data grafana_data sftp_data proxy_data uploads_data models_data \
   crudman_data sqlmesh_data"
 
 # Stop the services and drop the pod, volumes and unit files. Shared by our own teardown
@@ -226,7 +226,7 @@ fi
 
 # As the release workflow does: only the known tokens, so nginx's $host and Grafana's
 # %(domain)s survive.
-VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_USER_PREFIX} ${ROLE_PREFIX} ${BRONZE_SCHEMA_PREFIX} ${SECRET_SUPERUSER_PASSWORD} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD} ${SECRET_DJANGO_KEY} ${SECRET_OIDC_CLIENT}'
+VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_USER_PREFIX} ${ROLE_PREFIX} ${BRONZE_SCHEMA_PREFIX} ${SECRET_SUPERUSER_PASSWORD} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD} ${SECRET_DJANGO_KEY} ${SECRET_OIDC_CLIENT} ${REPO_MODELS}'
 for f in quadlets/*; do
   envsubst "$VARS" < "$f" > "$QUADLET_DIR/$(basename "$f")"
 done
@@ -270,6 +270,8 @@ install -m 0755 serverstats/collect.sh "$APP_CONFIG_DIR/serverstats/collect.sh"
   echo "SERVER_NAME=${SERVER_NAME}"
   echo "DEBUG=${DEBUG}"
   echo "ERROR_LOGGING_PROBE=true"
+  # Faster than a deployment's, so test_models_repository does not wait out a real poll.
+  echo "MODELS_POLL_INTERVAL=5"
   echo "HTTP_PORT=${HTTP_PORT}"
   echo "HTTPS_PORT=${HTTPS_PORT}"
   echo "PG_PORT=${PG_PORT}"
@@ -284,7 +286,7 @@ install -m 0755 serverstats/collect.sh "$APP_CONFIG_DIR/serverstats/collect.sh"
   echo "OIDC_CLIENT_ID=${OIDC_CLIENT_ID}"
   grep -v -e '^SERVER_NAME=' -e '^DEBUG=' -e '^OIDC_' -e '^HTTP_PORT=' \
           -e '^HTTPS_PORT=' -e '^PG_PORT=' -e '^SFTP_PORT=' -e '^FLIGHT_PORT=' \
-          -e '^ERROR_LOGGING_PROBE=' \
+          -e '^ERROR_LOGGING_PROBE=' -e '^MODELS_POLL_INTERVAL=' \
           runtime.env || true
 } > "$APP_CONFIG_DIR/runtime.env"
 

@@ -4,7 +4,10 @@
 # itself, and the healthcheck below gates Notify=healthy.
 [Unit]
 Description=${APP_NAME} SQLMesh analytics engine
+# crudman owns the models volume and puts a working tree there, so it goes first. Only a
+# hint: the entrypoint waits for that tree itself, as it waits for the database.
 After=postgresql.service
+After=crudman.service
 
 [Container]
 ContainerName=sqlmesh
@@ -24,6 +27,10 @@ Environment=SQLMESH_RUN_INTERVAL=10
 # Read-only, at the same mount point crudman writes to, so models open the files whose
 # paths the crudman.dropzones_upload rows carry.
 Volume=uploads_data.volume:/var/lib/app/uploads:ro,z
+# The models, at the path crudman writes them to. Read-only: crudman is the only writer,
+# and the engine is not allowed to change what it was asked to run.
+Environment=MODELS_DIR=/var/lib/app/models
+Volume=models_data.volume:/var/lib/app/models:ro,z
 # So the code reading a file back out of /run/secrets looks for the name podman put
 # there (see SECRET_* in buildtime.env).
 Environment=SECRET_SQLMESH_PASSWORD=${SECRET_SQLMESH_PASSWORD}
@@ -34,7 +41,7 @@ HealthCmd=python -c 'import socket; socket.create_connection(("localhost",5432),
 HealthInterval=30s
 HealthTimeout=5s
 HealthRetries=3
-HealthStartPeriod=60s
+HealthStartPeriod=90s
 
 [Service]
 Restart=always

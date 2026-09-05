@@ -32,6 +32,9 @@ Environment=POSTGRES_DB=${PG_DATABASE}
 Environment=POSTGRES_USER=${CRUDMAN_DB_USER}
 # The prefix on the login roles crudman provisions (DB_USER_PREFIX in buildtime.env).
 Environment=DB_USER_PREFIX=${DB_USER_PREFIX}
+# The engine's role, which the models migration grants the one table it has to write: the
+# deployment row it closes once it has planned a commit.
+Environment=SQLMESH_DB_USER=${SQLMESH_DB_USER}
 # The prefix on the rank names, and the one on the per-tenant bronze schemas the admin
 # finds tenants by. Only this container signs anyone in or onboards a tenant.
 Environment=ROLE_PREFIX=${ROLE_PREFIX}
@@ -40,6 +43,15 @@ Environment=BRONZE_SCHEMA_PREFIX=${BRONZE_SCHEMA_PREFIX}
 # resolve there too.
 Environment=UPLOADS_DIR=/var/lib/app/uploads
 Volume=uploads_data.volume:/var/lib/app/uploads:z
+# The analytics models. crudman is the only writer: it clones REPO_MODELS here, checks a
+# commit out under deployed/ and hosts the bare origin when REPO_MODELS is the local
+# default. sqlmesh mounts the same volume read-only at the same path, so a path recorded
+# here resolves there.
+Environment=MODELS_DIR=/var/lib/app/models
+Volume=models_data.volume:/var/lib/app/models:z
+# Where the models come from (buildtime.env). A local path is a repository crudman creates
+# and seeds; anything else is cloned and polled as the origin.
+Environment=REPO_MODELS=${REPO_MODELS}
 # So the code reading a file back out of /run/secrets looks for the name podman put
 # there (see SECRET_* in buildtime.env).
 Environment=SECRET_DJANGO_KEY=${SECRET_DJANGO_KEY}

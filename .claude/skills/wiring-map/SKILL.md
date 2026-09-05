@@ -60,6 +60,25 @@ ships an image of its own.
 
 `uninstall.sh` derives its unit list from the quadlet directory, so it needs nothing.
 
+## Models repository
+
+The SQLMesh project is not in an image. `crudman/app/repository/repo.py` clones
+`REPO_MODELS` onto the `models_data` volume, checks a commit out under `deployed/` and
+writes the sha to `deployed.sha`; `sqlmesh/entrypoint.sh` watches that one file. So the
+handoff between the two containers is a path and a marker, not an API.
+
+| Also touch | Because |
+|---|---|
+| `crudman/Dockerfile` | `/seed` is what a repository is created from, and the container-side tools are stripped from it there — a file added to `sqlmesh/` reaches a developer's clone through this COPY |
+| `sqlmesh/Dockerfile` | the mirror image: it copies only `entrypoint.sh`, `sqlmesh.sh`, `docs_export.py` and `status.py`, so a new container-side tool is named in *both* Dockerfiles or it ends up in the clone |
+| `crudman/app/repository/migrations/` | the engine writes one table from another container; the grant to `SQLMESH_DB_USER` lives in the initial migration, so a new column it has to write is a new grant |
+| `sqlmesh/status.py` | raw SQL against `crudman.repository_deployment`, Django being absent from that image: a renamed field is a renamed column here |
+| `crudman/app/docs/views.py` | the docs pages read the export out of the deployment row rather than a file, so the export's shape is a contract between `docs_export.py` and these pages |
+| `tests/test_models_repository.py` | the end-to-end path — push, poll, plan, document — and the refusal that protects a running engine |
+
+`REPO_MODELS` is a **build-time setting**, so that table applies too. `MODELS_POLL_INTERVAL`
+is a **runtime setting**, so that one does.
+
 ## Volume
 
 `quadlets/<name>_data.volume` carries the `VolumeName=`. `QUADLETS=` in `install.sh` ships
@@ -150,6 +169,9 @@ Both are in `buildtime.env`; `crudman.container` passes them in, dev included.
 and in `gf_0008` — not a configuration change.
 
 ## Documentation
+
+`crudman/app/docs/` renders what the *deployed* models describe about themselves, exported
+by the engine at deploy time. It follows the commit, not the release.
 
 `README.md` addresses someone *running* the system: novice level, no technical details. The
 cheat sheet `install.sh` prints at the end tells the same story, so the two tend to move

@@ -77,6 +77,20 @@ user.set_password(
 user.save()
 "
 
+# The models repository: create or clone it and check the deployed commit out, before
+# gunicorn binds. The engine waits for that tree, so doing it here rather than in the loop
+# below is what lets a cold start come up in one pass.
+#
+# Not fatal. A git host that is unreachable right now must not cost the whole admin panel;
+# the loop retries and the versions page says what happened.
+uv run --project /crudman python manage.py deploy_models \
+  || echo "The models could not be deployed; the versions page has the reason." >&2
+
+# Then on a loop, which is what makes a push to the models repository reach production
+# without anyone logging in here. A child of the container's init, so it goes away with the
+# container; MODELS_POLL_INTERVAL=0 turns it into an immediate exit.
+uv run --project /crudman python manage.py deploy_models --loop &
+
 # gunicorn ships its access log off; "--access-logfile -" turns it on and points both logs
 # at the stream journald captures, so a reported error can be tied to its request.
 exec uv run --project /crudman gunicorn -b 0.0.0.0:8000 \

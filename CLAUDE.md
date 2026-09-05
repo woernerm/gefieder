@@ -23,8 +23,10 @@
 ## Where things are
 
 - `crudman/` — Django admin (Unfold); apps in `app/`: tenants, dropzones, sso, dbusers,
-  example.
+  docs, repository, example.
 - `sqlmesh/` — SQLMesh project: `config.py`, `macros/`, `models/{bronze,silver,gold}`.
+  Not baked into the image: it is the *seed* of the models repository crudman keeps on the
+  `models_data` volume, and the engine runs whatever commit is checked out there.
 - `postgresql/` — pgduckdb image; `initdb/gf_000N_*.{sh,sql}` for initialization,
   `render.sh`: substitute the database role names at build time.
 - `grafana/` — `custom.ini`: configuration, `provisioning/`: default dashboards, 
@@ -79,7 +81,8 @@
 - README.md addresses someone *running* the system, not developing it: concise, 
   novice user level. No technical details.
 - Push to origin/main triggers `.github/workflows/publish.yml` (builds images & creates 
-  GitHub release).
+  GitHub release). This is for the *system*; an analytics model ships by a commit to the
+  models repository (`REPO_MODELS`) and needs no release.
 - Make your responses 300 words or less.
 - Example names are John Doe, Max Mustermann, Joe Bloggs, Bob Smith, John Q. Public,
   Average Joe, John Q. Citizen, Jean Dupont, Paul Martin, Monsieur Durand, Monsieur 

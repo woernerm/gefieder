@@ -1,13 +1,13 @@
 """Who reaches the documentation, and what the export puts in front of them."""
 
 import json
-from pathlib import Path
 from unittest.mock import patch
 
 from django.contrib.auth.models import Group, User
 from django.test import TestCase
 from django.urls import reverse
 
+from repository.models import Deployment
 from sso.roles import GROUP_FOR_RANK
 
 from . import lineage, views
@@ -64,7 +64,6 @@ class DocumentationPagesTest(TestCase):
     """The pages themselves, with the export stubbed so the test needs no build."""
 
     def setUp(self):
-        views.documentation.cache_clear()
         patcher = patch.object(views, "documentation", lambda: DOCS)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -126,13 +125,25 @@ class DocumentationPagesTest(TestCase):
 
 
 class MissingExportTest(TestCase):
-    """A checkout run without a build has no export; the page still answers."""
+    """Before the first deployment has been planned there is no export; the page answers.
 
-    def test_no_export_yields_empty_layers(self):
-        views.documentation.cache_clear()
-        with patch.object(views, "DOCS_PATH", Path("/nonexistent/docs.json")):
-            self.assertEqual(views.documentation(), {"layers": []})
-        views.documentation.cache_clear()
+    Also what a failed deployment leaves behind, since only a succeeded one carries docs.
+    """
+
+    def test_no_deployment_yields_empty_layers(self):
+        self.assertEqual(views.documentation(), {"layers": []})
+
+    def test_a_failed_deployment_is_not_described(self):
+        Deployment.objects.create(
+            sha="a" * 40, main_sha="a" * 40, status=Deployment.FAILED, docs=DOCS
+        )
+        self.assertEqual(views.documentation(), {"layers": []})
+
+    def test_the_deployed_models_are_described(self):
+        Deployment.objects.create(
+            sha="b" * 40, main_sha="b" * 40, status=Deployment.SUCCEEDED, docs=DOCS
+        )
+        self.assertEqual(views.documentation(), DOCS)
 
 
 class ExportShapeTest(TestCase):
@@ -245,7 +256,6 @@ class LineageTest(TestCase):
         group, _ = Group.objects.get_or_create(name=GROUP_FOR_RANK["viewer"])
         user.groups.add(group)
         self.client.login(username="viewer", password="x")
-        views.documentation.cache_clear()
         with patch.object(views, "documentation", lambda: DOCS):
             page = self.client.get(reverse("docs:index")).content.decode()
         self.assertIn("lineage-data", page)

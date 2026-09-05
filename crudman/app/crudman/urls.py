@@ -23,6 +23,9 @@ urlpatterns = [
     # The SQLMesh model documentation, open from the viewer rank up rather than to staff
     # only.
     path(f"{CRUDMAN_PATH}/docs/", include("docs.urls")),
+    # The models repository and its history, reached by the same rank as the docs it
+    # explains; deploying a version takes the rank that may change things.
+    path(f"{CRUDMAN_PATH}/versions/", include("repository.urls")),
     # The admin's own login address, claimed so an unauthenticated visitor is sent to the
     # identity provider instead of a form. Django redirects here by name, so nothing else
     # needs to change.

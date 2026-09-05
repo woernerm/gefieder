@@ -1,8 +1,22 @@
 # sqlmesh — the analytics engine
 
 SQLMesh transforms raw data into bronze, silver and gold models (DB tables) that Grafana 
-reads. Container runs `sqlmesh plan --auto-apply --no-prompts` at startup, then 
-`sqlmesh run` on a loop, so a model's `cron` decides when it is executed.
+reads. 
+
+This folder is not copied into the image. It is the seed of the *models repository*: crudman
+keeps that repository on the `models_data` volume, checks a commit out under `deployed/` and
+publishes the sha in `deployed.sha`. The container watches that file, runs
+`sqlmesh plan --auto-apply --no-prompts` whenever it changes, exports the documentation the
+crudman docs pages render, then `sqlmesh run` on a loop so a model's `cron` decides when it
+is executed. So a model ships as a commit, not as a release; see
+`crudman/app/repository/requirements.md`.
+
+`Dockerfile`, `entrypoint.sh`, `sqlmesh.sh`, `docs_export.py` and `status.py` belong to the
+image and are stripped from the seed. Everything else here is what a developer clones.
+
+`sqlmesh.sh` is installed as `/usr/local/bin/sqlmesh`, so `podman exec sqlmesh sqlmesh test`
+runs against the deployed checkout. Without it the CLI writes `logs/` into that checkout,
+which is mounted read-only.
 
 ## Layers
 
@@ -64,8 +78,13 @@ account in crudman (Database access → select the user → "Create database acc
 issues a password once. Put it in `sqlmesh/.env` as `SQLMESH_PASSWORD`; `config.py` derives
 the role name from your local username, or takes `SQLMESH_USER` if it differs.
 
+A clone of the models repository carries `sqlmesh/server.env`, written when the repository
+was created, so `config.py` finds the database without gefieder's own env files beside it.
+A checkout of this repository has those files instead; either way an exported variable wins.
+
 A bare `sqlmesh plan` targets a `dev` environment, so the easiest command is the safe one.
 `sqlmesh plan prod` is *not* blocked — PostgreSQL cannot separate promoting from planning,
 since both write the same schemas (see `crudman/app/dbusers/requirements.md`). Production is
-normally reached the deployed way — a push to main builds the release, and the sqlmesh
-container applies the plan on start; running it by hand is a deliberate exception.
+normally reached the deployed way — a commit on the models repository's `main`, which the
+container applies within `MODELS_POLL_INTERVAL` seconds; running it by hand is a deliberate
+exception.
