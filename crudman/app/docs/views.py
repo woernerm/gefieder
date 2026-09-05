@@ -38,7 +38,7 @@ def documentation() -> dict:
         The layers and their models, or empty layers before the first deployment has been
         planned -- an empty page beats a broken one.
     """
-    from repository.models import Deployment
+    from system.models import Deployment
 
     latest = Deployment.objects.filter(status=Deployment.SUCCEEDED).first()
     return latest.docs if latest and latest.docs else {"layers": []}

@@ -7,7 +7,7 @@ from django.contrib.auth.models import Group, User
 from django.test import TestCase
 from django.urls import reverse
 
-from repository.models import Deployment
+from system.models import Deployment
 from sso.roles import GROUP_FOR_RANK
 
 from . import lineage, views

@@ -35,13 +35,13 @@ ROLE_CLAIM = "roles"
 Entra ID app roles arrive in it, and Keycloak and Okta can be configured to send it.
 """
 
-MANAGED_APPS = ("tenants", "dropzones", "repository")
+MANAGED_APPS = ("system", "dropzones")
 """Apps whose permissions the managed groups may hold.
 
 Not django.contrib.auth: "add_user" would let an editor grant themselves anything.
 
-"repository" is what the "Use this version" button checks, so choosing which models run is
-an editor's to do and a viewer's to watch -- the same line the rest of this system draws.
+"system" carries both the tenants and the deployed model version, so administering the
+system is an editor's to do -- the same line the rest of this project draws.
 """
 
 GROUP_ACTIONS = {

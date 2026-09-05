@@ -46,7 +46,7 @@ def latest(conn):
     conn.rollback()
     with conn.cursor() as cursor:
         cursor.execute(
-            "SELECT sha, status, message, docs FROM crudman.repository_deployment "
+            "SELECT sha, status, message, docs FROM crudman.system_deployment "
             "ORDER BY created_on DESC LIMIT 1"
         )
         row = cursor.fetchone()
@@ -175,7 +175,7 @@ class TestDeployingAPush:
         assert "gold.deployment_probe" in page
 
     def test_the_versions_page_shows_the_commit(self, admin_session):
-        page = admin_session.get(f"/{CRUDMAN_PATH}/versions/").text
+        page = admin_session.get(f"/{CRUDMAN_PATH}/system/deployment/").text
         assert "Add a metric to the gold layer" in page
         assert deployed_sha()[:8] in page
 
@@ -204,16 +204,22 @@ class TestARefusedCommit:
 
 
 class TestWhoMayReadAndDeploy:
-    """The history is a viewer's to read and an editor's to change."""
+    """Choosing what production computes is administration, not documentation."""
 
     def test_an_anonymous_visitor_is_sent_to_the_login_page(self, http):
-        response = http.get(f"/{CRUDMAN_PATH}/versions/")
+        response = http.get(f"/{CRUDMAN_PATH}/system/deployment/")
         assert response.status_code == 302
         assert "login" in response.headers["location"]
+
+    def test_the_documentation_does_not_link_to_it(self, admin_session):
+        # It used to sit in the documentation sidebar, which is open from the viewer rank
+        # up. Reading a metric must not come with the ability to change what produces it.
+        page = admin_session.get(f"/{CRUDMAN_PATH}/docs/").text
+        assert "Model versions" not in page
 
     def test_no_clone_address_is_offered_that_nobody_can_reach(self, admin_session):
         # The default repository lives on this volume alone. Printing a clone command
         # that cannot work would be worse than saying so.
-        page = admin_session.get(f"/{CRUDMAN_PATH}/versions/").text
+        page = admin_session.get(f"/{CRUDMAN_PATH}/system/deployment/").text
         assert "hosted on this server alone" in page
         assert "git clone" not in page

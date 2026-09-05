@@ -123,11 +123,11 @@ INSTALLED_APPS = [
     # An empty "manage.py startapp" scaffold: where a data model of this template's own
     # would go. Nothing else refers to it.
     'example.apps.ExampleConfig',
-    'tenants.apps.TenantsConfig',
+    # Administering the system itself: the tenants, and which version of the analytics
+    # models runs. Before sso, whose post_migrate receiver hands this app's permissions to
+    # the ranks; Django creates them when this app's own post_migrate fires.
+    'system.apps.SystemConfig',
     'dropzones.apps.DropzonesConfig',
-    # Before sso, whose post_migrate receiver hands this app's permissions to the ranks;
-    # Django creates them when this app's own post_migrate fires, which is now first.
-    'repository.apps.RepositoryConfig',
     # After sso, whose role groups decide the database rank a person is provisioned with.
     'dbusers.apps.DbUsersConfig',
     # Installed even with single sign-on off, so its post_migrate receiver keeps the

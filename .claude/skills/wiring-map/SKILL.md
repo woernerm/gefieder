@@ -62,7 +62,7 @@ ships an image of its own.
 
 ## Models repository
 
-The SQLMesh project is not in an image. `crudman/app/repository/repo.py` clones
+The SQLMesh project is not in an image. `crudman/app/system/repo.py` clones
 `REPO_MODELS` onto the `models_data` volume, checks a commit out under `deployed/` and
 writes the sha to `deployed.sha`; `sqlmesh/entrypoint.sh` watches that one file. So the
 handoff between the two containers is a path and a marker, not an API.
@@ -71,8 +71,8 @@ handoff between the two containers is a path and a marker, not an API.
 |---|---|
 | `crudman/Dockerfile` | `/seed` is what a repository is created from, and the container-side tools are stripped from it there — a file added to `sqlmesh/` reaches a developer's clone through this COPY |
 | `sqlmesh/Dockerfile` | the mirror image: it copies only `entrypoint.sh`, `sqlmesh.sh`, `docs_export.py` and `status.py`, so a new container-side tool is named in *both* Dockerfiles or it ends up in the clone |
-| `crudman/app/repository/migrations/` | the engine writes one table from another container; the grant to `SQLMESH_DB_USER` lives in the initial migration, so a new column it has to write is a new grant |
-| `sqlmesh/status.py` | raw SQL against `crudman.repository_deployment`, Django being absent from that image: a renamed field is a renamed column here |
+| `crudman/app/system/migrations/` | the engine writes one table from another container; the grant to `SQLMESH_DB_USER` lives in the initial migration, so a new column it has to write is a new grant |
+| `sqlmesh/status.py` | raw SQL against `crudman.system_deployment`, Django being absent from that image: a renamed field is a renamed column here |
 | `crudman/app/docs/views.py` | the docs pages read the export out of the deployment row rather than a file, so the export's shape is a contract between `docs_export.py` and these pages |
 | `tests/test_models_repository.py` | the end-to-end path — push, poll, plan, document — and the refusal that protects a running engine |
 
@@ -145,7 +145,7 @@ The silver staging layer is not among them — nothing outside the SQLMesh model
 `tests/conftest.py` derives it from `SILVER_SCHEMA`. So a role or
 schema name is written once there and never spelled out again — in the quadlet that connects
 as it (`POSTGRES_USER=`), the Grafana data source, the `dbusers` role
-derivation, `tenants/utils.py`'s tenant discovery, `sqlmesh/config.py`, or the tests. A schema, a container and a
+derivation, `system/utils.py`'s tenant discovery, `sqlmesh/config.py`, or the tests. A schema, a container and a
 podman secret keep the component's name instead, so `SECRET_CRUDMAN_PASSWORD` does not move
 when `CRUDMAN_DB_USER` does. `tests/test_render_templates.py` guards both allowlists: an
 unlisted `${TOKEN}` renders as literal text rather than failing.
@@ -158,6 +158,11 @@ An event trigger matching a configured prefix uses `starts_with()`, not `LIKE` �
 ending in `_` would otherwise be read as a single-character wildcard.
 
 ## Identity-provider rank
+
+`MANAGED_APPS` in `sso/roles.py` is which apps a rank may hold permissions for, so an app
+whose admin pages a rank should reach is named there — and its `AppConfig` has to be listed
+*before* `sso` in `INSTALLED_APPS`, since Django creates an app's permissions when that
+app's own `post_migrate` fires and `create_role_groups` hands them out when `sso`'s does.
 
 The three ranks (`viewer`, `editor`, `admin`) are named once, in `sso.roles.RANKS`, and
 `ROLE_PREFIX` goes in front of all of them: it names the Django group that carries the
@@ -177,7 +182,7 @@ by the engine at deploy time. It follows the commit, not the release.
 cheat sheet `install.sh` prints at the end tells the same story, so the two tend to move
 together. `CLAUDE.md` (root, `crudman/`, `sqlmesh/`) and `.github/copilot-instructions.md`
 describe the repo to agents. The `requirements.md` files (in `quadlets/` and in
-`crudman/app/{dropzones,tenants,dbusers}/`) state what a component must do and why — they
+`crudman/app/{dropzones,system,dbusers}/`) state what a component must do and why — they
 follow a changed requirement, not a changed implementation.
 
 ## Before calling it done

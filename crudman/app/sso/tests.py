@@ -351,9 +351,9 @@ class LoginRedirectTests(TestCase):
 
     @override_settings(OIDC_ENABLED=True, ROOT_URLCONF="sso.test_urls")
     def test_the_original_destination_is_carried_along(self):
-        response = self.client.get(reverse("login"), {"next": "/crudman/tenants/"})
+        response = self.client.get(reverse("login"), {"next": "/crudman/system/"})
 
-        self.assertIn("next=%2Fcrudman%2Ftenants%2F", response.url)
+        self.assertIn("next=%2Fcrudman%2Fsystem%2F", response.url)
 
     @override_settings(OIDC_ENABLED=True, ROOT_URLCONF="sso.test_urls")
     def test_the_escape_parameter_reaches_the_local_form(self):

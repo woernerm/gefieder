@@ -22,8 +22,8 @@
 
 ## Where things are
 
-- `crudman/` — Django admin (Unfold); apps in `app/`: tenants, dropzones, sso, dbusers,
-  docs, repository, example.
+- `crudman/` — Django admin (Unfold); apps in `app/`: system, dropzones, sso, dbusers,
+  docs, example.
 - `sqlmesh/` — SQLMesh project: `config.py`, `macros/`, `models/{bronze,silver,gold}`.
   Not baked into the image: it is the *seed* of the models repository crudman keeps on the
   `models_data` volume, and the engine runs whatever commit is checked out there.

@@ -1,4 +1,6 @@
-{# Every commit on the models branch, and which one production is running. #}
+{# Every commit on the models branch, and which one production is running. Replaces the #}
+{# changelist for the deployment model, the question being which commit shall run rather #}
+{# than which rows exist. #}
 {% extends "unfold/layouts/base_simple.html" %}
 
 {% block title %}{{ title }} | {{ site_title }}{% endblock %}
@@ -83,8 +85,8 @@ echo "SQLMESH_PASSWORD=&lt;your password&gt;" &gt; .env</code></pre>
                         <td class="px-4 py-3 whitespace-nowrap">{{ commit.author }}</td>
                         <td class="px-4 py-3 whitespace-nowrap">{{ commit.date|slice:":16" }}</td>
                         <td class="px-4 py-3 text-right whitespace-nowrap">
-                            {% if can_deploy and commit.sha != current_sha %}
-                                <form method="post" action="{% url 'repository:deploy' %}">
+                            {% if commit.sha != current_sha %}
+                                <form method="post" action="{% url 'admin:system_deployment_deploy' %}">
                                     {% csrf_token %}
                                     <input type="hidden" name="sha" value="{{ commit.sha }}">
                                     <button type="submit"

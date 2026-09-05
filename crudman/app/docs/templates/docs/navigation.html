@@ -15,12 +15,6 @@
             Documentation
         </a>
 
-        <a href="{% url 'repository:versions' %}"
-           class="flex font-semibold gap-3 items-center px-3 py-2 rounded-default text-font-important-light hover:bg-base-100 dark:text-font-important-dark dark:hover:bg-white/[.06]">
-            <span class="material-symbols-outlined md-18">history</span>
-            Model versions
-        </a>
-
         {% for layer in docs_layers %}
             <p class="font-semibold mb-1 mt-4 px-3 text-font-subtle-light text-xs uppercase dark:text-font-subtle-dark">
                 <a href="{% url 'docs:layer' layer.name %}" class="hover:text-font-important-light dark:hover:text-font-important-dark">

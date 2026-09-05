@@ -12,7 +12,7 @@ import time
 
 from django.core.management.base import BaseCommand
 
-from repository import repo
+from system import repo
 
 logger = logging.getLogger(__name__)
 

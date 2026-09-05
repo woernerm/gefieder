@@ -7,13 +7,13 @@ non-admin, non-technical users.
 ## Layout
 
 - `app/crudman/` — settings, urls, wsgi/asgi
-- `app/tenants/` — tenants and their database roles and schemas
+- `app/system/` — administering the system itself: tenants with their database roles and
+   schemas, and which commit of the analytics models runs. crudman is the only writer of
+   the `models_data` volume (`repo.py`).
 - `app/dropzones/` — Multi-file uploads using one of sftp, HTTP POST, Browser upload,
    Apache Arrow Flight protocol and others, pipeline for checking and converting data.
 - `app/sso/` — OpenID Connect login via allauth
 - `app/docs/` — the deployed models, described; reads the export from the deployment row
-- `app/repository/` — the models repository: clone, poll, check out, and the versions page.
-   crudman is the only writer of the `models_data` volume.
 - `app/example/` — an empty scaffold; Perfect to quickly spin up forms for non-technical 
    users to input their data.
 
@@ -38,4 +38,4 @@ non-admin, non-technical users.
 `app/*/tests.py` run inside the built image, twice: `run-tests.sh` runs them once 
 plainly and once with single sign-on configured.
 
-Requirements: `app/dropzones/requirements.md`, `app/tenants/requirements.md`.
+Requirements: `app/dropzones/requirements.md`, `app/system/requirements.md`.

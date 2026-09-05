@@ -529,7 +529,9 @@ Where that repository lives is `REPO_MODELS` in `buildtime.env`. Out of the box 
 repository the system creates on its own volume the first time it starts, filled with the
 models shown here, so a fresh installation computes something immediately. Point it at your
 own git host — GitHub, GitLab, anything `git clone` accepts — and that becomes the origin.
-**Model versions** in the admin panel shows the address to clone and every commit on `main`.
+**System → Model versions** in the admin panel shows the address to clone and every
+commit on `main`. It takes the editor rank, choosing what production computes being a
+change rather than a reading.
 
 ### 1. Set up your machine
 You work on your own machine and connect to the server's database over the network. Ask an
@@ -640,10 +642,10 @@ Push to `main`. That is the whole deployment: the server notices within
 built and nothing restarts, because promoting a plan in SQLMesh swaps views rather than
 moving data. No release of the system is involved, and nobody has to log in to the server.
 
-**Model versions** in the admin panel then shows your commit as live, or tells you why it
-is not. Every earlier commit has a **Use this version** button beside it, so putting one
-back is a click and takes the same few seconds. That choice stands until somebody pushes
-again, and the push wins.
+**System → Model versions** then shows your commit as live, or tells you why it is not.
+Every earlier commit has a **Use this version** button beside it, so putting one back is a
+click and takes the same few seconds. That choice stands until somebody pushes again, and
+the push wins.
 
 One kind of change still needs a release of the system: editing `sqlmesh/pyproject.toml`.
 Dependencies are installed when the images are built, so such a commit is refused with that

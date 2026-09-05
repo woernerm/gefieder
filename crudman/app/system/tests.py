@@ -1,12 +1,17 @@
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from django.contrib.auth.models import User
+from django.contrib.auth.models import Group, User
 from django.test import TestCase
 from django.urls import reverse
+from sso.roles import GROUP_FOR_RANK
 
+from . import repo, utils
 from .forms import TenantChangeForm, TenantCreationForm
-from .models import Tenant
-from . import utils
+from .models import Deployment, Tenant
 
 
 class TenantModelTests(TestCase):
@@ -43,7 +48,7 @@ class SlugifyTenantNameTests(TestCase):
 
 
 class CreateTenantUtilTests(TestCase):
-    @patch("tenants.utils.connection")
+    @patch("system.utils.connection")
     def test_calls_database_function_with_same_parameters(self, connection):
         cursor = connection.cursor.return_value.__enter__.return_value
 
@@ -54,7 +59,7 @@ class CreateTenantUtilTests(TestCase):
             "SELECT create_tenant(%s, %s, %s)", ["acme", "supersecret", "Acme"]
         )
 
-    @patch("tenants.utils.connection")
+    @patch("system.utils.connection")
     def test_returns_false_on_failure(self, connection):
         cursor = connection.cursor.return_value.__enter__.return_value
         cursor.execute.side_effect = Exception("boom")
@@ -63,7 +68,7 @@ class CreateTenantUtilTests(TestCase):
 
 
 class SetTenantLimitsUtilTests(TestCase):
-    @patch("tenants.utils.connection")
+    @patch("system.utils.connection")
     def test_none_limits_map_to_unlimited_sentinels(self, connection):
         cursor = connection.cursor.return_value.__enter__.return_value
 
@@ -75,7 +80,7 @@ class SetTenantLimitsUtilTests(TestCase):
             ["acme", -1, "0", "0", "0"],
         )
 
-    @patch("tenants.utils.connection")
+    @patch("system.utils.connection")
     def test_explicit_limits_are_forwarded(self, connection):
         cursor = connection.cursor.return_value.__enter__.return_value
 
@@ -88,7 +93,7 @@ class SetTenantLimitsUtilTests(TestCase):
 
 
 class DeleteTenantUtilTests(TestCase):
-    @patch("tenants.utils.connection")
+    @patch("system.utils.connection")
     def test_calls_database_function(self, connection):
         cursor = connection.cursor.return_value.__enter__.return_value
 
@@ -97,7 +102,7 @@ class DeleteTenantUtilTests(TestCase):
 
 
 class GetTenantsUtilTests(TestCase):
-    @patch("tenants.utils.connection")
+    @patch("system.utils.connection")
     def test_builds_tenant_instances_from_rows(self, connection):
         cursor = connection.cursor.return_value.__enter__.return_value
         cursor.fetchall.return_value = [
@@ -125,7 +130,7 @@ class GetTenantsUtilTests(TestCase):
         self.assertEqual(globex.work_mem, Tenant.UNLIMITED_SIZE)
         self.assertEqual(globex.temp_file_limit, Tenant.UNLIMITED_SIZE)
 
-    @patch("tenants.utils.connection")
+    @patch("system.utils.connection")
     def test_unset_catalog_values_become_unlimited_sentinels(self, connection):
         # A role with no per-role settings (NULLs) still reads as "no limit".
         cursor = connection.cursor.return_value.__enter__.return_value
@@ -142,7 +147,7 @@ class GetTenantsUtilTests(TestCase):
 class SyncTenantsUtilTests(TestCase):
     """sync_tenants mirrors the live PostgreSQL tenants into the cache table."""
 
-    @patch("tenants.utils.get_tenants")
+    @patch("system.utils.get_tenants")
     def test_inserts_updates_and_removes_rows(self, get_tenants):
         # A stale row that no longer exists in PostgreSQL.
         Tenant.objects.create(name="old", connection_limit=1)
@@ -205,8 +210,8 @@ class TenantAdminTests(TestCase):
         self.admin = admin.site._registry[Tenant]
         self.request = MagicMock()
 
-    @patch("tenants.admin.set_tenant_limits", return_value=True)
-    @patch("tenants.admin.create_tenant", return_value=True)
+    @patch("system.admin.set_tenant_limits", return_value=True)
+    @patch("system.admin.create_tenant", return_value=True)
     def test_save_model_creates_tenant_and_caches_row(self, create, set_limits):
         obj = Tenant(name="acme", display_name="Acme", connection_limit=5)
         form = MagicMock()
@@ -220,8 +225,8 @@ class TenantAdminTests(TestCase):
         # The cache row is written only after the database functions succeed.
         self.assertTrue(Tenant.objects.filter(name="acme").exists())
 
-    @patch("tenants.admin.set_tenant_limits", return_value=True)
-    @patch("tenants.admin.create_tenant", return_value=False)
+    @patch("system.admin.set_tenant_limits", return_value=True)
+    @patch("system.admin.create_tenant", return_value=False)
     def test_save_model_does_not_cache_when_create_fails(self, create, set_limits):
         obj = Tenant(name="acme")
         form = MagicMock()
@@ -232,9 +237,9 @@ class TenantAdminTests(TestCase):
         set_limits.assert_not_called()
         self.assertFalse(Tenant.objects.filter(name="acme").exists())
 
-    @patch("tenants.admin.set_tenant_display_name", return_value=True)
-    @patch("tenants.admin.set_tenant_limits", return_value=True)
-    @patch("tenants.admin.create_tenant", return_value=True)
+    @patch("system.admin.set_tenant_display_name", return_value=True)
+    @patch("system.admin.set_tenant_limits", return_value=True)
+    @patch("system.admin.create_tenant", return_value=True)
     def test_save_model_on_edit_updates_name_and_limits(
         self, create, set_limits, set_name
     ):
@@ -255,14 +260,14 @@ class TenantAdminTests(TestCase):
         set_limits.assert_called_once_with("acme", 10, "0", "0", "0")
         self.assertEqual(Tenant.objects.get(name="acme").connection_limit, 10)
 
-    @patch("tenants.admin.delete_tenant", return_value=True)
+    @patch("system.admin.delete_tenant", return_value=True)
     def test_delete_model_calls_delete_tenant_and_removes_row(self, delete):
         obj = Tenant.objects.create(name="acme")
         self.admin.delete_model(self.request, obj)
         delete.assert_called_once_with("acme")
         self.assertFalse(Tenant.objects.filter(name="acme").exists())
 
-    @patch("tenants.admin.delete_tenant", return_value=False)
+    @patch("system.admin.delete_tenant", return_value=False)
     def test_delete_model_keeps_row_when_delete_fails(self, delete):
         obj = Tenant.objects.create(name="acme")
         self.admin.delete_model(self.request, obj)
@@ -311,20 +316,20 @@ class TenantAdminViewTests(TestCase):
         admin_user = User.objects.create_superuser("admin", "a@example.com", "password")
         self.client.force_login(admin_user)
 
-    @patch("tenants.admin.sync_tenants")
+    @patch("system.admin.sync_tenants")
     def test_changelist_syncs_and_lists_tenants(self, sync):
         # Seeded directly, in place of the sync from PostgreSQL.
         Tenant.objects.create(name="acme")
-        response = self.client.get(reverse("admin:tenants_tenant_changelist"))
+        response = self.client.get(reverse("admin:system_tenant_changelist"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "acme")
         sync.assert_called_once()
 
-    @patch("tenants.admin.set_tenant_limits", return_value=True)
-    @patch("tenants.admin.create_tenant", return_value=True)
+    @patch("system.admin.set_tenant_limits", return_value=True)
+    @patch("system.admin.create_tenant", return_value=True)
     def test_add_view_calls_create_tenant(self, create, set_limits):
         response = self.client.post(
-            reverse("admin:tenants_tenant_add"),
+            reverse("admin:system_tenant_add"),
             {
                 "display_name": "Project A",
                 "password": "supersecret",
@@ -339,13 +344,302 @@ class TenantAdminViewTests(TestCase):
         create.assert_called_once_with("project_a", "supersecret", "Project A")
         self.assertTrue(Tenant.objects.filter(name="project_a").exists())
 
-    @patch("tenants.admin.delete_tenant", return_value=True)
-    @patch("tenants.admin.sync_tenants")
+    @patch("system.admin.delete_tenant", return_value=True)
+    @patch("system.admin.sync_tenants")
     def test_delete_view_calls_delete_tenant(self, sync, delete):
         Tenant.objects.create(name="acme")
         response = self.client.post(
-            reverse("admin:tenants_tenant_delete", args=["acme"]), {"post": "yes"}
+            reverse("admin:system_tenant_delete", args=["acme"]), {"post": "yes"}
         )
         self.assertEqual(response.status_code, 302)
         delete.assert_called_once_with("acme")
         self.assertFalse(Tenant.objects.filter(name="acme").exists())
+
+
+# ---------------------------------------------------------------------------------------
+# The models repository, exercised against a real git binary in a temporary directory.
+#
+# Nothing here stubs git. The whole point is that git decides what a commit is, what a
+# branch reaches and what a checkout leaves behind, so a stubbed one would test the stub.
+# A bare repository in a temporary directory is cheap enough to make that unnecessary.
+# ---------------------------------------------------------------------------------------
+
+SEED_PYPROJECT = '[project]\nname = "sqlmesh-service"\ndependencies = ["sqlmesh"]\n'
+
+
+class RepositoryTestCase(TestCase):
+    """A models volume of this test's own, with the seed the crudman image would carry."""
+
+    def setUp(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+
+        seed = root / "seed"
+        (seed / repo.PROJECT / "models").mkdir(parents=True)
+        (seed / repo.PROJECT / "pyproject.toml").write_text(SEED_PYPROJECT)
+        (seed / repo.PROJECT / "models" / "example.sql").write_text("SELECT 1")
+
+        models = root / "models"
+        models.mkdir()
+
+        self.enterContext(patch.object(repo, "SEED", seed))
+        self.enterContext(patch.object(repo, "MODELS_DIR", models))
+        self.enterContext(patch.object(repo, "ORIGIN", str(models / "origin.git")))
+        self.enterContext(patch.object(repo, "DEPLOYED", models / "deployed"))
+        self.enterContext(patch.object(repo, "WORKSPACES", models / "workspaces"))
+        self.enterContext(patch.object(repo, "MARKER", models / "deployed.sha"))
+
+    def commit(self, message, changes=None):
+        """Add a commit to the origin's branch, the way a developer's push would.
+
+        Args:
+            message: The commit subject.
+            changes: Paths relative to the repository root, mapped to their new contents.
+
+        Returns:
+            The new commit's sha.
+        """
+        work = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, work, True)
+        repo.git("clone", repo.ORIGIN, str(work), cwd=repo.MODELS_DIR)
+
+        for name, content in (changes or {"note.txt": message}).items():
+            path = work / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+
+        repo.git("add", "--all", cwd=work)
+        repo.git(
+            "-c", "user.name=Jean Dupont", "-c", "user.email=jean@example.com",
+            "commit", "--message", message, cwd=work,
+        )
+        repo.git("push", "origin", repo.BRANCH, cwd=work)
+        sha = repo.git("rev-parse", "HEAD", cwd=work)
+        repo.fetch()
+        return sha
+
+
+class SeedingTest(RepositoryTestCase):
+    """What a system with no git host of its own starts life as."""
+
+    def test_the_first_start_creates_and_clones_a_repository(self):
+        repo.ensure()
+
+        self.assertTrue((Path(repo.ORIGIN) / "HEAD").exists())
+        self.assertTrue((repo.DEPLOYED / repo.PROJECT / "models" / "example.sql").exists())
+        self.assertEqual(len(repo.log()), 1)
+
+    def test_the_clone_can_be_developed_without_this_repository(self):
+        repo.ensure()
+
+        # server.env is what makes that true: it carries the address, port, database and
+        # role prefix that sqlmesh/config.py would otherwise read from gefieder's own
+        # env files, which a clone of the models does not have.
+        settings = (repo.DEPLOYED / repo.PROJECT / "server.env").read_text()
+        self.assertIn("SQLMESH_HOST=", settings)
+        self.assertIn("SQLMESH_DATABASE=", settings)
+        self.assertIn("SQLMESH_USER_PREFIX=", settings)
+
+    def test_starting_again_changes_nothing(self):
+        repo.ensure()
+        first = repo.head_of_main()
+        repo.ensure()
+        self.assertEqual(repo.head_of_main(), first)
+
+    def test_a_workspace_directory_is_kept_clear_of_the_deployed_tree(self):
+        repo.ensure()
+        self.assertTrue(repo.WORKSPACES.is_dir())
+        self.assertNotEqual(repo.WORKSPACES, repo.DEPLOYED)
+
+
+class PollTest(RepositoryTestCase):
+    """Deploying what the branch points at, and knowing when not to."""
+
+    def test_the_first_poll_deploys_the_branch(self):
+        deployment = repo.poll()
+
+        self.assertEqual(deployment.sha, repo.head_of_main())
+        self.assertEqual(deployment.status, Deployment.PENDING)
+        self.assertFalse(deployment.pinned)
+        self.assertEqual(repo.MARKER.read_text().strip(), deployment.sha)
+
+    def test_polling_again_deploys_nothing(self):
+        repo.poll()
+        self.assertIsNone(repo.poll())
+        self.assertEqual(Deployment.objects.count(), 1)
+
+    def test_a_push_is_deployed(self):
+        repo.poll()
+        pushed = self.commit("Add a gold model")
+
+        deployment = repo.poll()
+
+        self.assertEqual(deployment.sha, pushed)
+        self.assertEqual(repo.deployed_sha(), pushed)
+
+
+class PinTest(RepositoryTestCase):
+    """A person choosing an older version, and what takes it back."""
+
+    def setUp(self):
+        super().setUp()
+        repo.poll()
+        self.first = repo.deployed_sha()
+        self.second = self.commit("Change a model")
+        repo.poll()
+
+    def test_an_older_version_can_be_put_back(self):
+        repo.deploy(self.first, pinned=True)
+
+        self.assertEqual(repo.deployed_sha(), self.first)
+        self.assertTrue((repo.DEPLOYED / repo.PROJECT / "models" / "example.sql").exists())
+
+    def test_the_poll_leaves_a_pinned_version_alone(self):
+        repo.deploy(self.first, pinned=True)
+
+        self.assertIsNone(repo.poll())
+        self.assertEqual(repo.deployed_sha(), self.first)
+
+    def test_a_push_supersedes_a_pinned_version(self):
+        repo.deploy(self.first, pinned=True)
+        pushed = self.commit("Fix the model properly")
+
+        deployment = repo.poll()
+
+        self.assertEqual(deployment.sha, pushed)
+        self.assertEqual(repo.deployed_sha(), pushed)
+
+
+class DependencyTest(RepositoryTestCase):
+    """A commit the installed engine cannot run is refused rather than checked out."""
+
+    def setUp(self):
+        super().setUp()
+        repo.poll()
+        self.deployed = repo.deployed_sha()
+
+    def test_a_changed_pyproject_is_refused(self):
+        changed = self.commit(
+            "Add a dependency",
+            {f"{repo.PROJECT}/pyproject.toml": SEED_PYPROJECT + 'extra = ["pandas"]\n'},
+        )
+
+        deployment = repo.poll()
+
+        self.assertEqual(deployment.sha, changed)
+        self.assertEqual(deployment.status, Deployment.FAILED)
+        self.assertIn("pyproject.toml", deployment.message)
+        # The refusal is the point: the working tree still holds what was running.
+        self.assertEqual(repo.deployed_sha(), self.deployed)
+
+    def test_a_refusal_is_reported_once(self):
+        self.commit(
+            "Add a dependency",
+            {f"{repo.PROJECT}/pyproject.toml": SEED_PYPROJECT + 'extra = ["pandas"]\n'},
+        )
+        repo.poll()
+
+        self.assertIsNone(repo.poll())
+        self.assertEqual(Deployment.objects.count(), 2)
+
+    def test_a_commit_that_only_changes_models_is_deployed(self):
+        changed = self.commit(
+            "Add a column",
+            {f"{repo.PROJECT}/models/example.sql": "SELECT 1, 2"},
+        )
+
+        deployment = repo.poll()
+
+        self.assertEqual(deployment.status, Deployment.PENDING)
+        self.assertEqual(repo.deployed_sha(), changed)
+
+
+class BranchTest(RepositoryTestCase):
+    """Only history that was pushed to the branch may be deployed."""
+
+    def test_a_commit_on_the_branch_is_accepted(self):
+        repo.poll()
+        self.assertTrue(repo.is_on_branch(repo.head_of_main()))
+
+    def test_an_unknown_commit_is_not(self):
+        repo.poll()
+        self.assertFalse(repo.is_on_branch("0" * 40))
+
+
+class VersionsPageTest(RepositoryTestCase):
+    """Who reaches the page, and who may change what is running.
+
+    It lives in the admin under System rather than beside the documentation, so it is not
+    open from the viewer rank up: every rank is staff, and the rank that may change things
+    is what the page takes.
+    """
+
+    def setUp(self):
+        super().setUp()
+        repo.poll()
+        self.versions = reverse("admin:system_deployment_changelist")
+        self.deploy = reverse("admin:system_deployment_deploy")
+        self.older = repo.deployed_sha()
+        self.commit("A newer model")
+        repo.poll()
+
+    def _user(self, name, rank):
+        user = User.objects.create_user(name, password="x", is_staff=True)
+        group, _ = Group.objects.get_or_create(name=GROUP_FOR_RANK[rank])
+        user.groups.add(group)
+        self.client.force_login(user)
+        return user
+
+    def test_an_anonymous_visitor_is_sent_to_the_login_page(self):
+        response = self.client.get(self.versions)
+        self.assertEqual(response.status_code, 302)
+
+    def test_a_viewer_may_not_reach_it(self):
+        self._user("jean", "viewer")
+
+        self.assertEqual(self.client.get(self.versions).status_code, 403)
+
+    def test_a_viewer_may_not_deploy(self):
+        self._user("jean", "viewer")
+
+        self.client.post(self.deploy, {"sha": self.older})
+
+        self.assertNotEqual(repo.deployed_sha(), self.older)
+
+    def test_an_editor_sees_the_history_and_may_put_a_version_back(self):
+        self._user("paul", "editor")
+
+        page = self.client.get(self.versions).content.decode()
+        self.assertIn("A newer model", page)
+        self.assertIn("Use this version", page)
+
+        self.client.post(self.deploy, {"sha": self.older})
+
+        self.assertEqual(repo.deployed_sha(), self.older)
+        self.assertTrue(Deployment.objects.first().pinned)
+
+    def test_a_commit_that_is_not_on_the_branch_is_refused(self):
+        self._user("paul", "editor")
+        deployed = repo.deployed_sha()
+
+        self.client.post(self.deploy, {"sha": "0" * 40})
+
+        self.assertEqual(repo.deployed_sha(), deployed)
+
+
+class LostOriginTest(RepositoryTestCase):
+    """A repository that has gone missing is reported, never quietly recreated."""
+
+    def test_the_history_is_not_replaced_by_the_shipped_models(self):
+        repo.poll()
+        deployed = repo.deployed_sha()
+        self.commit("Something worth keeping")
+        repo.poll()
+        shutil.rmtree(repo.ORIGIN)
+
+        with self.assertRaises(repo.GitError):
+            repo.poll()
+
+        # Seeding again would have made this a one-commit repository of examples.
+        self.assertNotEqual(repo.deployed_sha(), deployed)
+        self.assertEqual(repo.MARKER.read_text().strip(), repo.deployed_sha())

@@ -40,10 +40,10 @@ def main() -> int:
     with connection, connection.cursor() as cursor:
         cursor.execute(
             """
-            UPDATE crudman.repository_deployment
+            UPDATE crudman.system_deployment
                SET status = %s, message = %s, docs = %s::jsonb, applied_on = now()
              WHERE id = (
-                     SELECT id FROM crudman.repository_deployment
+                     SELECT id FROM crudman.system_deployment
                       WHERE sha = %s AND status = 'pending'
                       ORDER BY created_on DESC LIMIT 1
                    )
