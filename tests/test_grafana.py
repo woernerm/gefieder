@@ -73,6 +73,11 @@ def home_uid(grafana_api):
     answers with where to send the browser, ``{"redirectUri": "/d/<uid>/<slug>"}``. Both
     shapes are read here, so this says which dashboard is the home page rather than which
     Grafana version is installed.
+
+    The uid is Grafana's own, not the one in the file: a dashboard loaded through
+    default_home_dashboard_path is served as "default-home-dashboard" whatever it calls
+    itself. So it identifies the home page and says nothing about whose it is, which is
+    what the content below is for.
     """
     resp = grafana_api.get("/api/dashboards/home")
     assert resp.status_code == 200, f"home dashboard failed: {resp.status_code}"
@@ -108,9 +113,25 @@ class TestHomeDashboard:
     path is not an error: Grafana quietly falls back to the built-in page.
     """
 
-    def test_the_home_dashboard_shall_be_the_provisioned_one(self, home_uid):
-        assert home_uid == f"{APP_NAME}-home", (
-            f"the home page is {home_uid!r}, not the provisioned one; "
+    def test_the_home_dashboard_shall_be_the_provisioned_one(self, grafana_api, cards):
+        """The page Grafana serves has to be the one this image ships.
+
+        Compared by content rather than by uid, Grafana renaming the file it loads. The
+        same JSON is also provisioned as an ordinary dashboard, so it is here to compare
+        against: if default_home_dashboard_path had not taken, the home page would be
+        Grafana's built-in one and the two would differ.
+        """
+        resp = grafana_api.get(f"/api/dashboards/uid/{APP_NAME}-home")
+        assert resp.status_code == 200, (
+            f"{APP_NAME}-home is not provisioned, so there is nothing to compare against"
+        )
+        provisioned = "".join(
+            panel.get("options", {}).get("content", "")
+            for panel in resp.json()["dashboard"].get("panels", [])
+        )
+
+        assert cards == provisioned, (
+            "the home page is not the dashboard this image ships; "
             "default_home_dashboard_path in custom.ini did not take"
         )
 
