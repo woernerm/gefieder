@@ -716,6 +716,16 @@ class VersionsPageTest(RepositoryTestCase):
         self.assertNotIn('aria-label="Applying"', page)
         self.assertNotIn('http-equiv="refresh"', page)
 
+    def test_the_newest_commit_is_marked_as_both_latest_and_deployed(self):
+        self._user("paul", "editor")
+
+        page = self.client.get(self.versions).content.decode()
+
+        # The two say different things -- where the branch points, and what production is
+        # doing -- and the newest commit is usually both.
+        self.assertIn("Latest", page)
+        self.assertIn(Deployment.objects.first().get_status_display(), page)
+
     def test_a_failed_deployment_says_why(self):
         self._user("paul", "editor")
         Deployment.objects.update(status=Deployment.FAILED, message="the plan did not run")

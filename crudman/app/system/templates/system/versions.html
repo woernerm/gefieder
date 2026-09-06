@@ -56,12 +56,17 @@
                     <tr class="border-b border-base-100 last:border-0 dark:border-base-900">
                         <td class="px-4 py-3 whitespace-nowrap">
                             <code>{{ commit.short_sha }}</code>
+                            {# Two independent facts about one commit: what production is #}
+                            {# doing with it, and whether the branch points at it. They #}
+                            {# coincide on an ordinary day, which is when a chain of #}
+                            {# elif would have hidden the second. #}
                             {% if commit.sha == current_sha %}
                                 <span class="bg-primary-600 gap-1 inline-flex items-center ml-1 px-2 py-0.5 rounded-full text-white text-xs">
                                     {% if current.is_applying %}{% include "system/applying.html" %}{% endif %}
                                     {{ current.get_status_display }}
                                 </span>
-                            {% elif forloop.first %}
+                            {% endif %}
+                            {% if forloop.first %}
                                 <span class="border border-base-300 ml-1 px-2 py-0.5 rounded-full text-xs dark:border-base-700">
                                     Latest
                                 </span>
