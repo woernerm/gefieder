@@ -10,8 +10,8 @@
 -- rights too. NOINHERIT is deliberately not set: a member gets the rights by connecting.
 --
 -- A fourth role, <prefix>person, grants nothing: it is the marker create_db_user puts on
--- every account it provisions, and the only thing that tells a personal role from a tenant
--- or a service role. See is_db_user in gf_0003.
+-- every account it provisions, and the only thing that tells a personal role from a service
+-- role. See is_db_user in gf_0003.
 
 -- CREATE ROLE has no IF NOT EXISTS, and these scripts re-run on every start. The rights
 -- below are re-granted either way, which is what lets a re-run repair a tampered grant.

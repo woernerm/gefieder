@@ -11,15 +11,15 @@ The expected permission matrix (from postgresql/initdb) is:
   grafana  | read model tables only    | read-only         | no access**    | read-only
            | (not auth_/django_ ones)  |                   |                |
 
-  ** grafana sees only the schemas it should chart: bronze_<tenant>, silver and gold (and
+  ** grafana sees only the schemas it should chart: bronze_<project>, silver and gold (and
      the crudman model tables). It must NOT see sqlmesh's internals — the state schema
-     (sqlmesh), the per-tenant staging schema (silver_staging) or the physical schemas
+     (sqlmesh), the per-project staging schema (silver_staging) or the physical schemas
      behind the virtual layer (sqlmesh__*) — which hold churning, versioned objects. The
-     CREATE SCHEMA event trigger therefore grants grafana read only on bronze_<tenant>
+     CREATE SCHEMA event trigger therefore grants grafana read only on bronze_<project>
      schemas; silver and gold are granted explicitly in initdb.
 
-  * bronze schemas are created per tenant by create_tenant(); a fresh stack has none, so
-    the bronze visibility checks below create a throwaway bronze_<tenant> schema directly.
+  * a bronze schema is created by SQLMesh when a model first names one, so a fresh stack
+    has none and the bronze visibility checks below create a throwaway one directly.
 
 A representative table is seeded into each schema, so the assertions hold regardless of
 what the running apps have created.
@@ -41,7 +41,7 @@ from conftest import (
 # Tables the seed fixture creates, addressed per schema.
 CRUDMAN_MODEL = "crudman.example_team"        # a non-Django model table
 CRUDMAN_DJANGO = "crudman.auth_user"          # a Django-internal table (created by migrations)
-# A throwaway schema that looks like a tenant's, to watch the event trigger fire.
+# A throwaway schema that looks like a project's, to watch the event trigger fire.
 BRONZE_PROBE = f"{BRONZE_SCHEMA_PREFIX}probe"
 SILVER_TABLE = f"{SILVER_SCHEMA}.example_metric"
 GOLD_TABLE = f"{GOLD_SCHEMA}.example_metric"
@@ -153,7 +153,7 @@ class TestGrafanaUser:
 
     def test_grafana_shall_gain_read_access_to_new_bronze_schemas(self, admin_db, grafana_db):
         # The event trigger grants grafana USAGE on a bronze schema as it is created,
-        # which is how a newly onboarded tenant becomes visible in Grafana.
+        # which is how a newly added project becomes visible in Grafana.
         with admin_db.cursor() as cur:
             cur.execute(
                 f"CREATE SCHEMA IF NOT EXISTS {BRONZE_PROBE} AUTHORIZATION {SQLMESH_DB_USER}"
@@ -170,7 +170,7 @@ class TestGrafanaUser:
                 cur.execute(f"DROP SCHEMA {BRONZE_PROBE} CASCADE")
 
     def test_grafana_shall_not_gain_access_to_non_bronze_schemas(self, admin_db, grafana_db):
-        # The trigger grants only the bronze_<tenant> schemas.
+        # The trigger grants only the bronze_<project> schemas.
         with admin_db.cursor() as cur:
             cur.execute(
                 f"CREATE SCHEMA IF NOT EXISTS test_probe AUTHORIZATION {SQLMESH_DB_USER}"

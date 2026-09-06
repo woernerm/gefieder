@@ -1,5 +1,5 @@
 -- Project B's issue history: one row per change of an issue, the shape
--- bronze_project_a.issue_history carries under this tenant's own column names --
+-- bronze_project_a.issue_history carries under this project's own column names --
 -- GitHub-flavoured, an issue being a number and an "area" label standing in for the
 -- component.
 --

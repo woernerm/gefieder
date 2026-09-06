@@ -75,7 +75,7 @@ handoff between the two containers is a path and a marker, not an API.
 | `sqlmesh/status.py` | raw SQL against `crudman.system_deployment`, Django being absent from that image: a renamed field is a renamed column here |
 | `crudman/app/docs/views.py` | the docs pages read the export out of the deployment row rather than a file, so the export's shape is a contract between `docs_export.py` and these pages |
 | `tests/test_models_repository.py` | the end-to-end path — push, poll, plan, document — and the refusal that protects a running engine |
-| `SEED_PROJECTS` in `crudman/app/system/repo.py` | the seed becomes one commit per example tenant, and a file belongs to a tenant by having the name in its path. Renaming or adding an example means this list; `tests/test_models_repository.py` carries a second copy for its parameterized version tests and guards the two against drifting |
+| `SEED_PROJECTS` in `crudman/app/system/repo.py` | the seed becomes one commit per example project, and a file belongs to a project by having the name in its path. Renaming or adding an example means this list; `tests/test_models_repository.py` carries a second copy for its parameterized version tests and guards the two against drifting |
 
 `REPO_MODELS` is a **build-time setting**, so that table applies too. `MODELS_POLL_INTERVAL`
 is a **runtime setting**, so that one does.
@@ -146,7 +146,7 @@ The silver staging layer is not among them — nothing outside the SQLMesh model
 `tests/conftest.py` derives it from `SILVER_SCHEMA`. So a role or
 schema name is written once there and never spelled out again — in the quadlet that connects
 as it (`POSTGRES_USER=`), the Grafana data source, the `dbusers` role
-derivation, `system/utils.py`'s tenant discovery, `sqlmesh/config.py`, or the tests. A schema, a container and a
+derivation, `sqlmesh/config.py`, or the tests. A schema, a container and a
 podman secret keep the component's name instead, so `SECRET_CRUDMAN_PASSWORD` does not move
 when `CRUDMAN_DB_USER` does. `tests/test_render_templates.py` guards both allowlists: an
 unlisted `${TOKEN}` renders as literal text rather than failing.

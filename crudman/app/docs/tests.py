@@ -19,7 +19,7 @@ def _model(name, layer, **overrides):
     carries and no test varies, so they sit here once rather than in every fixture.
     """
     return {
-        "name": name, "layer": layer, "tenant": None, "description": "",
+        "name": name, "layer": layer, "project": None, "description": "",
         "kind": "VIEW", "cron": "@daily", "owner": None, "stamp": None,
         "tags": [], "grains": [], "references": [], "audits": [],
         "depends_on": [], "columns": [], "sql": "SELECT 1",
@@ -35,7 +35,7 @@ DOCS = {
                 _model(
                     "bronze_project_a.issues",
                     "bronze",
-                    tenant="project_a",
+                    project="project_a",
                     description="Project A's raw issues.",
                     columns=[
                         {"name": "issue_key", "type": "TEXT", "description": "The key."}

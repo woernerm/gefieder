@@ -1,9 +1,9 @@
 -- The name check every function below starts with.
 --
--- Each takes a role or schema name from crudman and interpolates it with format()'s %I, so
--- a name that is not a plain identifier is a caller bug rather than an injection risk --
--- but seven copies of the same checks drifted apart. `label` names the offending
--- parameter, keeping the messages the callers already raise.
+-- Each takes a role name from crudman and interpolates it with format()'s %I, so a name
+-- that is not a plain identifier is a caller bug rather than an injection risk. Shared so
+-- the checks cannot drift apart; `label` names the offending parameter, keeping the
+-- messages the callers already raise.
 --
 -- Called schema-qualified because most callers pin search_path to pg_catalog alone, which
 -- cannot resolve a function in public.
@@ -33,7 +33,7 @@ BEGIN
 END;
 $$;
 
--- Function tenants can call to toggle duckdb.force_execution
+-- Function a session can call to toggle duckdb.force_execution
 CREATE OR REPLACE FUNCTION use_duckdb(enable boolean)
 RETURNS void
 LANGUAGE plpgsql
@@ -48,295 +48,6 @@ BEGIN
     ELSE
         PERFORM set_config('duckdb.force_execution', 'false', false);
     END IF;
-END;
-$$;
-
--- Main onboarding function
-CREATE OR REPLACE FUNCTION create_tenant(
-    tenant_name text,
-    tenant_password text,
-    -- Shown in the admin, and stored as a COMMENT on the bronze schema so the catalog
-    -- carries it too. Defaults to the slug, so a caller that supplies none still has a
-    -- name.
-    tenant_display_name text DEFAULT NULL
-)
-RETURNS void
-LANGUAGE plpgsql
--- SECURITY DEFINER so the unprivileged crudman role can onboard tenants: the function
--- runs with its superuser owner's CREATEROLE. search_path is pinned to pg_catalog against
--- shadowing, every identifier going through format()'s %I/%L; public is on it only so the
--- GRANT EXECUTE ON FUNCTION use_duckdb(...) below resolves.
-SECURITY DEFINER
-SET search_path = pg_catalog, public
-AS $$
-DECLARE
-    schema_name text := '${BRONZE_SCHEMA_PREFIX}' || tenant_name;
-BEGIN
-    PERFORM public.validate_identifier(tenant_name, 'tenant_name');
-
-    -- The reverse of create_db_user's check: a person's login role must not become a
-    -- tenant, the branch below ALTERing an existing role's password.
-    IF is_db_user(tenant_name) THEN
-        RAISE EXCEPTION 'refusing to use %, which is a provisioned user role', tenant_name;
-    END IF;
-
-    -- Check tenant_password is not empty
-    IF tenant_password IS NULL OR tenant_password = '' THEN
-        RAISE EXCEPTION 'tenant_password cannot be empty';
-    END IF;
-
-    -- Check tenant_password minimum length
-    IF length(tenant_password) < 8 THEN
-        RAISE EXCEPTION 'tenant_password must be at least 8 characters long';
-    END IF;
-
-    --------------------------------------------------------------------
-    -- Create tenant role if missing
-    --------------------------------------------------------------------
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_roles WHERE rolname = tenant_name
-    ) THEN
-        EXECUTE format(
-            'CREATE ROLE %I LOGIN PASSWORD %L',
-            tenant_name,
-            tenant_password
-        );
-    ELSE
-        -- If role exists, update password
-        EXECUTE format(
-            'ALTER ROLE %I WITH PASSWORD %L',
-            tenant_name,
-            tenant_password
-        );
-    END IF;
-
-    --------------------------------------------------------------------
-    -- Ensure tenant_id is always set on login
-    --------------------------------------------------------------------
-    EXECUTE format(
-        'ALTER ROLE %I SET app.tenant_id = %L',
-        tenant_name,
-        tenant_name
-    );
-
-    --------------------------------------------------------------------
-    -- Allow tenant to toggle DuckDB execution mode via secure function
-    --------------------------------------------------------------------
-    EXECUTE format(
-        'GRANT EXECUTE ON FUNCTION use_duckdb(boolean) TO %I',
-        tenant_name
-    );
-
-    --------------------------------------------------------------------
-    -- Create bronze schema
-    --------------------------------------------------------------------
-    EXECUTE format(
-        'CREATE SCHEMA IF NOT EXISTS %I AUTHORIZATION %I',
-        schema_name,
-        tenant_name
-    );
-
-    --------------------------------------------------------------------
-    -- The human-readable name on the schema, falling back to the slug so get_tenants
-    -- always reads one.
-    --------------------------------------------------------------------
-    EXECUTE format(
-        'COMMENT ON SCHEMA %I IS %L',
-        schema_name,
-        coalesce(nullif(tenant_display_name, ''), tenant_name)
-    );
-
-    --------------------------------------------------------------------
-    -- Grant privileges inside bronze schema
-    --------------------------------------------------------------------
-    EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I', schema_name, tenant_name);
-    EXECUTE format('GRANT CREATE ON SCHEMA %I TO %I', schema_name, tenant_name);
-
-    -- Default privileges for future tables
-    EXECUTE format(
-        'ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I',
-        schema_name,
-        tenant_name
-    );
-
-    EXECUTE format(
-        'ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT ALL ON SEQUENCES TO %I',
-        schema_name,
-        tenant_name
-    );
-
-    --------------------------------------------------------------------
-    -- sqlmesh reads and writes the bronze schema and creates its own objects there.
-    -- FOR ROLE tenant, because the tenant is what creates the tables.
-    --------------------------------------------------------------------
-    EXECUTE format('GRANT USAGE, CREATE ON SCHEMA %I TO ${SQLMESH_DB_USER}', schema_name);
-    EXECUTE format(
-        'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO ${SQLMESH_DB_USER}',
-        schema_name
-    );
-    EXECUTE format(
-        'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${SQLMESH_DB_USER}',
-        tenant_name,
-        schema_name
-    );
-
-    RAISE NOTICE 'Tenant % created with schema %', tenant_name, schema_name;
-END;
-$$;
-
--- Update a tenant's human-readable name, the comment on its bronze schema. create_tenant
--- sets it on onboarding; this keeps it in sync afterwards.
-CREATE OR REPLACE FUNCTION set_tenant_display_name(
-    tenant_name text,
-    tenant_display_name text
-)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = pg_catalog
-AS $$
-DECLARE
-    schema_name text := '${BRONZE_SCHEMA_PREFIX}' || tenant_name;
-BEGIN
-    PERFORM public.validate_identifier(tenant_name, 'tenant_name');
-
-    EXECUTE format(
-        'COMMENT ON SCHEMA %I IS %L',
-        schema_name,
-        coalesce(nullif(tenant_display_name, ''), tenant_name)
-    );
-END;
-$$;
-
--- Tenant deletion function
-CREATE OR REPLACE FUNCTION delete_tenant(tenant_name text)
-RETURNS void
-LANGUAGE plpgsql
--- SECURITY DEFINER so crudman can offboard tenants: dropping the role needs the
--- CREATEROLE its superuser owner has.
-SECURITY DEFINER
-SET search_path = pg_catalog
-AS $$
-DECLARE
-    schema_bronze text := '${BRONZE_SCHEMA_PREFIX}' || tenant_name;
-BEGIN
-    PERFORM public.validate_identifier(tenant_name, 'tenant_name');
-
-    --------------------------------------------------------------------
-    -- DROP ROLE refuses to run while any object still depends on the role, and
-    -- create_tenant leaves grants behind. DROP OWNED BY clears those and drops what the
-    -- role owns, the bronze schema included; without it the role drop aborts and, the
-    -- function being atomic, takes the schema drop with it. Skipped when the role is
-    -- already gone, since DROP OWNED BY errors then.
-    --------------------------------------------------------------------
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = tenant_name) THEN
-        EXECUTE format('DROP OWNED BY %I CASCADE', tenant_name);
-    END IF;
-
-    -- For a role removed earlier whose schema lingers; DROP OWNED BY covers the rest.
-    EXECUTE format('DROP SCHEMA IF EXISTS %I CASCADE', schema_bronze);
-
-    RAISE NOTICE 'Deleted schema % for tenant %', schema_bronze, tenant_name;
-
-    --------------------------------------------------------------------
-    -- Delete tenant role
-    --------------------------------------------------------------------
-    EXECUTE format(
-        'DROP ROLE IF EXISTS %I',
-        tenant_name
-    );
-
-    RAISE NOTICE 'Tenant % and all associated data deleted', tenant_name;
-END;
-$$;
-
--- Set resource limits for a tenant
-CREATE OR REPLACE FUNCTION set_tenant_limits(
-    tenant_name text,
-    connection_limit int DEFAULT 5,
-    statement_timeout text DEFAULT '5min',
-    work_mem text DEFAULT '256MB',
-    temp_file_limit text DEFAULT '1GB'
-)
-RETURNS void
-LANGUAGE plpgsql
--- SECURITY DEFINER so crudman can apply a tenant's limits: ALTER ROLE needs the
--- CREATEROLE its superuser owner has.
-SECURITY DEFINER
-SET search_path = pg_catalog
-AS $$
-BEGIN
-    PERFORM public.validate_identifier(tenant_name, 'tenant_name');
-
-    -- Check role exists
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = tenant_name) THEN
-        RAISE EXCEPTION 'Tenant role % does not exist', tenant_name;
-    END IF;
-
-    -- "No limit" sentinels as stored and displayed elsewhere: -1 for the connection
-    -- count, '0' for the size and time limits. A sentinel RESETs the override, so the
-    -- tenant falls back to the server default; only real values are format-validated.
-
-    -- Validate connection_limit (-1 means unlimited)
-    IF connection_limit < -1 THEN
-        RAISE EXCEPTION 'connection_limit must be >= -1 (unlimited)';
-    END IF;
-
-    -- Validate timeout and memory values, skipping the '0' = unlimited sentinel.
-    IF statement_timeout <> '0'
-       AND statement_timeout !~ '^\d+[smh]$' AND statement_timeout !~ '^\d+$' THEN
-        RAISE EXCEPTION 'statement_timeout must be in format like 5min, 10s, 1h';
-    END IF;
-
-    IF work_mem <> '0' AND work_mem !~ '^\d+[kMG]B?$' THEN
-        RAISE EXCEPTION 'work_mem must be in format like 256MB, 1GB';
-    END IF;
-
-    IF temp_file_limit <> '0' AND temp_file_limit !~ '^\d+[kMG]B?$' THEN
-        RAISE EXCEPTION 'temp_file_limit must be in format like 1GB';
-    END IF;
-
-    --------------------------------------------------------------------
-    -- Apply connection limit (-1 = unlimited is a valid CONNECTION LIMIT value)
-    --------------------------------------------------------------------
-    EXECUTE format(
-        'ALTER ROLE %I CONNECTION LIMIT %s',
-        tenant_name,
-        connection_limit
-    );
-
-    --------------------------------------------------------------------
-    -- RESET to the server default on the '0' sentinel: PostgreSQL has no literal
-    -- "unlimited" for these.
-    --------------------------------------------------------------------
-    IF statement_timeout = '0' THEN
-        EXECUTE format('ALTER ROLE %I RESET statement_timeout', tenant_name);
-    ELSE
-        EXECUTE format(
-            'ALTER ROLE %I SET statement_timeout = %L', tenant_name, statement_timeout
-        );
-    END IF;
-
-    IF work_mem = '0' THEN
-        EXECUTE format('ALTER ROLE %I RESET work_mem', tenant_name);
-    ELSE
-        EXECUTE format('ALTER ROLE %I SET work_mem = %L', tenant_name, work_mem);
-    END IF;
-
-    IF temp_file_limit = '0' THEN
-        EXECUTE format('ALTER ROLE %I RESET temp_file_limit', tenant_name);
-    ELSE
-        EXECUTE format(
-            'ALTER ROLE %I SET temp_file_limit = %L', tenant_name, temp_file_limit
-        );
-    END IF;
-
-    RAISE NOTICE 'Resource limits set for tenant %: connections=%, timeout=%, work_mem=%, temp_file_limit=%',
-        tenant_name,
-        CASE WHEN connection_limit = -1 THEN 'unlimited' ELSE connection_limit::text END,
-        statement_timeout,
-        work_mem,
-        temp_file_limit;
 END;
 $$;
 
@@ -367,10 +78,10 @@ $$;
 -- Whether a role is one crudman provisioned for a person.
 --
 -- Membership of the ${ROLE_PREFIX}person marker gf_0008 creates, which create_db_user
--- grants and nothing revokes. A recorded fact rather than a name pattern: personal roles
--- share their namespace with the tenants, so DB_USER_PREFIX is readability, not a
--- boundary. Not the rank membership, which delete_db_user strips to lock someone out
--- while a disabled account still has to be droppable.
+-- grants and nothing revokes. A recorded fact rather than a name pattern: a personal role
+-- shares its namespace with every other role in the cluster, so DB_USER_PREFIX is
+-- readability, not a boundary. Not the rank membership, which delete_db_user strips to
+-- lock someone out while a disabled account still has to be droppable.
 --
 -- pg_auth_members rather than pg_has_role, which is transitive and true of every
 -- superuser.
@@ -424,8 +135,8 @@ BEGIN
     END IF;
 
     -- The name may be free or already ours, nothing else: the branch below ALTERs an
-    -- existing role, which for a tenant would reset its password and hand the person its
-    -- bronze schema. Only the marker tells the two apart.
+    -- existing role, which for an unrelated role would reset its password and hand it to
+    -- the person. Only the marker tells the two apart.
     IF public.is_protected_role(user_name) THEN
         RAISE EXCEPTION 'refusing to modify the service role %', user_name;
     END IF;
@@ -564,8 +275,7 @@ $$;
 -- so their objects keep an owner.
 --
 -- DROP ROLE is refused while anything still depends on the role, so its grants and owned
--- objects are cleared first, as delete_tenant does. This therefore destroys the tables
--- the person owned.
+-- objects are cleared first. This therefore destroys the tables the person owned.
 CREATE OR REPLACE FUNCTION drop_db_user(user_name text)
 RETURNS void
 LANGUAGE plpgsql
@@ -580,8 +290,8 @@ BEGIN
     END IF;
 
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = user_name) THEN
-        -- Otherwise a caller passing the wrong name would drop a tenant role, and its
-        -- bronze schema with it.
+        -- Otherwise a caller passing the wrong name would drop an unrelated role, and
+        -- whatever it owns with it.
         IF NOT is_db_user(user_name) THEN
             RAISE EXCEPTION 'refusing to drop %, which is not a provisioned user role', user_name;
         END IF;

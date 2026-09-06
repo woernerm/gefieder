@@ -21,7 +21,7 @@ from conftest import podman
 # hashes the staticfiles/ name, so only this path is stable.
 BUNDLE = "/crudman/app/docs/static/docs/echarts.min.js"
 
-# The shape of a real lineage: two tenants' bronze models feeding one silver model, which
+# The shape of a real lineage: two projects' bronze models feeding one silver model, which
 # feeds gold. Several parents is why the graph is a sankey; three columns is what makes a
 # dropped layer visible.
 MODELS = [

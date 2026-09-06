@@ -40,8 +40,8 @@ MANAGED_APPS = ("system", "dropzones")
 
 Not django.contrib.auth: "add_user" would let an editor grant themselves anything.
 
-"system" carries both the tenants and the deployed model version, so administering the
-system is an editor's to do -- the same line the rest of this project draws.
+"system" carries the deployed model version, so administering the system is an editor's
+to do -- the same line the rest of this project draws.
 """
 
 GROUP_ACTIONS = {

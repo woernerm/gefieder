@@ -35,10 +35,9 @@ Environment=DB_USER_PREFIX=${DB_USER_PREFIX}
 # The engine's role, which the models migration grants the one table it has to write: the
 # deployment row it closes once it has planned a commit.
 Environment=SQLMESH_DB_USER=${SQLMESH_DB_USER}
-# The prefix on the rank names, and the one on the per-tenant bronze schemas the admin
-# finds tenants by. Only this container signs anyone in or onboards a tenant.
+# The prefix on the rank names. Only this container signs anyone in or provisions an
+# account.
 Environment=ROLE_PREFIX=${ROLE_PREFIX}
-Environment=BRONZE_SCHEMA_PREFIX=${BRONZE_SCHEMA_PREFIX}
 # Shared read-only with sqlmesh at the same path, so the paths stored in the database
 # resolve there too.
 Environment=UPLOADS_DIR=/var/lib/app/uploads

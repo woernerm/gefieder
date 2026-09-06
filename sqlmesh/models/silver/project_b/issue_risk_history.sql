@@ -10,7 +10,7 @@
 -- The storage is PostgreSQL either way: the gateway attaches this database as its only
 -- catalog, so the silver union cannot tell which engine produced which half.
 --
--- The status mapping stays one-to-one for the reason project_a's does; this tenant's tool
+-- The status mapping stays one-to-one for the reason project_a's does; this project's tool
 -- never reports in_progress.
 MODEL (
   name silver_staging.issue_risk_history__project_b,

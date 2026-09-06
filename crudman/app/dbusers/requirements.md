@@ -45,7 +45,8 @@ PostgreSQL bridge and the login-time reconciliation.
 - Provision a login role per Django user, named `<prefix><slug>` from their username, with
   privileges from exactly one group role. The prefix is `DB_USER_PREFIX` in `buildtime.env`
   (`gf_` by default) and may be empty: an account is recognised by the marker role
-  `create_db_user` grants it, never by its name, so it cannot be confused with a tenant.
+  `create_db_user` grants it, never by its name, so it cannot be confused with a role
+  somebody else made.
 - Derive the rank from the single sign-on groups in `sso/roles.py`, so the identity provider
   stays the source of truth for who may do what. A group role and the Django group that
   earns it are one name, both `ROLE_PREFIX` in front of a rank, so neither set is
@@ -68,9 +69,8 @@ PostgreSQL bridge and the login-time reconciliation.
   `CRUDMAN_DB_USER`, `SQLMESH_DB_USER` and `GRAFANA_DB_USER` — which the
   `is_protected_role` database function derives rather than lists, because the
   superuser's name is configurable (`SUPERUSER_NAME`, `admin` by default). And refuse to
-  drop anything that is not a `<prefix>` account, the group roles excepted — a tenant
-  role owns a bronze schema, and dropping one by mistake would take a tenant's data with
-  it.
+  drop anything that is not a `<prefix>` account, the group roles excepted — a role may
+  own tables, and dropping one by mistake would take its data with it.
 
 ## What it deliberately does not do
 

@@ -2,8 +2,8 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-Gefieder is a multi-tenant data analytics platform for engineering teams, built on
-PostgreSQL, DuckDB, SQLMesh and Django (with the Unfold admin interface).
+Gefieder is a data analytics platform for engineering teams, built on PostgreSQL, DuckDB,
+SQLMesh and Django (with the Unfold admin interface).
 
 It runs as a small pod of containers managed by podman. Once it is up you get two web
 interfaces:
@@ -516,12 +516,12 @@ writing your own.
 
 ## Writing analytics models
 This walks you through changing a model and getting it into production. It follows the
-example tenants that ship with the system, so you can do every step on a fresh
+example projects that ship with the system, so you can do every step on a fresh
 installation before writing anything of your own.
 
 The models live in a git repository of their own, separate from the system that runs
-them. Inside it, `sqlmesh/models/bronze/` holds one folder per tenant,
-`sqlmesh/models/silver/` the per-tenant transforms and the harmonized `silver.issues`, and
+them. Inside it, `sqlmesh/models/bronze/` holds one folder per project,
+`sqlmesh/models/silver/` the per-project transforms and the harmonized `silver.issues`, and
 `sqlmesh/models/gold/` the precomputed metrics. The example data comes from the CSVs in
 `sqlmesh/seeds/`, so the pipeline runs without any external tooling.
 
@@ -632,7 +632,7 @@ MODEL (
 
 For anything else, write a query that selects the rows that should not exist. Gefieder
 ships one: `sqlmesh/audits/assert_known_tenant.sql` returns any row missing `tenant_id`
-or `issue_id`, and every per-tenant staging model references it, so a transform that
+or `issue_id`, and every per-project staging model references it, so a transform that
 forgets the canonical key columns fails the plan instead of quietly polluting
 `silver.issues`. Audits block by default — the run stops rather than passing bad data on.
 

@@ -1,12 +1,12 @@
-# Bronze for the "Project C" tenant, the worked example of SQLMesh's Python model path
+# Bronze for Project C, the worked example of SQLMesh's Python model path
 # (https://sqlmesh.readthedocs.io/en/latest/concepts/models/python_models/). Project A
 # and Project B keep bronze as a raw SEED passthrough and transform later in SQL; here
 # the bronze -> canonical transform is polars, and silver only unions the result.
 #
-# The raw columns ("ticket", "headline", "phase", ...) are this tenant's own flavour,
-# which is why every tenant decodes its raw data separately.
+# The raw columns ("ticket", "headline", "phase", ...) are this project's own flavour,
+# which is why every project decodes its raw data separately.
 #
-# The output column list IS the harmonization contract: it must match the other tenants'
+# The output column list IS the harmonization contract: it must match the other projects'
 # silver staging models and the silver.issues union exactly.
 from pathlib import Path
 
@@ -38,9 +38,9 @@ def execute(
     # globals into its state, where a Path is not serializable.
     seed_path = Path(__file__).resolve().parents[3] / "seeds" / "project_c_issues.csv"
 
-    # This tenant's phase vocabulary maps onto the canonical open/closed states and its
-    # "weight" field carries the effort estimate -- the per-tenant quirks the SQL tenants
-    # resolve in their staging models, as polars operations.
+    # This project's phase vocabulary maps onto the canonical open/closed states and its
+    # "weight" field carries the effort estimate -- the per-project quirks the SQL
+    # projects resolve in their staging models, as polars operations.
     harmonized = pl.read_csv(seed_path).select(
         pl.lit("project_c").alias("tenant_id"),
         pl.col("ticket").alias("issue_id"),

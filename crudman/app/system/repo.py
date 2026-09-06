@@ -50,14 +50,14 @@ SEED = Path(os.environ.get("MODELS_SEED", "/seed"))
 """What a repository this system creates starts life as, baked into the crudman image."""
 
 SEED_PROJECTS = ("project_a", "project_b", "project_c")
-"""The example tenants the seed ships, in the order the first commits add them.
+"""The example projects the seed ships, in the order the first commits add them.
 
-The seed becomes one commit per tenant rather than one commit for everything, so a fresh
+The seed becomes one commit per project rather than one commit for everything, so a fresh
 installation has versions to move between and the page has something to demonstrate. Each
-adds a tenant to a system that already computes, which is also the change a real one makes
+adds a project to a system that already computes, which is also the change a real one makes
 most often.
 
-Named here rather than discovered, because a file belongs to a tenant by having the name
+Named here rather than discovered, because a file belongs to a project by having the name
 in its path and nothing else says so. Editing the shipped examples means editing this line.
 """
 
@@ -126,19 +126,19 @@ def clone_url() -> str | None:
 
 
 def _narrow_unions(work: Path, projects: list[str]) -> None:
-    """Leave the harmonizing models unioning only the tenants that are present.
+    """Leave the harmonizing models unioning only the projects that are present.
 
-    A silver model directly under ``models/silver/`` stacks one branch per tenant, and a
-    branch reading a tenant that has not been added yet would fail to parse. So the earlier
+    A silver model directly under ``models/silver/`` stacks one branch per project, and a
+    branch reading a project that has not been added yet would fail to parse. So the earlier
     commits get the same file with the later branches taken out, which is exactly the diff
-    adding a tenant produces in the other direction.
+    adding a project produces in the other direction.
 
     Rewritten rather than shipped as variants: the branches are generated from the file the
     project actually runs, so editing that file cannot leave a stale copy behind.
 
     Args:
         work: The working tree being built.
-        projects: The tenants this commit has.
+        projects: The projects this commit has.
     """
     absent = [project for project in SEED_PROJECTS if project not in projects]
     if not absent:
@@ -160,11 +160,11 @@ def _narrow_unions(work: Path, projects: list[str]) -> None:
 
 
 def _write_seed(work: Path, projects: list[str]) -> None:
-    """Fill the working tree with the seed, holding only the given example tenants.
+    """Fill the working tree with the seed, holding only the given example projects.
 
     Args:
         work: The working tree, whose .git directory is left alone.
-        projects: The tenants this commit has.
+        projects: The projects this commit has.
     """
     for entry in work.iterdir():
         if entry.name == ".git":
@@ -231,10 +231,10 @@ def _seed() -> None:
 
     Only when REPO_MODELS names a path that does not exist. Shipping the examples is what
     keeps a fresh installation runnable end to end, and shipping them as one commit per
-    tenant is what gives the versions page something to move between on the first day.
+    project is what gives the versions page something to move between on the first day.
 
     Every commit is a project that plans: the harmonizing models are narrowed to the
-    tenants each one has, so an earlier version is a smaller working system rather than a
+    projects each one has, so an earlier version is a smaller working system rather than a
     broken one.
     """
     origin = Path(ORIGIN)
@@ -252,10 +252,10 @@ def _seed() -> None:
         projects = present[:step]
         _write_seed(work, projects)
         git("add", "--all", cwd=work)
-        _commit(work, f"Add the example tenant {projects[-1]}",
+        _commit(work, f"Add the example {projects[-1]}",
                 when=_seed_time(step, len(present)))
 
-    # A seed carrying no example tenant is still a repository, and still needs its commit.
+    # A seed carrying no example project is still a repository, and still needs its commit.
     if not present:
         _write_seed(work, [])
         git("add", "--all", cwd=work)

@@ -22,12 +22,12 @@ DEADLINE = 180
 """Seconds a deployment gets: a poll interval, a plan of every model, and a slow host."""
 
 SEED_PROJECTS = ("project_a", "project_b", "project_c")
-"""The example tenants the seed ships, one commit each, oldest first.
+"""The example projects the seed ships, one commit each, oldest first.
 
 Spelled out because a parameterized test needs its cases at collection time, when the stack
 has not been asked anything yet. crudman/app/system/repo.py holds the list this is a copy
 of, and test_there_is_a_history_to_move_through_on_the_first_day is what fails when the two
-stop agreeing: every commit's subject names the tenant it added.
+stop agreeing: every commit's subject names the project it added.
 """
 
 
@@ -158,7 +158,7 @@ class TestTheShippedRepository:
         assert {"bronze", "silver", "gold"} <= set(layers)
 
     def test_there_is_a_history_to_move_through_on_the_first_day(self):
-        # One commit per example tenant, so the versions page has something to show and
+        # One commit per example project, so the versions page has something to show and
         # somewhere to go back to before anybody has pushed.
         subjects = [commit["subject"] for commit in reversed(commits())]
 
@@ -190,16 +190,16 @@ class TestTheShippedRepository:
 class TestEveryShippedVersionPlans:
     """Each seeded commit is a working system, not just a point in a history.
 
-    An earlier version has fewer tenants, and the harmonizing models are narrowed to
+    An earlier version has fewer projects, and the harmonizing models are narrowed to
     match, so going back has to leave the engine planning rather than failing on a model
-    that reads a tenant the commit does not have.
+    that reads a project the commit does not have.
     """
 
     @pytest.mark.parametrize(
         "step, project", list(enumerate(SEED_PROJECTS)), ids=SEED_PROJECTS
     )
-    def test_the_version_that_adds_a_tenant_plans(self, step, project, branch, admin_db):
-        """Deploy the commit that added this tenant and let the engine plan it.
+    def test_the_version_that_adds_a_project_plans(self, step, project, branch, admin_db):
+        """Deploy the commit that added this project and let the engine plan it.
 
         One test per version rather than one loop over all of them, so a version that
         stops planning is named by the test that failed.
@@ -211,7 +211,7 @@ class TestEveryShippedVersionPlans:
         row = wait_for(admin_db, commit["sha"], "succeeded")
 
         # What the engine parsed, which is the proof the narrowing was right: this version
-        # has the tenants added up to here and none of the ones added after it.
+        # has the projects added up to here and none of the ones added after it.
         bronze = next(
             layer for layer in row["docs"]["layers"] if layer["name"] == "bronze"
         )

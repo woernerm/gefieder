@@ -5,9 +5,8 @@ from django.db import models
 class DatabaseUser(models.Model):
     """A person's own PostgreSQL login role.
 
-    Unlike ``Tenant``, a real table rather than a cache over the catalog: only this row
-    records which Django account a role belongs to. The credential is deliberately absent,
-    so a lost password is re-provisioned rather than recovered.
+    Only this row records which Django account a role belongs to. The credential is
+    deliberately absent, so a lost password is re-provisioned rather than recovered.
     """
 
     # The Django account decides who exists and what rank they hold; deleting it takes

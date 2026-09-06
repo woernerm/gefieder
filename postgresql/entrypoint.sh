@@ -12,12 +12,9 @@
 # which is what repairs a missing schema and carries a new grant onto an existing
 # deployment.
 #
-# Two scripts are deliberately excluded, marked by "once" in their filename:
+# A script marked by "once" in its filename is deliberately excluded:
 #   gf_0001_once_configure_settings.sh    appends to postgresql.conf; re-running it would
 #                                         duplicate every line on each boot.
-#   gf_0006_once_create_example_tenants.sql  seeds example tenants; an administrator is
-#                                         meant to delete them, and a re-run would
-#                                         resurrect them on the next restart.
 set -e
 
 INITDB_DIR=/docker-entrypoint-initdb.d

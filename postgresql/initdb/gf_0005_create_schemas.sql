@@ -13,14 +13,14 @@ GRANT USAGE ON SCHEMA crudman TO ${SQLMESH_DB_USER};
 GRANT SELECT ON ALL TABLES IN SCHEMA crudman TO ${SQLMESH_DB_USER};
 ALTER DEFAULT PRIVILEGES FOR ROLE ${CRUDMAN_DB_USER} IN SCHEMA crudman GRANT SELECT ON TABLES TO ${SQLMESH_DB_USER};
 
--- Grafana reads, never writes, the analytics data: the per-tenant bronze schemas, silver
+-- Grafana reads, never writes, the analytics data: the per-project bronze schemas, silver
 -- and gold. It must not see sqlmesh's internals -- the physical schemas behind the virtual
 -- layer, the staging schema and the state schema -- which hold churning objects not meant
 -- to be queried.
 --
--- create_tenant creates the bronze schemas later, so an event trigger grants each as it
--- appears, and only bronze_<tenant>, skipping sqlmesh__bronze_* and everything else
--- sqlmesh creates. silver and gold are created below and granted directly.
+-- SQLMesh creates a bronze schema when a model first names one, so an event trigger grants
+-- each as it appears, and only bronze_<project>, skipping sqlmesh__bronze_* and everything
+-- else sqlmesh creates. silver and gold are created below and granted directly.
 CREATE OR REPLACE FUNCTION grant_grafana_read()
 RETURNS event_trigger
 LANGUAGE plpgsql
@@ -33,9 +33,9 @@ BEGIN
         FROM pg_event_trigger_ddl_commands()
         WHERE command_tag = 'CREATE SCHEMA'
     LOOP
-        -- The tenant bronze schemas, not sqlmesh's internal mirror of them. starts_with
-        -- rather than LIKE: the configurable prefix ends in an underscore, which LIKE
-        -- would read as a wildcard.
+        -- The bronze schemas, not sqlmesh's internal mirror of them. starts_with rather
+        -- than LIKE: the configurable prefix ends in an underscore, which LIKE would read
+        -- as a wildcard.
         CONTINUE WHEN NOT starts_with(obj.object_identity, '${BRONZE_SCHEMA_PREFIX}')
                    OR starts_with(obj.object_identity, 'sqlmesh__');
 

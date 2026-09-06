@@ -1,7 +1,7 @@
 """Unit tests for the @temporal_join macro itself (macros/temporal_join.py).
 
 The yaml tests beside this file cover the macro through a model, one per branch, but over
-different tenants and different data, so they never say "both branches agree". This file
+different projects and different data, so they never say "both branches agree". This file
 renders the macro twice over one fixture, once per gateway, and compares row for row.
 
 Both run on DuckDB, which understands either form; the integration suite is what proves

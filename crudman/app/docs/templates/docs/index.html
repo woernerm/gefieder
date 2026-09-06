@@ -56,7 +56,7 @@
                     {% for model in layer.models %}
                         <li>
                             <a href="{% url 'docs:layer' layer.name %}#{{ model.name }}">{{ model.name }}</a>
-                            — {{ model.kind }}{% if model.tenant %}, {{ model.tenant }}{% endif %}
+                            — {{ model.kind }}{% if model.project %}, {{ model.project }}{% endif %}
                         </li>
                     {% endfor %}
                 </ul>
@@ -123,13 +123,13 @@
                 }
 
                 // A node is named by its full "schema.table", which is too long to
-                // set beside every bar; the table alone repeats across tenants, so a
-                // bronze model is told apart by the tenant its schema names.
+                // set beside every bar; the table alone repeats across projects, so a
+                // bronze model is told apart by the project its schema names.
                 option.series[0].label.formatter = function (params) {
                     const [schema, table] = params.name.split(".");
-                    const tenant = schema.replace(/^bronze_/, "");
+                    const project = schema.replace(/^bronze_/, "");
                     return schema.startsWith("bronze_")
-                        ? table + "  (" + tenant + ")"
+                        ? table + "  (" + project + ")"
                         : table;
                 };
 

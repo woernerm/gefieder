@@ -20,14 +20,14 @@ which is mounted read-only.
 
 ## Layers
 
-- `models/bronze/<tenant or other>/` — one folder per tenant or other categorization 
+- `models/bronze/<project or other>/` — one folder per project or other categorization 
   schemes like organizational entities. Models are a *VIEW* over a shared source schema 
-  (`jira`, `sap`, `alm`, …) selecting only that tenant's columns and rows.
-- `models/silver/<tenant or other>/` — a specific transform into a canonical shape in
+  (`jira`, `sap`, `alm`, …) selecting only that project's columns and rows.
+- `models/silver/<project or other>/` — a specific transform into a canonical shape in
   a staging layer (`silver_staging.*`); `models/silver/` is a thin `UNION ALL` of 
   staging models into `silver.*`.
 - `models/gold/` — materialized (kind FULL, INCREMENTAL_BY_TIME_RANGE or similar) 
-  metrics over silver only, organization wide, no per-tenant logic.
+  metrics over silver only, organization wide, no per-project logic.
 - `macros/` — SQL a model cannot express, written once: `@temporal_join` joins two
   change histories on the union of their timestamps, emitting an ASOF JOIN on the duckdb
   gateway and a LATERAL lookup where there is none. Worked examples plus audits and tests:
@@ -49,16 +49,16 @@ default. Such a model also needs `dialect duckdb`. `models/silver/project_a` and
 `gateway` line is what decides which join `@temporal_join` writes for them.
 
 The extensions in `DUCKDB_EXTENSIONS` (buildtime.env) are installed into the sqlmesh image
-too, so the gateway offers offline what tenants reach through `use_duckdb()`.
+too, so the gateway offers offline what a session reaches through `use_duckdb()`.
 
 ## Rules
 
-- Adding a tenant means adding a bronze folder, a silver staging model if the shape needs
+- Adding a project means adding a bronze folder, a silver staging model if the shape needs
   harmonizing, and one `UNION ALL` line in `models/silver/`. Nothing in gold changes.
-- Keep tenant-specific quirks upstream. If a gold model needs to know which tenant it is
+- Keep project-specific quirks upstream. If a gold model needs to know which project it is
   looking at, the transform belongs in silver instead.
 - `seeds/` exists only so the worked examples run without an external source. A real
-  tenant's bronze model reads a source schema.
+  project's bronze model reads a source schema.
 - The layer names are configuration (`BRONZE_SCHEMA_PREFIX`, `SILVER_SCHEMA`,
   `GOLD_SCHEMA` in `buildtime.env`; the staging layer is derived from `SILVER_SCHEMA`), but
   a model name is parsed by SQLMesh, which never reads that file — so renaming a layer means
@@ -66,8 +66,8 @@ too, so the gateway offers offline what tenants reach through `use_duckdb()`.
   disagree.
 - Python models use polars — see `models/bronze/project_c/`.
 
-Project A, B and C are examples created at first start (`postgresql/initdb/gf_0006`), 
-meant to be deleted for production. Layer details: `models/bronze/README.md`,
+Project A, B and C are worked examples shipped in the seed repository, meant to be
+deleted for production. Layer details: `models/bronze/README.md`,
 `models/silver/README.md`. For SQLMesh itself use the `sqlmesh-docs` skill.
 
 ## Developing models with your own account

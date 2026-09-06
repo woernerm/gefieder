@@ -1,6 +1,6 @@
 # Instructions for this repository
 
-- Purpose: Whitelabel template for multi-tenant data analytics systems (user configures 
+- Purpose: Whitelabel template for data analytics systems (user configures 
   `APP_NAME` in `buildtime.env`). It solves the wireing, configuration and 
   initialization of its components. It does not provide data models or metrics apart 
   from examples (since it is a template).
@@ -38,12 +38,12 @@
 - `quadlets/` — every unit, centrally: `main.pod`, `*.container`, `*_data.volume`.
 - `tests/` — the pytest integration suite; `run-tests.sh` starts a throwaway stack for it.
 - `*/requirements.md` — what a component must do and why: `quadlets/`,
-  `crudman/app/dropzones/`, `crudman/app/tenants/`, `crudman/app/dbusers/`.
+  `crudman/app/dropzones/`, `crudman/app/system/`, `crudman/app/dbusers/`.
 - `build.sh` builds release images; `install.sh` and `uninstall.sh` run on target
   machine. Both distributed as assets of the GitHub Release.
 
 # Medallion architecture
-- Bronze: Raw source data, one schema per tenant. Best for urgent metric requests and
+- Bronze: Raw source data, one schema per project. Best for urgent metric requests and
   tool-centric metrics (like error checking of source data).
 - Silver: Standardized model. Independence of tools and projects. Best for 
   knowledge-domain focused metrics (e.g. project & resource planning, forecasting, agile 

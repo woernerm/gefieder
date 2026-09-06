@@ -1,9 +1,9 @@
--- Project B's bronze -> silver transform. This tenant's tool has no notion of story
+-- Project B's bronze -> silver transform. This project's tool has no notion of story
 -- points, so "effort" is derived from its priority field -- an example of one canonical
--- silver column filled from completely different raw data per tenant. Its status vocabulary
+-- silver column filled from completely different raw data per project. Its status vocabulary
 -- is its own and is mapped here onto the canonical open/closed states.
 --
--- The output column list IS the harmonization contract; it must match the other tenants'
+-- The output column list IS the harmonization contract; it must match the other projects'
 -- staging models and the silver.issues union exactly.
 MODEL (
   name silver_staging.issues__project_b,

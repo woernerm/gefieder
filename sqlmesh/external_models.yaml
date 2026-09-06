@@ -1,10 +1,10 @@
 # External (source) models: the bronze tables SQLMesh reads but does not manage.
 #
-# In a real deployment each tenant's bronze schema is filled by external acquisition tools,
+# In a real deployment each project's bronze schema is filled by external acquisition tools,
 # or by views over a shared source schema. Declare those source tables here so SQLMesh knows
 # their columns and can build lineage from bronze through silver to gold. Regenerate with:
 #
 #   uv run --project /sqlmesh sqlmesh create_external_models
 #
-# The example tenants are deliberately absent: their bronze data comes from the CSVs in
+# The example projects are deliberately absent: their bronze data comes from the CSVs in
 # seeds/, so the example works without any external tooling.

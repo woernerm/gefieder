@@ -7,9 +7,8 @@ non-admin, non-technical users.
 ## Layout
 
 - `app/crudman/` — settings, urls, wsgi/asgi
-- `app/system/` — administering the system itself: tenants with their database roles and
-   schemas, and which commit of the analytics models runs. crudman is the only writer of
-   the `models_data` volume (`repo.py`).
+- `app/system/` — administering the system itself: which commit of the analytics models
+   runs. crudman is the only writer of the `models_data` volume (`repo.py`).
 - `app/dropzones/` — Multi-file uploads using one of sftp, HTTP POST, Browser upload,
    Apache Arrow Flight protocol and others, pipeline for checking and converting data.
 - `app/sso/` — OpenID Connect login via allauth

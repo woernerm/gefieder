@@ -36,14 +36,14 @@ def _model_name(reference: str) -> str:
     return f"{table.db}.{table.name}" if table.db else table.name
 
 
-def _layer_and_tenant(model) -> tuple[str | None, str | None]:
+def _layer_and_project(model) -> tuple[str | None, str | None]:
     """Where a model sits in the medallion architecture, read from its path.
 
     Args:
         model: The loaded SQLMesh model.
 
     Returns:
-        The layer name and the tenant folder below it, either None when the model does
+        The layer name and the project folder below it, either None when the model does
         not live under models/<layer>/ -- an external model, say.
     """
     path = getattr(model, "_path", None)
@@ -54,7 +54,7 @@ def _layer_and_tenant(model) -> tuple[str | None, str | None]:
     for index, part in enumerate(parts):
         if part in LAYERS:
             rest = parts[index + 1 :]
-            # A file directly in the layer folder belongs to no single tenant.
+            # A file directly in the layer folder belongs to no single project.
             return part, rest[0] if len(rest) > 1 else None
     return None, None
 
@@ -75,14 +75,14 @@ def model_entry(model, dialect: str) -> dict:
         function. ``render_query`` then expands the macro calls, so the SQL shown is what
         SQLMesh would run rather than the ``@macro()`` standing in for it.
     """
-    layer, tenant = _layer_and_tenant(model)
+    layer, project = _layer_and_project(model)
     columns = model.columns_to_types or {}
     descriptions = model.column_descriptions or {}
 
     return {
         "name": model.name,
         "layer": layer,
-        "tenant": tenant,
+        "project": project,
         "description": model.description or "",
         "kind": model.kind.name,
         "cron": model.cron,

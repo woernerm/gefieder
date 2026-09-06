@@ -40,10 +40,10 @@ VIEWER = f"{DB_USER_PREFIX}itest_viewer"
 EDITOR = f"{DB_USER_PREFIX}itest_editor"
 PASSWORD = "itest-password-long-enough"
 
-# Stands in for the roles sharing the namespace without being personal accounts; the
-# tenant lifecycle itself is tests/test_tenants.py.
-TENANT = "itest_dbuser_tenant"
-TENANT_PASSWORD = "itest-tenant-password"
+# Stands in for a role that shares the namespace without being a personal account: one an
+# administrator or another tool made directly, which the provisioning functions must leave
+# alone.
+OUTSIDER = "itest_dbuser_outsider"
 
 
 def role_exists(conn, name):
@@ -81,7 +81,7 @@ def cleanup(admin_db):
 
     def drop():
         with admin_db.cursor() as cur:
-            for name in (VIEWER, EDITOR, TENANT):
+            for name in (VIEWER, EDITOR, OUTSIDER):
                 cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (name,))
                 if cur.fetchone():
                     # Without DROP OWNED BY the drop is refused for the dependencies.
@@ -112,50 +112,38 @@ def test_create_db_user_provisions_role(crudman_db, admin_db, cleanup):
 
 
 @pytest.fixture
-def tenant(crudman_db, cleanup):
-    """A tenant role, created the way the admin creates one."""
-    with crudman_db.cursor() as cur:
-        cur.execute("SELECT create_tenant(%s, %s)", (TENANT, TENANT_PASSWORD))
-    yield TENANT
-    with crudman_db.cursor() as cur:
-        cur.execute("SELECT delete_tenant(%s)", (TENANT,))
+def outsider(admin_db, cleanup):
+    """A login role this app did not provision, made directly as an administrator would."""
+    with admin_db.cursor() as cur:
+        cur.execute(f'CREATE ROLE "{OUTSIDER}" LOGIN')
+    return OUTSIDER
 
 
-def test_a_tenant_role_shall_not_be_taken_over(crudman_db, admin_db, tenant):
+def test_an_unprovisioned_role_shall_not_be_taken_over(crudman_db, admin_db, outsider):
     """create_db_user refuses a name already held by something that is not an account.
 
-    A tenant role is the bare tenant name and shares the namespace, so a mistyped
-    provisioning would reset its password and hand the person its bronze schema.
+    Roles share one namespace, so a mistyped provisioning would otherwise reset an
+    existing role's password and hand it to the person being provisioned.
     """
     with crudman_db.cursor() as cur:
         with pytest.raises(psycopg2.errors.RaiseException):
             cur.execute(
-                "SELECT create_db_user(%s, %s, %s)", (tenant, PASSWORD, VIEWER_ROLE)
+                "SELECT create_db_user(%s, %s, %s)", (outsider, PASSWORD, VIEWER_ROLE)
             )
 
-    assert MARKER_ROLE not in memberships(admin_db, tenant)
+    assert MARKER_ROLE not in memberships(admin_db, outsider)
 
 
-def test_a_tenant_role_shall_not_be_dropped_or_disabled(crudman_db, tenant):
+def test_an_unprovisioned_role_shall_not_be_dropped_or_disabled(crudman_db, outsider):
     """The destructive functions refuse it too, for the same reason.
 
-    drop_db_user takes the bronze schema with the role, so this one destroys data rather
-    than merely confusing the admin.
+    drop_db_user takes what the role owns with it, so this one destroys data rather than
+    merely confusing the admin.
     """
     for function in ("drop_db_user", "delete_db_user", "clear_db_user_password"):
         with crudman_db.cursor() as cur:
             with pytest.raises(psycopg2.errors.RaiseException):
-                cur.execute(f"SELECT {function}(%s)", (tenant,))
-
-
-def test_a_provisioned_account_shall_not_become_a_tenant(crudman_db, cleanup):
-    """And the reverse: create_tenant refuses a name a person already holds."""
-    with crudman_db.cursor() as cur:
-        cur.execute("SELECT create_db_user(%s, %s, %s)", (VIEWER, PASSWORD, VIEWER_ROLE))
-
-    with crudman_db.cursor() as cur:
-        with pytest.raises(psycopg2.errors.RaiseException):
-            cur.execute("SELECT create_tenant(%s, %s)", (VIEWER, TENANT_PASSWORD))
+                cur.execute(f"SELECT {function}(%s)", (outsider,))
 
 
 def test_a_disabled_account_shall_stay_droppable(crudman_db, admin_db, cleanup):
@@ -355,17 +343,17 @@ def test_drop_db_user_refuses_the_service_roles(crudman_db):
                 cur.execute("SELECT drop_db_user(%s)", (name,))
 
 
-def test_drop_db_user_refuses_a_tenant_role(crudman_db, admin_db):
+def test_drop_db_user_refuses_an_unprovisioned_role(crudman_db, admin_db, outsider):
     """Only provisioned personal accounts may be dropped.
 
-    A tenant role owns a bronze schema, so dropping one by passing the wrong name would
-    take a tenant's data with it.
+    A role may own tables, so dropping one by passing the wrong name would take its data
+    with it.
     """
     with crudman_db.cursor() as cur:
         with pytest.raises(psycopg2.errors.RaiseException):
-            cur.execute("SELECT drop_db_user(%s)", ("project_a",))
+            cur.execute("SELECT drop_db_user(%s)", (outsider,))
 
-    assert role_exists(admin_db, "project_a"), "the tenant role must be untouched"
+    assert role_exists(admin_db, outsider), "the role must be untouched"
 
 
 def test_dropping_is_not_reachable_by_other_roles(connect, cleanup):

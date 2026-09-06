@@ -102,7 +102,7 @@ BRONZE_SCHEMA_PREFIX = os.environ["BRONZE_SCHEMA_PREFIX"]
 SILVER_SCHEMA = os.environ["SILVER_SCHEMA"]
 GOLD_SCHEMA = os.environ["GOLD_SCHEMA"]
 
-# The staging layer each tenant's silver transform writes to before the UNION ALL into
+# The staging layer each project's silver transform writes to before the UNION ALL into
 # SILVER_SCHEMA. Not a build-time setting: the init scripts grant on it through the
 # SILVER_SCHEMA prefix match, and only the SQLMesh models write it out. Derived here, and
 # test_medallion_schemas is what catches the derivation going stale.
