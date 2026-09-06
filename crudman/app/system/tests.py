@@ -548,7 +548,7 @@ class PollTest(RepositoryTestCase):
         deployment = repo.poll()
 
         self.assertEqual(deployment.sha, repo.head_of_main())
-        self.assertEqual(deployment.status, Deployment.PENDING)
+        self.assertEqual(deployment.status, Deployment.CHECKING_OUT)
         self.assertFalse(deployment.pinned)
         self.assertEqual(repo.MARKER.read_text().strip(), deployment.sha)
 
@@ -639,7 +639,7 @@ class DependencyTest(RepositoryTestCase):
 
         deployment = repo.poll()
 
-        self.assertEqual(deployment.status, Deployment.PENDING)
+        self.assertEqual(deployment.status, Deployment.CHECKING_OUT)
         self.assertEqual(repo.deployed_sha(), changed)
 
 
@@ -706,6 +706,20 @@ class VersionsPageTest(RepositoryTestCase):
         # the animation class, which Unfold's own layout also uses.
         self.assertIn('aria-label="Applying"', page)
         self.assertIn('http-equiv="refresh"', page)
+
+    def test_the_page_names_the_step_that_is_running(self):
+        self._user("paul", "editor")
+
+        for status in (Deployment.CHECKING_OUT, Deployment.TRANSFORMING,
+                       Deployment.DOCUMENTING):
+            with self.subTest(status=status):
+                Deployment.objects.update(status=status)
+
+                page = self.client.get(self.versions).content.decode()
+
+                # The wait is three pieces of work; a person watching should see which.
+                self.assertIn(dict(Deployment.STATUSES)[status], page)
+                self.assertIn('aria-label="Applying"', page)
 
     def test_a_finished_deployment_neither_spins_nor_reloads(self):
         self._user("paul", "editor")

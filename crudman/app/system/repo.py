@@ -448,8 +448,9 @@ def checkout(sha: str) -> None:
 def deploy(sha, *, pinned=False, user=None, main_sha=None):
     """Deploy one commit and record the attempt.
 
-    The engine notices the tree has changed on its next pass and plans it, which is what
-    turns the row from applying to live.
+    The row is what the page reads, so it is created before the working tree is touched
+    and carries the step being worked on. The engine notices the tree has changed on its
+    next pass and advances the row through the rest.
 
     Args:
         sha: The commit to deploy.
@@ -482,8 +483,17 @@ def deploy(sha, *, pinned=False, user=None, main_sha=None):
                 status=Deployment.FAILED, message=reason, **record
             )
 
-        checkout(sha)
-        return Deployment.objects.create(**record)
+        # Before the checkout rather than after it, so the page can say which step is
+        # running. It stays on this one until the engine picks the tree up, which is
+        # within its run interval.
+        deployment = Deployment.objects.create(**record)
+        try:
+            checkout(sha)
+        except GitError as error:
+            deployment.status = Deployment.FAILED
+            deployment.message = str(error)
+            deployment.save(update_fields=["status", "message"])
+        return deployment
 
 
 def poll(user=None):

@@ -64,12 +64,18 @@ trap 'exit 0' TERM INT
 # page is the one journald recorded.
 apply() {  # commit sha
   echo "Deploying models ${1}"
+
+  # Each step is announced before it starts, so the page names the one taking the time
+  # rather than saying only that something is.
+  $PYTHON /sqlmesh/status.py "$1" transforming
   if sqlmesh plan --auto-apply --no-prompts >/tmp/plan.log 2>&1; then
     cat /tmp/plan.log
     # The documentation of what now runs. Exported after the plan, so a model that failed
-    # to build is not described as though it had.
+    # to build is not described as though it had. It loads the project a second time,
+    # which is why it is a step of its own rather than part of the one before it.
+    $PYTHON /sqlmesh/status.py "$1" documenting
     $PYTHON /sqlmesh/docs_export.py "$PROJECT" /tmp/docs.json >/dev/null
-    $PYTHON /sqlmesh/status.py "$1" succeeded /tmp/docs.json </tmp/plan.log
+    $PYTHON /sqlmesh/status.py "$1" succeeded /tmp/docs.json
     return 0
   fi
 
