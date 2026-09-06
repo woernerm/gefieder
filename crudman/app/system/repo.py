@@ -11,6 +11,7 @@ So a model reaches production as a commit rather than as a release.
 import os
 import shutil
 import subprocess
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from django.conf import settings
@@ -83,12 +84,13 @@ class GitError(RuntimeError):
     """A git command failed. Carries what git wrote, which is what a reader needs."""
 
 
-def git(*args: str, cwd: Path | None = None) -> str:
+def git(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None) -> str:
     """Run one git command and return its output.
 
     Args:
         *args: The command and its arguments, without the leading "git".
         cwd: Where to run it; the deployed working tree by default.
+        env: Extra environment for this command, e.g. the dates of a commit.
 
     Returns:
         Standard output, stripped.
@@ -102,7 +104,7 @@ def git(*args: str, cwd: Path | None = None) -> str:
         capture_output=True,
         text=True,
         # A prompt would hang the request forever; failing is the only useful answer.
-        env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        env={**os.environ, "GIT_TERMINAL_PROMPT": "0", **(env or {})},
     )
     if result.returncode:
         raise GitError((result.stderr or result.stdout).strip())
@@ -183,6 +185,47 @@ def _write_seed(work: Path, projects: list[str]) -> None:
     _narrow_unions(work, projects)
 
 
+SEED_COMMIT_SPACING = timedelta(minutes=1)
+"""How far apart the seeded commits are stamped.
+
+Made in the same second otherwise, which leaves their order a tie for anything reading the
+history back -- and the versions page is a list in date order.
+"""
+
+
+def _seed_time(step: int, steps: int):
+    """When to stamp the commit of one seeding step.
+
+    Args:
+        step: Which commit this is, counting from one.
+        steps: How many there are.
+
+    Returns:
+        A time in the past, the last commit landing now and the earlier ones before it, so
+        the shipped history reads as something that happened rather than all at once.
+    """
+    return datetime.now(timezone.utc) - (steps - step) * SEED_COMMIT_SPACING
+
+
+def _commit(work: Path, message: str, when) -> None:
+    """Commit the working tree as this system, at a given time.
+
+    Args:
+        work: The working tree.
+        message: The commit subject.
+        when: Both dates of the commit. ``--date`` would set only the author's, and it is
+            the committer date that git and the versions page order by.
+    """
+    stamp = when.isoformat()
+    git(
+        "-c", f"user.name={settings.APP_NAME}",
+        "-c", "user.email=noreply@localhost",
+        "commit", "--message", message,
+        cwd=work,
+        env={"GIT_AUTHOR_DATE": stamp, "GIT_COMMITTER_DATE": stamp},
+    )
+
+
 def _seed() -> None:
     """Create the origin repository from the project this release ships.
 
@@ -209,23 +252,14 @@ def _seed() -> None:
         projects = present[:step]
         _write_seed(work, projects)
         git("add", "--all", cwd=work)
-        git(
-            "-c", f"user.name={settings.APP_NAME}",
-            "-c", "user.email=noreply@localhost",
-            "commit", "--message", f"Add the example tenant {projects[-1]}",
-            cwd=work,
-        )
+        _commit(work, f"Add the example tenant {projects[-1]}",
+                when=_seed_time(step, len(present)))
 
     # A seed carrying no example tenant is still a repository, and still needs its commit.
     if not present:
         _write_seed(work, [])
         git("add", "--all", cwd=work)
-        git(
-            "-c", f"user.name={settings.APP_NAME}",
-            "-c", "user.email=noreply@localhost",
-            "commit", "--message", f"The analytics models {settings.APP_NAME} ships",
-            cwd=work,
-        )
+        _commit(work, f"The analytics models {settings.APP_NAME} ships", when=_seed_time(1, 1))
 
     git("push", str(origin), BRANCH, cwd=work)
     shutil.rmtree(work, ignore_errors=True)
@@ -313,7 +347,8 @@ def log(limit: int = 50) -> list[dict]:
         limit: How many commits to read.
 
     Returns:
-        One dict per commit with its sha, author, ISO-8601 date and subject. Empty before
+        One dict per commit with its sha, author, subject and the moment it was made, as
+        an aware datetime so the page can format it and this can sort by it. Empty before
         the first clone, so the page renders rather than failing.
     """
     revisions = [f"origin/{BRANCH}"]
@@ -323,6 +358,10 @@ def log(limit: int = 50) -> list[dict]:
     try:
         output = git(
             "log", *revisions, f"--max-count={limit}",
+            # git's default ordering is a heuristic over several starting points, and the
+            # deployed commit is a second one. --date-order makes the cut a date cut, so
+            # the newest commits are the ones kept when there are more than the limit.
+            "--date-order",
             # Unit separator: a subject may hold anything a person can type, but not this.
             "--format=%H%x1f%an%x1f%aI%x1f%s",
         )
@@ -331,11 +370,19 @@ def log(limit: int = 50) -> list[dict]:
 
     commits = []
     for line in output.splitlines():
-        sha, author, date, subject = line.split("\x1f")
+        sha, author, when, subject = line.split("\x1f")
         commits.append(
             {"sha": sha, "short_sha": sha[:8], "author": author,
-             "date": date, "subject": subject}
+             # Parsed rather than passed on as text: %aI carries the author's own UTC
+             # offset, so two commits are only comparable -- and only formattable in one
+             # timezone -- as instants.
+             "when": datetime.fromisoformat(when), "subject": subject}
         )
+
+    # Newest first, and the sha settles a tie so the page cannot reorder itself between two
+    # views of the same history. Two commits made in the same second are what ties, which a
+    # script pushing several at once produces easily.
+    commits.sort(key=lambda commit: (commit["when"], commit["sha"]), reverse=True)
     return commits
 
 

@@ -389,12 +389,14 @@ class RepositoryTestCase(TestCase):
         self.enterContext(patch.object(repo, "WORKSPACES", models / "workspaces"))
         self.enterContext(patch.object(repo, "MARKER", models / "deployed.sha"))
 
-    def commit(self, message, changes=None):
+    def commit(self, message, changes=None, when=None):
         """Add a commit to the origin's branch, the way a developer's push would.
 
         Args:
             message: The commit subject.
             changes: Paths relative to the repository root, mapped to their new contents.
+            when: An ISO-8601 stamp for both of the commit's dates, for the tests that
+                need two commits to share a second.
 
         Returns:
             The new commit's sha.
@@ -412,6 +414,7 @@ class RepositoryTestCase(TestCase):
         repo.git(
             "-c", "user.name=Jean Dupont", "-c", "user.email=jean@example.com",
             "commit", "--message", message, cwd=work,
+            env={"GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when} if when else None,
         )
         repo.git("push", "origin", repo.BRANCH, cwd=work)
         sha = repo.git("rev-parse", "HEAD", cwd=work)
@@ -488,6 +491,16 @@ class SeedTenantsTest(TestCase):
         )
         for later in repo.SEED_PROJECTS[1:]:
             self.assertNotIn(later, self.union(oldest))
+
+    def test_the_commits_are_stamped_apart(self):
+        # Made in the same second otherwise, which leaves their order a tie for anything
+        # reading the history back -- and the page is a list in date order.
+        stamps = [commit["when"] for commit in repo.log()]
+        self.assertEqual(len(set(stamps)), len(stamps))
+
+    def test_the_newest_commit_comes_first(self):
+        stamps = [commit["when"] for commit in repo.log()]
+        self.assertEqual(stamps, sorted(stamps, reverse=True))
 
     def test_the_model_block_survives_the_narrowing(self):
         oldest = repo.log()[-1]["sha"]
@@ -769,6 +782,31 @@ class StrandedVersionTest(RepositoryTestCase):
         listed = [commit["sha"] for commit in repo.log()]
 
         self.assertEqual(len(listed), len(set(listed)))
+
+
+class OrderTest(RepositoryTestCase):
+    """The page is a list of versions in date order, so the list has to be one."""
+
+    def test_commits_made_in_the_same_second_still_have_an_order(self):
+        repo.poll()
+        # One timestamp for all of them, which is what a script pushing several at once
+        # produces and what git's own ordering leaves ambiguous.
+        stamp = "2026-01-01T12:00:00+00:00"
+        for subject in ("First", "Second", "Third"):
+            self.commit(subject, when=stamp)
+
+        first = [commit["sha"] for commit in repo.log()]
+        second = [commit["sha"] for commit in repo.log()]
+
+        self.assertEqual(first, second)
+
+    def test_the_newest_commit_comes_first(self):
+        repo.poll()
+        self.commit("A later change")
+
+        stamps = [commit["when"] for commit in repo.log()]
+
+        self.assertEqual(stamps, sorted(stamps, reverse=True))
 
 
 class LostOriginTest(RepositoryTestCase):

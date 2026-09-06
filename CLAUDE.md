@@ -92,3 +92,4 @@
 - You running on a dev machine: Stop & delete existing deployments is always allowed.
 - Write classes in the order from top to bottom: Class variables, subclasses,
   private methods, public methods, dunder methods.
+- Keep responses to less than 200 words unless asked for more details.

@@ -20,21 +20,23 @@
 {% endblock %}
 
 {% block content %}
-    <div class="{{ form_classes.prose }} max-w-4xl">
-        <h1>{{ title }}</h1>
+    {# No heading: the admin's own breadcrumb already says which page this is, and the #}
+    {# table is what the page is for. The block below renders only when it has something #}
+    {# to say, so an ordinary day is the list and nothing else. #}
+    {% if clone_url or current.message %}
+        <div class="{{ form_classes.prose }} max-w-4xl">
+            {% if clone_url %}
+                {# The one thing here a developer has to copy. #}
+                <pre class="not-prose"><code>git clone {{ clone_url }}</code></pre>
+            {% endif %}
 
-        {% if clone_url %}
-            {# The one thing on this page a developer has to copy. Everything else the #}
-            {# table below says better than a sentence could. #}
-            <pre class="not-prose"><code>git clone {{ clone_url }}</code></pre>
-        {% endif %}
-
-        {% if current.message %}
-            {# Only a failure has anything to say: the engine records nothing for a plan #}
-            {# that worked. So this block appearing at all is the news. #}
-            <p class="not-prose border-l-4 border-red-500 pl-4 py-2 text-sm whitespace-pre-wrap">{{ current.message }}</p>
-        {% endif %}
-    </div>
+            {% if current.message %}
+                {# Only a failure has anything to say: the engine records nothing for a #}
+                {# plan that worked. So this block appearing at all is the news. #}
+                <p class="not-prose border-l-4 border-red-500 pl-4 py-2 text-sm whitespace-pre-wrap">{{ current.message }}</p>
+            {% endif %}
+        </div>
+    {% endif %}
 
     {# Outside the prose column: a table of commits is wider than a column of text, and #}
     {# scrolls on its own rather than widening the page. #}
@@ -67,7 +69,9 @@
                         </td>
                         <td class="px-4 py-3">{{ commit.subject }}</td>
                         <td class="px-4 py-3 whitespace-nowrap">{{ commit.author }}</td>
-                        <td class="px-4 py-3 whitespace-nowrap">{{ commit.date|slice:":16" }}</td>
+                        {# To the second: two commits a minute apart look identical without #}
+                        {# it, and the order of the table is the order they were made in. #}
+                        <td class="px-4 py-3 whitespace-nowrap">{{ commit.when|date:"Y-m-d H:i:s" }}</td>
                         <td class="px-4 py-3 text-right whitespace-nowrap">
                             {% if commit.sha != current_sha %}
                                 <form method="post" action="{% url 'admin:system_deployment_deploy' %}">
