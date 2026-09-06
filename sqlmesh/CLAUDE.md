@@ -32,7 +32,7 @@ which is mounted read-only.
   change histories on the union of their timestamps, emitting an ASOF JOIN on the duckdb
   gateway and a LATERAL lookup where there is none. Worked examples plus audits and tests:
   `models/silver/project_{a,b}/issue_risk_history.sql`,
-  `audits/assert_every_row_is_a_change.sql`, `tests/test_issue_risk_history*.yaml`,
+  `audits/assert_every_row_is_a_change.sql`, `tests/test_issue_risk_history__project_{a,b}.yaml`,
   `tests/test_temporal_join.py` (the macro itself, both branches over one fixture).
 
 ## Gateways

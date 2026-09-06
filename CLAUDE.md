@@ -89,4 +89,6 @@
   Tout-le-monde, Madame Tout-le-monde, Matti Meikäläinen, Meðal-Jón, Meðal-Jóna, 
   Jón Jónsson, Jóna Jónsdóttir, Jos Bleau, G. Raymond, Pinco Pallino.
   Do not use other names.
-- You can always delete running deployments (e.g. when trying to run the run-tests.sh script), because you are not running on the target machine.
+- You running on a dev machine: Stop & delete existing deployments is always allowed.
+- Write classes in the order from top to bottom: Class variables, subclasses,
+  private methods, public methods, dunder methods.

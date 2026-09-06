@@ -419,6 +419,82 @@ class RepositoryTestCase(TestCase):
         return sha
 
 
+class SeedTenantsTest(TestCase):
+    """A seed carrying example tenants becomes one commit each, and each one parses.
+
+    The commits are what the versions page has to demonstrate on the first day, so a fresh
+    installation is not asked to wait for somebody to push twice.
+    """
+
+    def setUp(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+
+        seed = root / "seed"
+        for project in repo.SEED_PROJECTS:
+            (seed / repo.PROJECT / "models" / "bronze" / project).mkdir(parents=True)
+            (seed / repo.PROJECT / "models" / "bronze" / project / "issues.sql").write_text(
+                f"MODEL (name bronze_{project}.issues);\nSELECT 1 AS tenant_id"
+            )
+        (seed / repo.PROJECT / "models" / "silver").mkdir(parents=True)
+        (seed / repo.PROJECT / "models" / "silver" / "issues.sql").write_text(
+            "MODEL (\n  name silver.issues\n);\n\n"
+            + "\nUNION ALL\n".join(
+                f"SELECT tenant_id FROM bronze_{project}.issues"
+                for project in repo.SEED_PROJECTS
+            )
+        )
+        (seed / repo.PROJECT / "pyproject.toml").write_text("[project]\n")
+
+        models = root / "models"
+        models.mkdir()
+        self.enterContext(patch.object(repo, "SEED", seed))
+        self.enterContext(patch.object(repo, "MODELS_DIR", models))
+        self.enterContext(patch.object(repo, "ORIGIN", str(models / "origin.git")))
+        self.enterContext(patch.object(repo, "DEPLOYED", models / "deployed"))
+        self.enterContext(patch.object(repo, "WORKSPACES", models / "workspaces"))
+        self.enterContext(patch.object(repo, "MARKER", models / "deployed.sha"))
+        repo.ensure()
+
+    def union(self, sha):
+        """The harmonizing model as it stands at one commit."""
+        return repo.git("show", f"{sha}:{repo.PROJECT}/models/silver/issues.sql")
+
+    def test_there_is_one_commit_per_example_tenant(self):
+        self.assertEqual(len(repo.log()), len(repo.SEED_PROJECTS))
+
+    def test_each_commit_adds_the_next_tenant(self):
+        # Oldest first, which is the order they were built in.
+        for step, commit in enumerate(reversed(repo.log()), start=1):
+            added = repo.SEED_PROJECTS[step - 1]
+            self.assertIn(added, commit["subject"])
+
+    def test_a_commit_carries_only_the_tenants_it_has_added(self):
+        oldest = repo.log()[-1]["sha"]
+        listed = repo.git("ls-tree", "-r", "--name-only", oldest)
+
+        self.assertIn(repo.SEED_PROJECTS[0], listed)
+        for later in repo.SEED_PROJECTS[1:]:
+            self.assertNotIn(later, listed)
+
+    def test_the_union_names_only_the_tenants_that_exist(self):
+        # A branch reading a tenant this commit has not added would not parse, which is
+        # what stops an earlier version from being a broken one.
+        oldest, newest = repo.log()[-1]["sha"], repo.log()[0]["sha"]
+
+        self.assertEqual(self.union(oldest).count("UNION ALL"), 0)
+        self.assertEqual(
+            self.union(newest).count("UNION ALL"), len(repo.SEED_PROJECTS) - 1
+        )
+        for later in repo.SEED_PROJECTS[1:]:
+            self.assertNotIn(later, self.union(oldest))
+
+    def test_the_model_block_survives_the_narrowing(self):
+        oldest = repo.log()[-1]["sha"]
+        self.assertIn("MODEL (", self.union(oldest))
+        self.assertIn("name silver.issues", self.union(oldest))
+
+
 class SeedingTest(RepositoryTestCase):
     """What a system with no git host of its own starts life as."""
 

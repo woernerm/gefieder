@@ -75,6 +75,7 @@ handoff between the two containers is a path and a marker, not an API.
 | `sqlmesh/status.py` | raw SQL against `crudman.system_deployment`, Django being absent from that image: a renamed field is a renamed column here |
 | `crudman/app/docs/views.py` | the docs pages read the export out of the deployment row rather than a file, so the export's shape is a contract between `docs_export.py` and these pages |
 | `tests/test_models_repository.py` | the end-to-end path — push, poll, plan, document — and the refusal that protects a running engine |
+| `SEED_PROJECTS` in `crudman/app/system/repo.py` | the seed becomes one commit per example tenant, and a file belongs to a tenant by having the name in its path. Renaming or adding an example means this list; `tests/test_models_repository.py` carries a second copy for its parameterized version tests and guards the two against drifting |
 
 `REPO_MODELS` is a **build-time setting**, so that table applies too. `MODELS_POLL_INTERVAL`
 is a **runtime setting**, so that one does.

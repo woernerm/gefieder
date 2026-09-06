@@ -21,6 +21,15 @@ PROJECT = "sqlmesh"
 DEADLINE = 180
 """Seconds a deployment gets: a poll interval, a plan of every model, and a slow host."""
 
+SEED_PROJECTS = ("project_a", "project_b", "project_c")
+"""The example tenants the seed ships, one commit each, oldest first.
+
+Spelled out because a parameterized test needs its cases at collection time, when the stack
+has not been asked anything yet. crudman/app/system/repo.py holds the list this is a copy
+of, and test_there_is_a_history_to_move_through_on_the_first_day is what fails when the two
+stop agreeing: every commit's subject names the tenant it added.
+"""
+
 
 def crudman(script):
     """Run a shell script inside the crudman container and return its output."""
@@ -51,6 +60,17 @@ def latest(conn):
         )
         row = cursor.fetchone()
     return dict(zip(("sha", "status", "message", "docs"), row)) if row else {}
+
+
+def commits():
+    """The branch's history as the versions page reads it, newest first."""
+    output = crudman(
+        f"cd {MODELS_DIR}/deployed && git log origin/main --format=%H%x1f%s"
+    )
+    return [
+        {"sha": sha, "subject": subject}
+        for sha, subject in (line.split("\x1f") for line in output.splitlines())
+    ]
 
 
 def push(subject, files):
@@ -96,6 +116,14 @@ def wait_for(conn, sha, status):
     raise AssertionError(f"{sha[:8]} never reached {status!r}: {row}")
 
 
+def pin(sha):
+    """Deploy one commit the way the versions page's button does."""
+    crudman(
+        "cd /crudman/app && uv run --project /crudman python manage.py shell -c "
+        f"\"from system import repo; repo.deploy('{sha}', pinned=True)\""
+    )
+
+
 @pytest.fixture(scope="module")
 def branch(admin_db):
     """Put the branch back where this module found it, so later modules see the models.
@@ -129,6 +157,15 @@ class TestTheShippedRepository:
         layers = crudman(f"ls {MODELS_DIR}/deployed/{PROJECT}/models").split()
         assert {"bronze", "silver", "gold"} <= set(layers)
 
+    def test_there_is_a_history_to_move_through_on_the_first_day(self):
+        # One commit per example tenant, so the versions page has something to show and
+        # somewhere to go back to before anybody has pushed.
+        subjects = [commit["subject"] for commit in reversed(commits())]
+
+        assert len(subjects) == len(SEED_PROJECTS), subjects
+        for subject, project in zip(subjects, SEED_PROJECTS):
+            assert project in subject, subjects
+
     def test_a_clone_carries_what_a_developer_needs(self):
         # Cloning is meant to be the whole setup, so the connection settings travel with
         # the models rather than being written down somewhere a reader has to find.
@@ -148,6 +185,41 @@ class TestTheShippedRepository:
         # A plan that worked has nothing to say. Its log is thousands of lines of progress
         # written for a terminal, and the page shows whatever is stored.
         assert row["message"] == ""
+
+
+class TestEveryShippedVersionPlans:
+    """Each seeded commit is a working system, not just a point in a history.
+
+    An earlier version has fewer tenants, and the harmonizing models are narrowed to
+    match, so going back has to leave the engine planning rather than failing on a model
+    that reads a tenant the commit does not have.
+    """
+
+    @pytest.mark.parametrize(
+        "step, project", list(enumerate(SEED_PROJECTS)), ids=SEED_PROJECTS
+    )
+    def test_the_version_that_adds_a_tenant_plans(self, step, project, branch, admin_db):
+        """Deploy the commit that added this tenant and let the engine plan it.
+
+        One test per version rather than one loop over all of them, so a version that
+        stops planning is named by the test that failed.
+        """
+        commit = list(reversed(commits()))[step]
+        assert project in commit["subject"], commit
+
+        pin(commit["sha"])
+        row = wait_for(admin_db, commit["sha"], "succeeded")
+
+        # What the engine parsed, which is the proof the narrowing was right: this version
+        # has the tenants added up to here and none of the ones added after it.
+        bronze = next(
+            layer for layer in row["docs"]["layers"] if layer["name"] == "bronze"
+        )
+        described = " ".join(model["name"] for model in bronze["models"])
+        for present in SEED_PROJECTS[: step + 1]:
+            assert present in described, described
+        for later in SEED_PROJECTS[step + 1 :]:
+            assert later not in described, described
 
 
 class TestDeployingAPush:

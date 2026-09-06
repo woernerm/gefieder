@@ -70,8 +70,11 @@ is kept, because a deployment *is* a commit; the wait is not, because nothing is
 ### What it must do
 
 - **Keep a repository, always.** `REPO_MODELS` names it. The default is a bare repository
-  crudman creates on the models volume and seeds with the project this release ships, so a
-  fresh installation still needs one command and no git host. Set it to a git host and that
+  crudman creates on the models volume and seeds with the project this release ships, as
+  one commit per example tenant rather than one commit for everything — so a fresh
+  installation has versions to move between before anybody has pushed, and each of them is
+  a smaller working system rather than a broken one. A fresh installation still needs one
+  command and no git host. Set it to a git host and that
   host is the origin instead. An empty value is refused: with no origin at all the working
   tree would be the only copy of the history, and nothing would say so.
 - **Deploy what `main` points at**, within `MODELS_POLL_INTERVAL` seconds of a push, without

@@ -46,7 +46,19 @@ here and reaches production the same way everything else does: by pushing a comm
 """
 
 SEED = Path(os.environ.get("MODELS_SEED", "/seed"))
-"""The first commit of a repository this system creates, baked into the crudman image."""
+"""What a repository this system creates starts life as, baked into the crudman image."""
+
+SEED_PROJECTS = ("project_a", "project_b", "project_c")
+"""The example tenants the seed ships, in the order the first commits add them.
+
+The seed becomes one commit per tenant rather than one commit for everything, so a fresh
+installation has versions to move between and the page has something to demonstrate. Each
+adds a tenant to a system that already computes, which is also the change a real one makes
+most often.
+
+Named here rather than discovered, because a file belongs to a tenant by having the name
+in its path and nothing else says so. Editing the shipped examples means editing this line.
+"""
 
 PROJECT = "sqlmesh"
 """The SQLMesh project inside the repository.
@@ -111,28 +123,110 @@ def clone_url() -> str | None:
     return None if is_local() else ORIGIN
 
 
+def _narrow_unions(work: Path, projects: list[str]) -> None:
+    """Leave the harmonizing models unioning only the tenants that are present.
+
+    A silver model directly under ``models/silver/`` stacks one branch per tenant, and a
+    branch reading a tenant that has not been added yet would fail to parse. So the earlier
+    commits get the same file with the later branches taken out, which is exactly the diff
+    adding a tenant produces in the other direction.
+
+    Rewritten rather than shipped as variants: the branches are generated from the file the
+    project actually runs, so editing that file cannot leave a stale copy behind.
+
+    Args:
+        work: The working tree being built.
+        projects: The tenants this commit has.
+    """
+    absent = [project for project in SEED_PROJECTS if project not in projects]
+    if not absent:
+        return
+
+    for model in (work / PROJECT / "models" / "silver").glob("*.sql"):
+        text = model.read_text()
+        if "UNION ALL" not in text:
+            continue
+
+        # The MODEL block ends at the first ");", and the query is what follows.
+        head, end, query = text.partition(");")
+        kept = [
+            branch
+            for branch in query.split("UNION ALL")
+            if not any(project in branch for project in absent)
+        ]
+        model.write_text(head + end + "UNION ALL".join(kept))
+
+
+def _write_seed(work: Path, projects: list[str]) -> None:
+    """Fill the working tree with the seed, holding only the given example tenants.
+
+    Args:
+        work: The working tree, whose .git directory is left alone.
+        projects: The tenants this commit has.
+    """
+    for entry in work.iterdir():
+        if entry.name == ".git":
+            continue
+        shutil.rmtree(entry) if entry.is_dir() else entry.unlink()
+
+    absent = [project for project in SEED_PROJECTS if project not in projects]
+    for source in SEED.rglob("*"):
+        relative = source.relative_to(SEED)
+        if not source.is_file() or any(project in str(relative) for project in absent):
+            continue
+        target = work / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+
+    (work / PROJECT).mkdir(parents=True, exist_ok=True)
+    (work / PROJECT / "server.env").write_text(_server_env())
+    _narrow_unions(work, projects)
+
+
 def _seed() -> None:
     """Create the origin repository from the project this release ships.
 
-    Only when REPO_MODELS names a path that does not exist. Shipping the examples as the
-    first commit is what keeps a fresh installation runnable end to end.
+    Only when REPO_MODELS names a path that does not exist. Shipping the examples is what
+    keeps a fresh installation runnable end to end, and shipping them as one commit per
+    tenant is what gives the versions page something to move between on the first day.
+
+    Every commit is a project that plans: the harmonizing models are narrowed to the
+    tenants each one has, so an earlier version is a smaller working system rather than a
+    broken one.
     """
     origin = Path(ORIGIN)
     git("init", "--bare", f"--initial-branch={BRANCH}", str(origin), cwd=MODELS_DIR)
 
     work = MODELS_DIR / ".seed"
     shutil.rmtree(work, ignore_errors=True)
-    shutil.copytree(SEED, work)
-    (work / PROJECT / "server.env").write_text(_server_env())
-
+    work.mkdir(parents=True)
     git("init", f"--initial-branch={BRANCH}", cwd=work)
-    git("add", "--all", cwd=work)
-    git(
-        "-c", f"user.name={settings.APP_NAME}",
-        "-c", "user.email=noreply@localhost",
-        "commit", "--message", f"The analytics models {settings.APP_NAME} ships",
-        cwd=work,
-    )
+
+    present = [
+        project for project in SEED_PROJECTS if any(SEED.rglob(f"*{project}*"))
+    ]
+    for step in range(1, len(present) + 1):
+        projects = present[:step]
+        _write_seed(work, projects)
+        git("add", "--all", cwd=work)
+        git(
+            "-c", f"user.name={settings.APP_NAME}",
+            "-c", "user.email=noreply@localhost",
+            "commit", "--message", f"Add the example tenant {projects[-1]}",
+            cwd=work,
+        )
+
+    # A seed carrying no example tenant is still a repository, and still needs its commit.
+    if not present:
+        _write_seed(work, [])
+        git("add", "--all", cwd=work)
+        git(
+            "-c", f"user.name={settings.APP_NAME}",
+            "-c", "user.email=noreply@localhost",
+            "commit", "--message", f"The analytics models {settings.APP_NAME} ships",
+            cwd=work,
+        )
+
     git("push", str(origin), BRANCH, cwd=work)
     shutil.rmtree(work, ignore_errors=True)
 
