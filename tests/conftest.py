@@ -63,6 +63,7 @@ SFTP_PORT = int(os.environ.get("TEST_SFTP_PORT", "2222"))
 FLIGHT_PORT = int(os.environ.get("TEST_FLIGHT_PORT", "8815"))
 GRAFANA_PASSWORD = os.environ["TEST_GRAFANA_PASSWORD"]
 SUPERUSER_PASSWORD = os.environ["TEST_SUPERUSER_PASSWORD"]
+PG_SUPERUSER_PASSWORD = os.environ["TEST_PG_SUPERUSER_PASSWORD"]
 CRUDMAN_PASSWORD = os.environ["TEST_CRUDMAN_PASSWORD"]
 SQLMESH_PASSWORD = os.environ["TEST_SQLMESH_PASSWORD"]
 
@@ -70,12 +71,14 @@ SQLMESH_PASSWORD = os.environ["TEST_SQLMESH_PASSWORD"]
 # stack rather than the defaults.
 APP_NAME = os.environ["APP_NAME"]
 SUPERUSER_NAME = os.environ["SUPERUSER_NAME"]
+PG_SUPERUSER_ROLE = os.environ["PG_SUPERUSER_ROLE"]
 
 # The podman secrets, keyed by the component whose credential they hold. Read from the
 # environment for the same reason as the role names: a deployment that renamed one around
 # a secret the host already held is still the stack these tests point at.
 SECRETS = {
     "superuser": os.environ["SECRET_SUPERUSER_PASSWORD"],
+    "pg_superuser": os.environ["SECRET_PG_SUPERUSER_PASSWORD"],
     "crudman": os.environ["SECRET_CRUDMAN_PASSWORD"],
     "sqlmesh": os.environ["SECRET_SQLMESH_PASSWORD"],
     "grafana": os.environ["SECRET_GRAFANA_PASSWORD"],
@@ -174,7 +177,7 @@ def http_follow():
 
 # The login password of every database role the access-control tests connect as.
 DB_PASSWORDS = {
-    SUPERUSER_NAME: SUPERUSER_PASSWORD,
+    PG_SUPERUSER_ROLE: PG_SUPERUSER_PASSWORD,
     CRUDMAN_DB_USER: CRUDMAN_PASSWORD,
     SQLMESH_DB_USER: SQLMESH_PASSWORD,
     GRAFANA_DB_USER: GRAFANA_PASSWORD,
@@ -289,7 +292,7 @@ def db(connect):
 @pytest.fixture(scope="session")
 def admin_db(connect):
     """A superuser connection, used by tests that must create objects."""
-    return connect(SUPERUSER_NAME)
+    return connect(PG_SUPERUSER_ROLE)
 
 
 @pytest.fixture(scope="session")
@@ -334,7 +337,7 @@ def wait_for_stack():
 
     while True:
         try:
-            conn = _connect(SUPERUSER_NAME)
+            conn = _connect(PG_SUPERUSER_ROLE)
             with conn.cursor() as cur:
                 cur.execute("SELECT 1 FROM pg_namespace WHERE nspname = 'sqlmesh'")
                 ready = cur.fetchone() is not None

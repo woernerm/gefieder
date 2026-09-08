@@ -16,7 +16,7 @@ import pytest
 
 from conftest import (
     APP_NAME, BASE_URL, COLLECTOR, CRUDMAN_PATH, GRAFANA_PATH, SERVER_STATS_SCHEMA,
-    SUPERUSER_NAME, VERIFY_TLS, denied,
+    PG_SUPERUSER_ROLE, VERIFY_TLS, denied,
 )
 
 
@@ -104,7 +104,7 @@ def run_collector(**extra_env):
     """
     if not COLLECTOR:
         pytest.skip("no collector path provided (TEST_COLLECTOR unset)")
-    env = {"POSTGRES_USER": SUPERUSER_NAME, "SERVER_STATS_SCHEMA": SERVER_STATS_SCHEMA,
+    env = {"POSTGRES_USER": PG_SUPERUSER_ROLE, "SERVER_STATS_SCHEMA": SERVER_STATS_SCHEMA,
            "APP_NAME": APP_NAME, "HOME": os.environ["HOME"],
            "PATH": os.environ.get("PATH", "/usr/bin:/bin")}
     env.update(extra_env)
@@ -128,7 +128,7 @@ def unit_environment(unit):
 class TestCollectorUnit:
     """The collector as the deployment invokes it: through its systemd unit.
 
-    The deployed superuser name comes from SUPERUSER_NAME and the schema is baked into the
+    The deployed superuser role comes from PG_SUPERUSER_ROLE and the schema is baked into the
     PostgreSQL image from SERVER_STATS_SCHEMA. A unit that passes neither leaves a
     deployment that changed either one connecting as a role that does not exist, or writing
     to a schema never created — silently, since a failed oneshot only reaches the journal.
@@ -136,9 +136,9 @@ class TestCollectorUnit:
 
     def test_the_unit_shall_pass_the_configured_user_and_schema(self):
         env = unit_environment("server-stats.service")
-        assert env.get("POSTGRES_USER") == SUPERUSER_NAME, (
+        assert env.get("POSTGRES_USER") == PG_SUPERUSER_ROLE, (
             "server-stats.service does not pass POSTGRES_USER, so the collector falls "
-            f"back to 'admin' instead of {SUPERUSER_NAME!r}"
+            f"back to 'postgres' instead of {PG_SUPERUSER_ROLE!r}"
         )
         assert env.get("SERVER_STATS_SCHEMA") == SERVER_STATS_SCHEMA, (
             "server-stats.service does not pass SERVER_STATS_SCHEMA, so the collector "

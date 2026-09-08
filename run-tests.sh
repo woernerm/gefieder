@@ -109,6 +109,7 @@ make_tempdir() {
 create_service_secrets
 # The build-time default rather than a random value, so the tests run unattended.
 create_secret "$SECRET_SUPERUSER_PASSWORD" "$SUPERUSER_DEFAULT_PASSWORD"
+create_secret "$SECRET_PG_SUPERUSER_PASSWORD" "$SUPERUSER_DEFAULT_PASSWORD"
 
 # Isolated host ports, so a stack on the default ports is undisturbed. Grafana is not
 # among them: the suite reaches it through the proxy, as a browser does.
@@ -146,6 +147,7 @@ done
 # The suite connects as each role to check its access boundary.
 GRAFANA_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_GRAFANA_PASSWORD")"
 SUPERUSER_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_SUPERUSER_PASSWORD")"
+PG_SUPERUSER_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_PG_SUPERUSER_PASSWORD")"
 CRUDMAN_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_CRUDMAN_PASSWORD")"
 SQLMESH_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_SQLMESH_PASSWORD")"
 
@@ -227,7 +229,7 @@ fi
 
 # As the release workflow does: only the known tokens, so nginx's $host and Grafana's
 # %(domain)s survive.
-VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${NOTEBOOK_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_USER_PREFIX} ${ROLE_PREFIX} ${SECRET_SUPERUSER_PASSWORD} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD} ${SECRET_DJANGO_KEY} ${SECRET_OIDC_CLIENT} ${SECRET_JUPYTER} ${REPO_MODELS}'
+VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${NOTEBOOK_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${PG_SUPERUSER_ROLE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_USER_PREFIX} ${ROLE_PREFIX} ${SECRET_SUPERUSER_PASSWORD} ${SECRET_PG_SUPERUSER_PASSWORD} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD} ${SECRET_DJANGO_KEY} ${SECRET_OIDC_CLIENT} ${SECRET_JUPYTER} ${REPO_MODELS}'
 for f in quadlets/*; do
   envsubst "$VARS" < "$f" > "$QUADLET_DIR/$(basename "$f")"
 done
@@ -379,6 +381,7 @@ export TEST_SFTP_PORT="$SFTP_PORT"
 export TEST_FLIGHT_PORT="$FLIGHT_PORT"
 export TEST_GRAFANA_PASSWORD="$GRAFANA_PASSWORD"
 export TEST_SUPERUSER_PASSWORD="$SUPERUSER_PASSWORD"
+export TEST_PG_SUPERUSER_PASSWORD="$PG_SUPERUSER_PASSWORD"
 export TEST_CRUDMAN_PASSWORD="$CRUDMAN_PASSWORD"
 export TEST_SQLMESH_PASSWORD="$SQLMESH_PASSWORD"
 
@@ -395,7 +398,7 @@ export TEST_COLLECTOR="$APP_CONFIG_DIR/serverstats/collect.sh"
 # password mounted where settings.py reads the database password from.
 echo "Running the crudman unit tests ..."
 UNIT_SECRET_DIR="$(make_tempdir)"
-podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_SUPERUSER_PASSWORD" \
+podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_PG_SUPERUSER_PASSWORD" \
   > "$UNIT_SECRET_DIR/$SECRET_CRUDMAN_PASSWORD"
 # collectstatic first: the tests render admin pages, and the manifest storage resolves
 # every asset through the manifest the entrypoint builds at startup. UPLOADS_DIR and
@@ -405,7 +408,7 @@ unit_tests() {  # extra podman arguments, e.g. the single sign-on settings
     -v "$UNIT_SECRET_DIR/$SECRET_CRUDMAN_PASSWORD:/run/secrets/$SECRET_CRUDMAN_PASSWORD:ro,Z" \
     -e SECRET_CRUDMAN_PASSWORD="$SECRET_CRUDMAN_PASSWORD" \
     -e POSTGRES_HOST=localhost -e POSTGRES_PORT="$PG_PORT" \
-    -e POSTGRES_USER="$SUPERUSER_NAME" -e POSTGRES_DB="$PG_DATABASE" \
+    -e POSTGRES_USER="$PG_SUPERUSER_ROLE" -e POSTGRES_DB="$PG_DATABASE" \
     -e DB_USER_PREFIX="$DB_USER_PREFIX" \
     -e ROLE_PREFIX="$ROLE_PREFIX" \
     -e UPLOADS_DIR=/tmp/uploads -e SFTP_DIR=/tmp/sftp \

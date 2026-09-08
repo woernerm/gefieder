@@ -345,6 +345,7 @@ create_secret "$SECRET_CRUDMAN_PASSWORD" "$(openssl rand -hex 32)"
 create_secret "$SECRET_SQLMESH_PASSWORD" "$(openssl rand -hex 32)"
 create_secret "$SECRET_GRAFANA_PASSWORD" "$(openssl rand -hex 32)"
 create_secret "$SECRET_JUPYTER"          "$(openssl rand -hex 32)"
+create_secret "$SECRET_PG_SUPERUSER_PASSWORD" "$(openssl rand -hex 32)"
 
 # The one credential this script cannot produce, the identity provider issuing it. Created
 # anyway, because a quadlet whose Secret= names a missing secret refuses to start; the
@@ -552,8 +553,9 @@ ${APP_NAME} Cheat sheet
   Model docs:   ${BASE_URL}/${CRUDMAN_PATH}/docs/
   Model versions: ${BASE_URL}/${CRUDMAN_PATH}/system/deployment/
   Grafana:      ${BASE_URL}/${GRAFANA_PATH}/
-  PostgreSQL:   host=${SERVER_NAME} port=${PG_PORT} dbname=${PG_DATABASE} user=${SUPERUSER_NAME}
-                psql "host=${SERVER_NAME} port=${PG_PORT} dbname=${PG_DATABASE} user=${SUPERUSER_NAME}"
+  PostgreSQL:   host=${SERVER_NAME} port=${PG_PORT} dbname=${PG_DATABASE}
+                Connect as your own database user, which an administrator switches on
+                under Database access; the password is shown at your next sign-in.
 
 ${PORT_SECTION}Follow the combined live log of all components:
   journalctl --user -f -u main-pod -u postgresql -u crudman -u sftp -u flight -u sqlmesh -u grafana -u proxy

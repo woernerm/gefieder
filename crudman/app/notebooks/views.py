@@ -65,10 +65,10 @@ def whoami(request):
 
     if request.method == "POST":
         try:
-            login, password, role = issue_notebook_credential(user)
+            role, password = issue_notebook_credential(user)
         except ValueError as error:
             return JsonResponse({"detail": str(error)}, status=409)
-        identity |= {"db_user": login, "db_password": password, "db_role": role}
+        identity |= {"db_user": role, "db_password": password}
 
     # No-store: the credential must not survive in any cache between here and the hub.
     return JsonResponse(identity, headers={"Cache-Control": "no-store"})

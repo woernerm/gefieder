@@ -18,7 +18,7 @@ Type=oneshot
 Environment=APP_NAME=${APP_NAME}
 # The role, database and schema. Passed rather than left to the collector's fallbacks,
 # which fit only a deployment that kept every default.
-Environment=POSTGRES_USER=${SUPERUSER_NAME}
+Environment=POSTGRES_USER=${PG_SUPERUSER_ROLE}
 Environment=POSTGRES_DB=${PG_DATABASE}
 Environment=SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}
 ExecStart=%h/.config/${APP_NAME}/serverstats/collect.sh

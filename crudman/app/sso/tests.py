@@ -437,8 +437,10 @@ class AdminMenuTests(TestCase):
         for heading in ("Authentication and Authorization", "Accounts", "Social Accounts"):
             self.assertNotIn(heading, self.sections)
 
-    def test_the_heading_holds_users_and_groups_only(self):
-        self.assertEqual(self.sections["Access"], ["Groups", "Users"])
+    def test_the_heading_holds_who_may_sign_in_and_how_they_reach_the_database(self):
+        """Access token is the page a person creates their own token on: how they reach
+        the warehouse from their own machine, which is what this section is about."""
+        self.assertEqual(self.sections["Access"], ["Access token", "Groups", "Users"])
 
     def test_database_access_has_no_section_of_its_own(self):
         """A switch on the user, so a heading would be a second place for one fact."""
@@ -995,12 +997,6 @@ class DatabaseAccessSwitchTests(TestCase):
         self.user = User.objects.create_user("jdoe", password="x", is_staff=True)
         self.user.groups.add(Group.objects.get(name=EDITOR))
 
-        # The form asks PostgreSQL whether the derived role name is taken; with the
-        # database mocked, the answer is pinned to "free".
-        free = patch("sso.admin.unmanaged_role", return_value=None)
-        free.start()
-        self.addCleanup(free.stop)
-
     def _post(self, **overrides):
         """Save the user's change page with the switch in a given position.
 
@@ -1089,30 +1085,6 @@ class DatabaseAccessSwitchTests(TestCase):
 
         with patch("dbusers.utils.connection") as conn:
             self._post(database_access="on", groups=[])
-
-        conn.cursor.assert_not_called()
-        self.assertFalse(DatabaseUser.objects.filter(user=self.user).exists())
-
-    def test_a_role_this_app_did_not_create_is_shown_read_only(self):
-        """The deployment's superuser is a Django account and a PostgreSQL role at once.
-
-        Reporting no access would be a lie, and so would offering to remove it: the
-        provisioning functions refuse a role without the marker they grant.
-        """
-        with patch("sso.admin.unmanaged_role", return_value="admin"):
-            page = self.client.get(
-                reverse("admin:auth_user_change", args=[self.user.pk])
-            )
-
-        field = page.context["adminform"].form.fields["database_access"]
-        self.assertTrue(page.context["adminform"].form["database_access"].value())
-        self.assertTrue(field.disabled)
-        self.assertIn("admin", field.help_text)
-
-    def test_a_role_this_app_did_not_create_is_left_alone_on_save(self):
-        with patch("sso.admin.unmanaged_role", return_value="admin"), \
-                patch("dbusers.utils.connection") as conn:
-            self._post(database_access="on")
 
         conn.cursor.assert_not_called()
         self.assertFalse(DatabaseUser.objects.filter(user=self.user).exists())

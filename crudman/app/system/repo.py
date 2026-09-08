@@ -280,7 +280,18 @@ def _server_env() -> str:
         f"SQLMESH_PORT={os.environ.get('PG_PORT', '5432')}\n"
         f"SQLMESH_DATABASE={os.environ.get('POSTGRES_DB', 'postgres')}\n"
         f"SQLMESH_USER_PREFIX={os.environ.get('DB_USER_PREFIX', '')}\n"
+        # Where a checkout fetches its database password from, with the token the person
+        # created in the admin panel. Https where the deployment serves it, so the token
+        # never crosses a network in the clear.
+        f"SQLMESH_CRUDMAN_URL={_crudman_url()}\n"
     )
+
+
+def _crudman_url() -> str:
+    """The admin panel's own address, as a developer's checkout reaches it."""
+    scheme = "http" if settings.DEBUG else "https"
+    path = os.environ.get("CRUDMAN_PATH", "crudman")
+    return f"{scheme}://{settings.SERVER_NAME}/{path}"
 
 
 def ensure() -> None:

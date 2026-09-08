@@ -56,10 +56,10 @@ ARG PGDUCKDB_IMAGE
 FROM ${PGDUCKDB_IMAGE}
 
 # The base image reads POSTGRES_PASSWORD_FILE to load the password from the mounted podman
-# secret. Which secret is SECRET_SUPERUSER_PASSWORD, passed as a --build-arg, so this and
+# secret. Which secret is SECRET_PG_SUPERUSER_PASSWORD, passed as a --build-arg, so this and
 # the quadlet's Environment= line cannot drift apart.
-ARG SECRET_SUPERUSER_PASSWORD=superuser_password
-ENV POSTGRES_PASSWORD_FILE=/run/secrets/${SECRET_SUPERUSER_PASSWORD}
+ARG SECRET_PG_SUPERUSER_PASSWORD=postgres_password
+ENV POSTGRES_PASSWORD_FILE=/run/secrets/${SECRET_PG_SUPERUSER_PASSWORD}
 
 # The server-statistics schema, as an ENV so the .sh init scripts create the schema under
 # it and the running server carries it for anyone inspecting the image.

@@ -82,7 +82,9 @@ c.Spawner.env_keep = [
 ]
 
 # Straight into JupyterLab, and straight into a server: a person who may be here at all has
-# nothing to decide on a "start my server" page.
+# nothing to decide on a "start my server" page. WorkspaceSpawner narrows this per spawn to
+# the SQLMesh project inside the workspace, the server itself being rooted at the
+# repository so the git panel can find it.
 c.Spawner.default_url = "/lab"
 c.JupyterHub.implicit_spawn_seconds = 1
 

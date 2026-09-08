@@ -24,8 +24,8 @@ BEGIN
                                       '${ROLE_PREFIX}admin',
                                       '${ROLE_PREFIX}person']
     LOOP
-        -- create_db_user would hand out somebody else's login role as one of ours, and
-        -- an unprefixed "admin" is the cluster superuser.
+        -- create_db_user would hand out somebody else's login role as one of ours: the
+        -- ranks share a namespace with the login role each person is provisioned.
         IF EXISTS (SELECT 1 FROM pg_roles
                    WHERE rolname = group_role AND (rolsuper OR rolcanlogin)) THEN
             RAISE EXCEPTION '% is a login role already -- change ROLE_PREFIX', group_role;
@@ -133,8 +133,10 @@ REVOKE ALL ON FUNCTION create_db_user(text, text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION delete_db_user(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION clear_db_user_password(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION drop_db_user(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION issue_db_user_password(text, text, interval) FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION create_db_user(text, text, text) TO ${CRUDMAN_DB_USER};
 GRANT EXECUTE ON FUNCTION delete_db_user(text) TO ${CRUDMAN_DB_USER};
 GRANT EXECUTE ON FUNCTION clear_db_user_password(text) TO ${CRUDMAN_DB_USER};
 GRANT EXECUTE ON FUNCTION drop_db_user(text) TO ${CRUDMAN_DB_USER};
+GRANT EXECUTE ON FUNCTION issue_db_user_password(text, text, interval) TO ${CRUDMAN_DB_USER};

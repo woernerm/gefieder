@@ -5,24 +5,31 @@ the role name derived from their username, and the reconciliation on every login
 functions themselves are covered against the live stack in tests/test_db_users.py, the
 admin switch in sso/tests.py.
 """
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from django.contrib.auth.models import Group, User
-from django.test import TestCase
+from django.contrib.messages.storage.base import BaseStorage
+from django.test import RequestFactory, TestCase
+from django.urls import reverse
 from sso.roles import GROUP_FOR_RANK
 
 from .backends import ScramBackend, get_backend
 from .models import DatabaseUser
+from .signals import sync_on_login
 from .utils import (
     USER_PREFIX,
     db_role_for_user,
+    disable,
     enroll,
-    issue_credential,
+    issue_password,
+    issue_token,
     remove,
     reset,
     role_name_for,
     sync,
     unmanaged_role,
+    user_for_token,
 )
 
 # Derived from the configured prefixes, not the literals they happen to produce at their
@@ -31,6 +38,16 @@ VIEWER = VIEWER_GROUP = GROUP_FOR_RANK["viewer"]
 EDITOR = EDITOR_GROUP = GROUP_FOR_RANK["editor"]
 ADMIN = ADMIN_GROUP = GROUP_FOR_RANK["admin"]
 JDOE = f"{USER_PREFIX}jdoe"
+
+
+class CollectingStorage(BaseStorage):
+    """Message storage that only remembers, for a request built without a session."""
+
+    def _get(self, *args, **kwargs):
+        return [], True
+
+    def _store(self, messages, response, *args, **kwargs):
+        return []
 
 
 class UnmanagedRoleTests(TestCase):
@@ -124,7 +141,6 @@ class SyncTests(TestCase):
             user=self.user,
             role_name=JDOE,
             group_role=VIEWER,
-            awaiting_credential=False,
         )
 
     def test_person_without_an_account_is_left_alone(self):
@@ -186,9 +202,10 @@ class BackendTests(TestCase):
         backend = ScramBackend()
         self.assertNotEqual(backend.make_secret(), backend.make_secret())
 
-    def test_active_backend_is_password_based(self):
-        """Guards the swap point: the admin's one-time password message goes with it."""
-        self.assertTrue(get_backend().issues_secret)
+    def test_active_backend_makes_a_password(self):
+        """Guards the swap point: a backend whose provider held the credential would
+        return None here, and issue_password would set an empty one."""
+        self.assertTrue(get_backend().make_secret())
 
 
 class CredentialHandoverTests(TestCase):
@@ -204,40 +221,66 @@ class CredentialHandoverTests(TestCase):
         self.user.groups.add(Group.objects.get(name=EDITOR_GROUP))
 
     def test_enrolling_creates_the_role_without_a_password(self):
+        """The administrator decides that someone gets access; the password is issued
+        later, to the person's own client, so no administrator ever learns one."""
         with patch("dbusers.utils.connection") as conn:
-            record = enroll(self.user)
+            enroll(self.user)
 
         cursor = conn.cursor.return_value.__enter__.return_value
         sql, params = cursor.execute.call_args[0]
         self.assertIn("create_db_user", sql)
         self.assertEqual(params, [JDOE, None, EDITOR])
-        self.assertTrue(record.awaiting_credential)
 
-    def test_the_password_is_issued_on_the_next_login(self):
+    def test_signing_in_hands_over_no_password(self):
+        """Nothing is shown to copy down: a password is issued when it is about to be
+        used and expires by itself, so a message here would only leak one."""
+        with patch("dbusers.utils.connection"):
+            enroll(self.user)
+
+        request = RequestFactory().get("/")
+        # A bare request has no session, which the configured storage needs.
+        request._messages = CollectingStorage(request)
+
+        with patch("dbusers.utils.connection"):
+            sync_on_login(None, request, self.user)
+
+        self.assertEqual([str(m) for m in request._messages], [])
+
+    def test_issuing_sets_an_expiring_password_on_the_persons_role(self):
         with patch("dbusers.utils.connection"):
             enroll(self.user)
 
         with patch("dbusers.utils.connection") as conn:
-            secret = issue_credential(self.user)
+            cursor = conn.cursor.return_value.__enter__.return_value
+            cursor.fetchone.return_value = (datetime(2030, 1, 1, tzinfo=timezone.utc),)
+            role, secret, expires_at = issue_password(self.user, timedelta(hours=12))
 
-        self.assertIsNotNone(secret)
-        cursor = conn.cursor.return_value.__enter__.return_value
-        _, params = cursor.execute.call_args[0]
+        sql, params = cursor.execute.call_args[0]
+        self.assertIn("issue_db_user_password", sql)
         self.assertEqual(params[0], JDOE)
-        self.assertEqual(params[1], secret, "the issued password must be the one set")
+        self.assertEqual(params[1], secret)
+        self.assertEqual(params[2], timedelta(hours=12))
+        self.assertEqual(role, JDOE)
+        self.assertEqual(expires_at.year, 2030)
 
-    def test_the_password_is_issued_only_once(self):
+    def test_issuing_again_gives_a_different_password(self):
+        """Rotated per use, which is what keeps a leaked one bounded."""
         with patch("dbusers.utils.connection"):
             enroll(self.user)
-            self.assertIsNotNone(issue_credential(self.user))
-            # A new password on every sign-in would invalidate the saved one.
-            self.assertIsNone(issue_credential(self.user))
+
+        with patch("dbusers.utils.connection") as conn:
+            conn.cursor.return_value.__enter__.return_value.fetchone.return_value = (None,)
+            first = issue_password(self.user, timedelta(hours=12))[1]
+            second = issue_password(self.user, timedelta(hours=12))[1]
+
+        self.assertNotEqual(first, second)
 
     def test_nothing_is_stored_anywhere(self):
         """The secret exists only in the return value; no field holds it."""
-        with patch("dbusers.utils.connection"):
+        with patch("dbusers.utils.connection") as conn:
             enroll(self.user)
-            secret = issue_credential(self.user)
+            conn.cursor.return_value.__enter__.return_value.fetchone.return_value = (None,)
+            secret = issue_password(self.user, timedelta(hours=12))[1]
 
         record = DatabaseUser.objects.get(user=self.user)
         stored = " ".join(str(value) for value in record.__dict__.values())
@@ -246,32 +289,23 @@ class CredentialHandoverTests(TestCase):
     def test_someone_without_an_account_is_issued_nothing(self):
         other = User.objects.create(username="someone_else")
         with patch("dbusers.utils.connection"):
-            self.assertIsNone(issue_credential(other))
+            with self.assertRaises(ValueError):
+                issue_password(other, timedelta(hours=12))
 
-    def test_reset_puts_the_account_back_in_the_waiting_state(self):
+    def test_reset_clears_the_password_and_the_token(self):
+        """Clearing the password alone would leave a token able to mint another."""
         with patch("dbusers.utils.connection"):
             enroll(self.user)
-            issue_credential(self.user)
+            issue_token(self.user)
 
         with patch("dbusers.utils.connection") as conn:
             reset(self.user)
 
         cursor = conn.cursor.return_value.__enter__.return_value
         sql, params = cursor.execute.call_args[0]
-        # Cleared straight away, so a leaked password stops working now.
         self.assertIn("clear_db_user_password", sql)
         self.assertEqual(params, [JDOE])
-        self.assertTrue(DatabaseUser.objects.get(user=self.user).awaiting_credential)
-
-    def test_reset_then_login_issues_a_different_password(self):
-        with patch("dbusers.utils.connection"):
-            enroll(self.user)
-            first = issue_credential(self.user)
-            reset(self.user)
-            second = issue_credential(self.user)
-
-        self.assertIsNotNone(second)
-        self.assertNotEqual(first, second)
+        self.assertEqual(DatabaseUser.objects.get(user=self.user).token, "")
 
 
 class NonStaffTests(TestCase):
@@ -332,5 +366,194 @@ class RemovalTests(TestCase):
             remove(self.user)
             record = enroll(self.user)
 
-        self.assertTrue(record.awaiting_credential)
         self.assertEqual(record.role_name, JDOE)
+        self.assertEqual(record.token, "", "a new account starts with no token")
+
+
+class TokenTests(TestCase):
+    """The token a developer's checkout authenticates with.
+
+    One per person, and worth exactly the database access it stands for: it mints a
+    short-lived password for its owner and does nothing else.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user("jdoe", password="x", is_staff=True)
+        self.user.groups.add(Group.objects.get_or_create(name=GROUP_FOR_RANK["editor"])[0])
+        self.record = DatabaseUser.objects.create(
+            user=self.user,
+            role_name="jdoe",
+            group_role=GROUP_FOR_RANK["editor"],
+            is_enabled=True,
+        )
+
+    def test_issuing_replaces_the_previous_token(self):
+        """One per person: creating a new one is how a leaked token is taken back."""
+        first = issue_token(self.user)
+        second = issue_token(self.user)
+
+        self.assertNotEqual(first, second)
+        self.assertIsNone(user_for_token(first))
+        self.assertEqual(user_for_token(second), self.user)
+
+    def test_an_unknown_token_names_nobody(self):
+        self.assertIsNone(user_for_token("nonsense"))
+
+    def test_an_empty_token_names_nobody(self):
+        """A missing Authorization header must not match a person whose token is blank."""
+        self.assertIsNone(user_for_token(""))
+
+    def test_switching_database_access_off_revokes_the_token(self):
+        """The token mints passwords, so it must not outlive the access it stands for."""
+        token = issue_token(self.user)
+
+        with patch("dbusers.utils.connection"):
+            disable(self.record.role_name)
+
+        self.assertIsNone(user_for_token(token))
+
+    def test_a_deactivated_person_holds_no_usable_token(self):
+        """Losing every role in the provider deactivates the account; it must close this
+        door too, not only the admin's."""
+        token = issue_token(self.user)
+        self.user.is_active = False
+        self.user.save()
+
+        self.assertIsNone(user_for_token(token))
+
+
+class PasswordEndpointTests(TestCase):
+    """What a checkout gets when it presents its token."""
+
+    def setUp(self):
+        self.url = reverse("dbusers:password")
+        self.user = User.objects.create_user("jdoe", password="x", is_staff=True)
+        self.user.groups.add(Group.objects.get_or_create(name=GROUP_FOR_RANK["editor"])[0])
+        DatabaseUser.objects.create(
+            user=self.user,
+            role_name="jdoe",
+            group_role=GROUP_FOR_RANK["editor"],
+            is_enabled=True,
+        )
+
+    def _post(self, token):
+        return self.client.post(self.url, headers={"authorization": f"Bearer {token}"})
+
+    def test_a_valid_token_gets_a_password(self):
+        token = issue_token(self.user)
+
+        with patch("dbusers.utils.connection") as connection:
+            connection.cursor.return_value.__enter__.return_value.fetchone.return_value = (
+                datetime(2030, 1, 1, tzinfo=timezone.utc),
+            )
+            answer = self._post(token).json()
+
+        self.assertEqual(answer["db_user"], "jdoe")
+        self.assertTrue(answer["db_password"])
+        self.assertIn("2030", answer["expires_at"])
+
+    def test_an_unknown_token_is_refused(self):
+        self.assertEqual(self._post("nonsense").status_code, 401)
+
+    def test_a_request_without_a_token_is_refused(self):
+        self.assertEqual(self.client.post(self.url).status_code, 401)
+
+    def test_a_request_through_the_proxy_is_answered(self):
+        """Unlike notebooks/whoami, which only the hub inside the pod may call: this one
+        exists for a laptop, so it has to survive the proxy's forwarding header."""
+        token = issue_token(self.user)
+
+        with patch("dbusers.utils.connection") as connection:
+            connection.cursor.return_value.__enter__.return_value.fetchone.return_value = (
+                datetime(2030, 1, 1, tzinfo=timezone.utc),
+            )
+            response = self.client.post(
+                self.url,
+                headers={
+                    "authorization": f"Bearer {token}",
+                    "x-forwarded-for": "203.0.113.7",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_the_password_is_never_cached(self):
+        token = issue_token(self.user)
+
+        with patch("dbusers.utils.connection") as connection:
+            connection.cursor.return_value.__enter__.return_value.fetchone.return_value = (
+                datetime(2030, 1, 1, tzinfo=timezone.utc),
+            )
+            response = self._post(token)
+
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+
+
+class AccessTokenPageTests(TestCase):
+    """The page under Access where a person creates their own token."""
+
+    def setUp(self):
+        self.url = reverse("admin:auth_accesstoken_changelist")
+        self.create_url = reverse("admin:dbusers_accesstoken_create")
+        self.user = User.objects.create_user("jdoe", password="x", is_staff=True)
+        self.user.groups.add(Group.objects.get_or_create(name=GROUP_FOR_RANK["editor"])[0])
+        DatabaseUser.objects.create(
+            user=self.user,
+            role_name="jdoe",
+            group_role=GROUP_FOR_RANK["editor"],
+            is_enabled=True,
+        )
+        self.client.force_login(self.user)
+
+    def test_the_page_is_listed_under_access(self):
+        """The ranks hold no auth permissions, so the default module check would hide the
+        entry from exactly the people the page is for."""
+        page = self.client.get(reverse("admin:index")).content.decode()
+
+        self.assertIn("Access token", page)
+        self.assertIn(self.url, page)
+
+    def test_the_page_offers_a_button_before_any_token_exists(self):
+        page = self.client.get(self.url).content.decode()
+
+        self.assertIn("no token yet", page)
+        self.assertIn(self.create_url, page)
+
+    def test_posting_creates_a_token_and_shows_it_once(self):
+        response = self.client.post(self.create_url)
+        page = response.content.decode()
+
+        token = DatabaseUser.objects.get(user=self.user).token
+        self.assertTrue(token)
+        self.assertIn(token, page)
+
+        # Shown once: coming back to the page must not repeat it.
+        self.assertNotIn(token, self.client.get(self.url).content.decode())
+
+    def test_a_get_creates_nothing(self):
+        """A page view must not invalidate the token a checkout is using."""
+        self.client.get(self.create_url)
+
+        self.assertFalse(DatabaseUser.objects.get(user=self.user).token)
+
+    def test_it_acts_on_the_signed_in_person_alone(self):
+        """An administrator grants the access; the credential is the account holder's."""
+        other = User.objects.create_user("mmustermann", is_staff=True)
+        DatabaseUser.objects.create(
+            user=other,
+            role_name="mmustermann",
+            group_role=GROUP_FOR_RANK["editor"],
+            is_enabled=True,
+        )
+
+        self.client.post(self.create_url)
+
+        self.assertTrue(DatabaseUser.objects.get(user=self.user).token)
+        self.assertFalse(DatabaseUser.objects.get(user=other).token)
+
+    def test_someone_without_an_account_is_told_what_to_ask_for(self):
+        DatabaseUser.objects.filter(user=self.user).delete()
+
+        page = self.client.get(self.url).content.decode()
+
+        self.assertIn("Database access", page)

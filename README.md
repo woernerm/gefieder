@@ -162,7 +162,8 @@ adjust:
 | `REPO_MODELS` | where the analytics models live. The default is a repository the system creates on its own volume, so a fresh installation needs no git host; set it to a git repository to develop the ordinary way (see [Writing analytics models](#writing-analytics-models)) |
 | `REGISTRY` | the path the images are named under, e.g. `ghcr.io/your-org/gefieder` → `…/gefieder/crudman` |
 | `IMAGE_TAG` | the image tag, e.g. `latest` |
-| `SUPERUSER_NAME` | the name of the PostgreSQL, Django and Grafana superuser |
+| `SUPERUSER_NAME` | the name of the Django and Grafana administrator |
+| `PG_SUPERUSER_ROLE` | the PostgreSQL cluster superuser, which nobody logs in as by hand |
 | `SUPERUSER_EMAIL` | the email address of the Django superuser |
 | `SUPERUSER_DEFAULT_PASSWORD` | the password used when the installer's password prompt is left empty |
 | `CRUDMAN_PATH` | the base path of the admin panel, e.g. `crudman` → `https://SERVER_NAME/crudman/` |
@@ -246,6 +247,7 @@ take effect.
 | `grafana_password` | the read-only database user for the Grafana data source |
 | `oidc_client_secret` | the single sign-on client secret, if you use it (see below) |
 | `jupyter_secret` | encrypts the notebook sessions JupyterHub keeps |
+| `postgres_password` | the PostgreSQL cluster superuser, generated at install |
 
 These are the names as shipped. If one of them collides with a podman secret your server
 already has, rename it in `buildtime.env` (the `SECRET_*` settings) and rebuild — the
@@ -553,26 +555,28 @@ step 2.
 
 You need two things, and the link only appears once you have both: the editor rank, and a
 database account an administrator switches on under **Database access** on your user page.
-The `admin` account the system installs with is the exception — it is the database's own
-superuser, so it cannot be given a notebook. Create yourself an ordinary account and use
-that.
 
 **On your own machine**, if you would rather use your own editor. Ask an
-administrator for a database account; they create it in the admin panel under a person's
-**Database access**, and the password is shown to you once, the next time you sign in.
+administrator for a database account; they switch it on in the admin panel under a
+person's **Database access**.
 
-Then clone the models and install SQLMesh:
+Then create an access token for yourself: sign in to the admin panel and follow
+**Access token** in the sidebar. It is shown to you once.
 
 ```bash
 git clone <the address on the Model versions page> models
 cd models/sqlmesh
 uv sync                                       # creates .venv
-echo "SQLMESH_PASSWORD=<your password>" > .env
+echo "SQLMESH_TOKEN=<your token>" > .env
 ```
 
-`.env` is gitignored and holds the only thing that is yours alone. Nothing else needs
-configuring: the repository carries a `server.env` naming this system's address and
-database, and `config.py` reads it.
+`.env` is gitignored and holds the only thing that is yours alone. SQLMesh fetches a
+database password with the token and renews it by itself, so no password is ever stored on
+your machine. Nothing else needs configuring: the repository carries a `server.env` naming
+this system's address and database, and `config.py` reads it.
+
+If you lose the token, or it ends up somewhere it should not, create a new one on the same
+page — the old one stops working. Switching your database access off does the same.
 
 For the editor, install the **SQLMesh** extension, then run *Python: Select Interpreter*
 from the command palette and pick `.venv/bin/python` — the extension needs an
@@ -717,21 +721,32 @@ podman exec sqlmesh sqlmesh test          # run a SQLMesh command on the deploye
 
 ## Connecting directly
 - **Admin panel / Grafana**: log in with `SUPERUSER_NAME` and the `superuser_password`.
-- **PostgreSQL** (with the same password): the pod publishes `PG_PORT` (5432), so reporting
-  tools and the tools that fill the bronze schemas connect straight to `SERVER_NAME`:
+- **PostgreSQL**: the pod publishes `PG_PORT` (5432), so reporting tools and the tools that
+  fill the bronze schemas connect straight to `SERVER_NAME`. Connect as your own database
+  user, which an administrator switches on under **Database access**.
+
+  There is no standing password. Ask for one with the access token from your **Access
+  token** page; it lasts twelve hours, and asking again replaces it:
 
   ```bash
-  psql "host=SERVER_NAME port=PG_PORT dbname=PG_DATABASE user=SUPERUSER_NAME"
+  curl -s -X POST https://SERVER_NAME/crudman/dbusers/password/ \
+       -H "Authorization: Bearer <your token>"
   ```
-
-  On the server itself you can also skip the network:
 
   ```bash
-  podman exec -it postgresql psql -U SUPERUSER_NAME -d PG_DATABASE
+  psql "host=SERVER_NAME port=PG_PORT dbname=PG_DATABASE user=<your user>"
   ```
 
-  `SUPERUSER_NAME` is `admin` and `PG_DATABASE` is `postgres` unless you changed them
-  in `buildtime.env`.
+  SQLMesh does this for you, so a clone of the models repository needs only the token.
+
+  On the server itself you can also skip the network, as the cluster superuser:
+
+  ```bash
+  podman exec -it postgresql psql -U PG_SUPERUSER_ROLE -d PG_DATABASE
+  ```
+
+  `PG_SUPERUSER_ROLE` is `postgres` and `PG_DATABASE` is `postgres` unless you changed
+  them in `buildtime.env`.
 
 ## Using custom ports
 The system is published on ports 80 and 443 for the web services, 5432 for the database,

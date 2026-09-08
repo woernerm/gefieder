@@ -20,15 +20,10 @@ corresponds to a commit somebody can point at.
   accounts exist; single sign-on, the ranks and offboarding are configured once, there.
 - **Admit an editor and above who has a database account.** Writing models means writing
   the warehouse, which is the line the rest of this system draws between a viewer and an
-  editor; the account is what the notebook's own credential is a sibling of. Both are
+  editor; the account is the role the notebook's credential is issued on. Both are
   required together, so the link the admin panel offers and the spawn that follows agree --
   a link that then fails is worse than no link. Anyone refused is told which of the two they
   are missing and what to do about it, never the rule that was broken.
-- **Say plainly that the deployment's superuser is not among them.** Their Django username
-  maps onto the cluster superuser role, which this system does not manage and whose password
-  is a podman secret: handing it to a spawned process would put a superuser credential in a
-  user-writable environment. They administer; they develop models under an account of their
-  own.
 - **Give each person their own everything**: Unix account, home, working tree, database
   login. Two people's work, credentials and kernels are separated by the kernel rather than
   by convention, and a query is traceable to a person in `pg_stat_activity` and the
@@ -98,11 +93,13 @@ the reason `dbusers/requirements.md` records: promoting is a view swap in the sa
 developer must write to in order to plan at all. The control is the same one -- production
 is normally reached by pushing a commit, and a revert deploys just as fast.
 
-**It does not give the notebook login rights of its own.** It is a member of the person's
-role and nothing more; the session assumes that role, which SQLMesh does per cursor from its
-`role` connection setting. Making the role the login's own connection-time default would
-need no client setting at all, and PostgreSQL refuses it: `ALTER ROLE ... SET role` cannot be
-issued inside a security-definer function, and creating a role requires one.
+**It does not give a notebook a login of its own.** A server connects as the person's own
+role, so `current_user` is them without anything being assumed or granted between two
+accounts. What makes that safe to put in a process environment is the expiry: the password
+is rotated at every spawn and stops working by itself (`issue_db_user_password` in
+`postgresql/initdb/gf_0003`). A session already open outlives its password, PostgreSQL
+checking credentials only at connect time, so the bound is on how long a leaked one is
+useful, not on the session it was made for.
 
 **It does not add a link through Unfold's settings.** `SIDEBAR["navigation"]` replaces the
 app list with whatever it is given, hiding every registered model, and `SITE_DROPDOWN`

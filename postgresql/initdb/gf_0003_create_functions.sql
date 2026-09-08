@@ -58,9 +58,9 @@ $$;
 -- disabling, clearing or dropping one takes a component down. Their names are valid
 -- identifiers like any other, so nothing but this check stops a caller passing one.
 --
--- Derived rather than listed, the superuser's name being configurable: a hardcoded
--- 'postgres' would protect a role that does not exist here. The application roles are
--- recognised by owning the database's schemas, the superuser by rolsuper.
+-- Derived rather than listed, the superuser's name being configurable (PG_SUPERUSER_ROLE):
+-- a hardcoded 'postgres' would protect a role that does not exist here. The application
+-- roles are recognised by owning the database's schemas, the superuser by rolsuper.
 CREATE OR REPLACE FUNCTION is_protected_role(role_name text)
 RETURNS boolean
 LANGUAGE sql
@@ -224,9 +224,6 @@ BEGIN
             RAISE EXCEPTION 'refusing to modify %, which is not a provisioned user role', user_name;
         END IF;
 
-        -- Their notebook login is a working credential of its own, so it goes with them.
-        -- Resolved at run time: gf_0009 defines it and runs after this script.
-        EXECUTE 'SELECT drop_notebook_login($1)' USING user_name;
         EXECUTE format('ALTER ROLE %I NOLOGIN', user_name);
         EXECUTE format('REVOKE ${ROLE_PREFIX}viewer FROM %I', user_name);
         EXECUTE format('REVOKE ${ROLE_PREFIX}editor FROM %I', user_name);
@@ -271,6 +268,69 @@ END;
 $$;
 
 
+-- A password that expires, issued on a person's own role.
+--
+-- What a notebook server connects with, and what a developer's checkout fetches instead of
+-- keeping a standing password. The role is the person's own, so current_user inside the
+-- session is them: every table a plan creates is owned by them, their rank applies
+-- unchanged, and nothing has to be granted between two accounts of theirs.
+--
+-- VALID UNTIL is the whole of the expiry. It stops new connections once the deadline
+-- passes; a session already open survives it, PostgreSQL checking credentials only at
+-- connect time. That is the same property the credential this replaced had, and the reason
+-- a leaked password is bounded rather than harmless.
+--
+-- Issuing replaces whatever password the role had, so a person holds one credential at a
+-- time: opening a notebook invalidates the one their laptop fetched, and the laptop fetches
+-- a fresh one on its next run.
+CREATE OR REPLACE FUNCTION issue_db_user_password(
+    user_name text,
+    user_password text,
+    -- How long the password stays usable. Passed rather than fixed here, the caller being
+    -- the one that knows whether this is a notebook or a checkout.
+    valid_for interval
+)
+RETURNS timestamptz
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+    expires_at timestamptz := clock_timestamp() + valid_for;
+BEGIN
+    PERFORM public.validate_identifier(user_name, 'user_name');
+
+    -- A service role's password is a podman secret its container reads at start, so
+    -- rotating one here would take that component down at its next restart.
+    IF is_protected_role(user_name) THEN
+        RAISE EXCEPTION 'refusing to modify the service role %', user_name;
+    END IF;
+
+    IF NOT is_db_user(user_name) THEN
+        RAISE EXCEPTION '% is not a provisioned user role', user_name;
+    END IF;
+
+    -- delete_db_user takes LOGIN away to lock somebody out, so re-granting it here would
+    -- undo an offboarding. Issuing is for an account that may already connect; restoring
+    -- one is create_db_user's deliberate act.
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = user_name AND rolcanlogin) THEN
+        RAISE EXCEPTION '% is disabled', user_name;
+    END IF;
+
+    IF user_password IS NULL OR length(user_password) < 12 THEN
+        RAISE EXCEPTION 'user_password must be at least 12 characters long';
+    END IF;
+
+    EXECUTE format(
+        'ALTER ROLE %I PASSWORD %L VALID UNTIL %L',
+        user_name, user_password, expires_at
+    );
+
+    RETURN expires_at;
+END;
+$$;
+
+
 -- Remove a person's database role entirely.
 --
 -- The destructive counterpart to delete_db_user, for an account created by mistake or a
@@ -299,9 +359,6 @@ BEGIN
             RAISE EXCEPTION 'refusing to drop %, which is not a provisioned user role', user_name;
         END IF;
 
-        -- Before the person's own role: the notebook login is a member of it, and
-        -- PostgreSQL refuses to drop a role another still depends on.
-        EXECUTE 'SELECT drop_notebook_login($1)' USING user_name;
         EXECUTE format('DROP OWNED BY %I CASCADE', user_name);
         EXECUTE format('DROP ROLE %I', user_name);
         RAISE NOTICE 'Database user % dropped', user_name;

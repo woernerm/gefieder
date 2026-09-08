@@ -190,11 +190,9 @@ class CrudmanAuthenticator(LocalAuthenticator):
         # credential into the next person's server.
         spawner.environment = {
             **spawner.environment,
+            # The person's own role, so current_user in the notebook is them.
             "SQLMESH_USER": identity["db_user"],
             "SQLMESH_PASSWORD": identity["db_password"],
-            # The role the session assumes, which is what makes current_user the person
-            # rather than the notebook login they connected as.
-            "SQLMESH_ROLE": identity["db_role"],
             # What the git panel signs a commit with, so history names a person rather
             # than a Unix account.
             "GIT_AUTHOR_NAME": identity["name"],

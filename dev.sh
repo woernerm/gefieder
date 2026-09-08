@@ -51,7 +51,7 @@ PG_PORT="${ARG_PG_PORT:-5432}"
 SFTP_PORT="${ARG_SFTP_PORT:-2222}"
 # The dropzones Arrow Flight endpoint, likewise.
 FLIGHT_PORT="${ARG_FLIGHT_PORT:-8815}"
-PG_USER="${SUPERUSER_NAME}"
+PG_USER="${PG_SUPERUSER_ROLE}"
 PG_DB="${PG_DATABASE}"
 # On WSL "localhost" often resolves to ::1 first, which podman's pasta networking does not
 # bind, so the IPv4 loopback is named explicitly here and in the summary.
@@ -157,6 +157,9 @@ create_service_secrets
 # A dev-only convenience.
 podman secret rm "$SECRET_SUPERUSER_PASSWORD" >/dev/null 2>&1 || true
 printf '%s' "$SUPERUSER_DEFAULT_PASSWORD" | podman secret create "$SECRET_SUPERUSER_PASSWORD" - >/dev/null
+# The cluster superuser is nobody's login, so a fixed dev value buys nothing.
+podman secret rm "$SECRET_PG_SUPERUSER_PASSWORD" >/dev/null 2>&1 || true
+printf '%s' "$SUPERUSER_DEFAULT_PASSWORD" | podman secret create "$SECRET_PG_SUPERUSER_PASSWORD" - >/dev/null
 
 # --- volumes --------------------------------------------------------------------------
 # Created up front so the rootless user owns their contents, as install.sh does.

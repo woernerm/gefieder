@@ -9,7 +9,7 @@ thing a person either has or does not, alongside active and staff status.
 """
 import logging
 
-from dbusers.utils import db_role_for_user, enroll, remove, unmanaged_role
+from dbusers.utils import db_role_for_user, enroll, remove
 from django import forms
 from django.conf import settings
 from django.contrib import admin, messages
@@ -110,20 +110,8 @@ class UserWithDatabaseAccessForm(UserChangeForm):
         if user.pk is None:
             return
 
-        # A role of that name may exist without being ours -- the deployment's superuser
-        # is the plain case. The person reaches the database through it, so the switch is
-        # on, and read-only because the provisioning functions refuse a foreign role.
-        existing = unmanaged_role(user)
-        if existing:
-            self.fields["database_access"].initial = True
-            self.fields["database_access"].disabled = True
-            self.fields["database_access"].help_text = (
-                f'User "{existing}" is the database superuser. It cannot be removed.'
-            )
-            return
-
-        # The password is handed over at the next sign-in here, so someone who cannot
-        # reach the admin would never learn it. Staff status first, saved, then this.
+        # The access token is created here, so someone who cannot reach the admin could
+        # never fetch a password. Staff status first, saved, then this.
         if not user.is_staff:
             self.fields["database_access"].disabled = True
             self.fields["database_access"].help_text = (

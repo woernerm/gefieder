@@ -2,10 +2,10 @@
 
 Two boundaries are worth guarding against the running stack. The route has to refuse a
 visitor who is not signed in rather than showing them a login form of its own, since the
-whole design rests on crudman being the only place accounts exist. And the sibling login a
-server connects with has to *be* the person -- a session that reported some other
-current_user would break the ownership every plan depends on, and one that outlived the
-person's account would be a credential nobody is watching.
+whole design rests on crudman being the only place accounts exist. And the credential a
+server connects with has to be the person's own role, bounded in time -- a password that
+never expired would be a standing credential in a process environment, and one issued on
+some other role would break the ownership every plan depends on.
 """
 from pathlib import Path
 
@@ -26,29 +26,28 @@ from conftest import (
 REPO = Path(__file__).resolve().parents[1]
 
 PERSON = f"{DB_USER_PREFIX}itest_notebook"
-NOTEBOOK = f"{PERSON}_nb"
 PASSWORD = "itest-notebook-password"
 EDITOR_ROLE = f"{ROLE_PREFIX}editor"
-MARKER_ROLE = f"{ROLE_PREFIX}person"
 
 
-def role_exists(conn, name):
-    with conn.cursor() as cur:
-        cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (name,))
-        return cur.fetchone() is not None
+def connect(user, password):
+    """A connection as one database role, for asserting a credential works or does not."""
+    return psycopg2.connect(
+        host="localhost", port=PG_PORT, dbname=PG_DATABASE,
+        user=user, password=password,
+    )
 
 
 @pytest.fixture
 def person(crudman_db, admin_db):
-    """A provisioned person with a notebook login, removed either side of the test."""
+    """A provisioned person, removed either side of the test."""
 
     def drop():
         with admin_db.cursor() as cur:
-            for name in (NOTEBOOK, PERSON):
-                cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (name,))
-                if cur.fetchone():
-                    cur.execute(f'DROP OWNED BY "{name}" CASCADE')
-                    cur.execute(f'DROP ROLE "{name}"')
+            cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (PERSON,))
+            if cur.fetchone():
+                cur.execute(f'DROP OWNED BY "{PERSON}" CASCADE')
+                cur.execute(f'DROP ROLE "{PERSON}"')
 
     drop()
     with crudman_db.cursor() as cur:
@@ -110,110 +109,122 @@ def test_the_spawn_environment_carries_the_connection_settings():
         assert f"Environment={name}=" in quadlet, f"{name} is kept but never set"
 
 
-def test_create_notebook_login_provisions_a_sibling(crudman_db, admin_db, person):
-    with crudman_db.cursor() as cur:
-        cur.execute("SELECT create_notebook_login(%s, %s)", (person, PASSWORD))
-        assert cur.fetchone()[0] == NOTEBOOK
-
-    assert role_exists(admin_db, NOTEBOOK)
-    with admin_db.cursor() as cur:
-        cur.execute(
-            """
-            SELECT g.rolname FROM pg_auth_members m
-            JOIN pg_roles g ON g.oid = m.roleid
-            JOIN pg_roles u ON u.oid = m.member
-            WHERE u.rolname = %s
-            """,
-            (NOTEBOOK,),
-        )
-        memberships = {row[0] for row in cur.fetchall()}
-    assert person in memberships, "the notebook login carries the person's rights"
-    assert MARKER_ROLE in memberships, "it must be recognisable as one of ours"
-
-
-def test_a_notebook_session_can_become_the_person(crudman_db, person):
+def test_a_notebook_connects_as_the_person(crudman_db, person):
     """The point of the whole arrangement: a table a plan creates in a notebook is owned
-    by the person, exactly as if they had connected from a laptop.
-
-    The session assumes the role, which is what SQLMesh's "role" connection setting does
-    on every cursor (sqlmesh/config.py). Membership is what permits it, and that is what
-    create_notebook_login grants."""
+    by the person, exactly as if they had connected from a laptop. There is no second
+    account to assume, so current_user is simply them."""
     with crudman_db.cursor() as cur:
-        cur.execute("SELECT create_notebook_login(%s, %s)", (person, PASSWORD))
+        cur.execute(
+            "SELECT issue_db_user_password(%s, %s, %s)",
+            (person, PASSWORD + "-issued", "12 hours"),
+        )
 
-    conn = psycopg2.connect(
-        host="localhost", port=PG_PORT, dbname=PG_DATABASE,
-        user=NOTEBOOK, password=PASSWORD,
-    )
+    conn = connect(person, PASSWORD + "-issued")
     try:
         with conn.cursor() as cur:
-            cur.execute(f'SET ROLE "{person}"')
             cur.execute("SELECT current_user, session_user")
             current, session = cur.fetchone()
     finally:
         conn.close()
 
-    assert current == person, "current_user must be the person, not the notebook login"
-    assert session == NOTEBOOK, "and the connection is still traceable as a notebook"
+    assert current == person
+    assert session == person
 
 
 def test_the_rank_reaches_a_notebook_session(crudman_db, person):
     """The rank hangs off the person's role, so an editor may write where an editor may."""
     with crudman_db.cursor() as cur:
-        cur.execute("SELECT create_notebook_login(%s, %s)", (person, PASSWORD))
+        cur.execute(
+            "SELECT issue_db_user_password(%s, %s, %s)",
+            (person, PASSWORD + "-issued", "12 hours"),
+        )
 
-    conn = psycopg2.connect(
-        host="localhost", port=PG_PORT, dbname=PG_DATABASE,
-        user=NOTEBOOK, password=PASSWORD,
-    )
+    conn = connect(person, PASSWORD + "-issued")
     try:
         with conn.cursor() as cur:
-            cur.execute(f'SET ROLE "{person}"')
             cur.execute(f"SELECT pg_has_role(current_user, '{EDITOR_ROLE}', 'USAGE')")
             assert cur.fetchone()[0]
     finally:
         conn.close()
 
 
-def test_rotating_replaces_the_password(crudman_db, person):
+def test_issuing_replaces_the_previous_password(crudman_db, person):
     """Rotated at every spawn, which is what makes a credential in a process environment
     acceptable: the previous one stops working."""
     with crudman_db.cursor() as cur:
-        cur.execute("SELECT create_notebook_login(%s, %s)", (person, PASSWORD))
-        cur.execute("SELECT create_notebook_login(%s, %s)", (person, PASSWORD + "-new"))
-
-    with pytest.raises(psycopg2.OperationalError):
-        psycopg2.connect(
-            host="localhost", port=PG_PORT, dbname=PG_DATABASE,
-            user=NOTEBOOK, password=PASSWORD,
+        cur.execute(
+            "SELECT issue_db_user_password(%s, %s, %s)", (person, PASSWORD + "-a", "12 hours")
+        )
+        cur.execute(
+            "SELECT issue_db_user_password(%s, %s, %s)", (person, PASSWORD + "-b", "12 hours")
         )
 
+    with pytest.raises(psycopg2.OperationalError):
+        connect(person, PASSWORD + "-a")
 
-def test_disabling_the_person_removes_the_notebook_login(crudman_db, admin_db, person):
-    """Offboarding must not leave a working credential behind. The person's own role is
-    disabled rather than dropped, so nothing here can be inferred from its absence."""
+
+def test_an_expired_password_stops_working(crudman_db, person):
+    """The whole of the expiry: past the deadline PostgreSQL refuses the password, so a
+    credential left in an environment stops being useful without anyone revoking it."""
     with crudman_db.cursor() as cur:
-        cur.execute("SELECT create_notebook_login(%s, %s)", (person, PASSWORD))
-        cur.execute("SELECT delete_db_user(%s)", (person,))
+        cur.execute(
+            "SELECT issue_db_user_password(%s, %s, %s)",
+            (person, PASSWORD + "-expired", "-1 second"),
+        )
 
-    assert not role_exists(admin_db, NOTEBOOK)
-    assert role_exists(admin_db, person), "the person keeps what they own"
+    with pytest.raises(psycopg2.OperationalError):
+        connect(person, PASSWORD + "-expired")
 
 
-def test_dropping_the_person_removes_the_notebook_login(crudman_db, admin_db, person):
-    """And the destructive path too, where the sibling's membership would otherwise make
-    PostgreSQL refuse the drop."""
+def test_the_expiry_is_reported(crudman_db, person):
+    """The caller caches the password until it expires, so it has to be told when."""
     with crudman_db.cursor() as cur:
-        cur.execute("SELECT create_notebook_login(%s, %s)", (person, PASSWORD))
-        cur.execute("SELECT drop_db_user(%s)", (person,))
+        cur.execute(
+            "SELECT issue_db_user_password(%s, %s, %s)",
+            (person, PASSWORD + "-issued", "12 hours"),
+        )
+        expires_at = cur.fetchone()[0]
+        cur.execute("SELECT now()")
+        assert expires_at > cur.fetchone()[0]
 
-    assert not role_exists(admin_db, NOTEBOOK)
-    assert not role_exists(admin_db, person)
 
-
-def test_a_service_role_gets_no_notebook(crudman_db):
-    """The deployed engine is not a person, and a login defaulting into it would hand
-    production's rights to whoever spawned the server."""
+def test_a_service_role_gets_no_password(crudman_db):
+    """A service role's password is a podman secret its container reads at start, so
+    rotating one here would take that component down at its next restart."""
     with crudman_db.cursor() as cur:
         with pytest.raises(psycopg2.errors.RaiseException):
-            cur.execute("SELECT create_notebook_login(%s, %s)", (SQLMESH_DB_USER, PASSWORD))
+            cur.execute(
+                "SELECT issue_db_user_password(%s, %s, %s)",
+                (SQLMESH_DB_USER, PASSWORD, "12 hours"),
+            )
+
+
+def test_an_unprovisioned_role_gets_no_password(crudman_db, admin_db):
+    """Only a role carrying the marker create_db_user grants, so this cannot mint a
+    credential for a role somebody made by hand."""
+    with admin_db.cursor() as cur:
+        cur.execute("DROP ROLE IF EXISTS itest_outsider")
+        cur.execute("CREATE ROLE itest_outsider LOGIN")
+
+    try:
+        with crudman_db.cursor() as cur:
+            with pytest.raises(psycopg2.errors.RaiseException):
+                cur.execute(
+                    "SELECT issue_db_user_password(%s, %s, %s)",
+                    ("itest_outsider", PASSWORD, "12 hours"),
+                )
+    finally:
+        with admin_db.cursor() as cur:
+            cur.execute("DROP ROLE IF EXISTS itest_outsider")
+
+
+def test_a_disabled_person_gets_no_password(crudman_db, person):
+    """Offboarding takes LOGIN away; issuing must not hand it back, or a token still in
+    somebody's .env would reactivate an account an administrator closed."""
+    with crudman_db.cursor() as cur:
+        cur.execute("SELECT delete_db_user(%s)", (person,))
+        with pytest.raises(psycopg2.errors.RaiseException):
+            cur.execute(
+                "SELECT issue_db_user_password(%s, %s, %s)",
+                (person, PASSWORD + "-issued", "12 hours"),
+            )

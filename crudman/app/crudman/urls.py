@@ -26,6 +26,8 @@ urlpatterns = [
     # What JupyterHub authenticates its visitors against, so the notebooks have no
     # accounts of their own.
     path(f"{CRUDMAN_PATH}/notebooks/", include("notebooks.urls")),
+    # Where a developer's checkout exchanges its token for a database password.
+    path(f"{CRUDMAN_PATH}/dbusers/", include("dbusers.urls")),
     # The admin's own login address, claimed so an unauthenticated visitor is sent to the
     # identity provider instead of a form. Django redirects here by name, so nothing else
     # needs to change.

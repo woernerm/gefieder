@@ -68,7 +68,7 @@ So the two move together.
 |---|---|
 | `crudman/app/notebooks/views.py` | the hub reads exactly these fields out of the answer, so a renamed key is a spawn that fails with a KeyError |
 | `jupyter/crudman.py` | the other half of that contract, and the only place the session cookie is presented back |
-| `postgresql/initdb/gf_0009_*.sql` | the sibling login and its `SET role`, which is what makes a notebook session *be* the person. `gf_0003`'s `delete_db_user` and `drop_db_user` call `drop_notebook_login` from here, so the two files are ordered as well as related |
+| `postgresql/initdb/gf_0003_*.sql` | `issue_db_user_password` is what a spawn calls: it puts an expiring password on the person's *own* role, so a notebook session simply is them. `crudman/app/dbusers/views.py` calls it too, for a developer's checkout |
 | `jupyter/spawn.py` | the Unix account is named as `dbusers.utils.role_name_for` names the database role — that is what lets `sqlmesh/config.py` derive the connection unchanged. A change to either derivation is a change to both |
 | `jupyter/requirements.txt` | what the workflow itself depends on; `JUPYTER_EXTENSIONS` in `buildtime.env` is the operator's list and a **build-time setting**, so that table applies |
 | `jupyter/tests/` | run inside the image by `run-tests.sh`, against `sqlmesh/models/` — the round trip that keeps opening a model from rewriting it |
@@ -188,7 +188,9 @@ app's own `post_migrate` fires and `create_role_groups` hands them out when `sso
 The three ranks (`viewer`, `editor`, `admin`) are named once, in `sso.roles.RANKS`, and
 `ROLE_PREFIX` goes in front of all of them: it names the Django group that carries the
 permissions and the database group role `gf_0008` creates, which is why the two are spelled
-the same. `DB_USER_PREFIX` is unrelated — it prefixes the login role of a person.
+the same. `DB_USER_PREFIX` is unrelated — it prefixes the login role of a person, and the
+two must stay distinct: a person named after a rank would otherwise be provisioned the
+rank's own group role, which `gf_0008` refuses to start on at the next boot.
 Both are in `buildtime.env`; `crudman.container` passes them in, dev included.
 
 `GROUP_ACTIONS` in `sso/roles.py` is what a rank may do, so adding a rank is an edit there

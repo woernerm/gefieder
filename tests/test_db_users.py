@@ -22,7 +22,7 @@ from conftest import (
     PG_DATABASE,
     SILVER_SCHEMA,
     SQLMESH_DB_USER,
-    SUPERUSER_NAME,
+    PG_SUPERUSER_ROLE,
 )
 
 # Spelled from the configured prefix: a hardcoded name would pass against a deployment
@@ -201,9 +201,9 @@ def test_delete_db_user_disables_without_dropping(crudman_db, admin_db, cleanup)
     assert memberships(admin_db, VIEWER) == {MARKER_ROLE}, "privileges are revoked on offboarding"
 
 
-# The roles the provisioning functions must refuse. SUPERUSER_NAME names the superuser
-# rather than "postgres", which is the case a hardcoded list would miss.
-SERVICE_ROLES = (SUPERUSER_NAME, CRUDMAN_DB_USER, SQLMESH_DB_USER, GRAFANA_DB_USER)
+# The roles the provisioning functions must refuse. PG_SUPERUSER_ROLE is configurable,
+# which is the case a hardcoded list would miss.
+SERVICE_ROLES = (PG_SUPERUSER_ROLE, CRUDMAN_DB_USER, SQLMESH_DB_USER, GRAFANA_DB_USER)
 
 
 def test_service_roles_are_protected(crudman_db):
@@ -217,12 +217,12 @@ def test_service_roles_are_protected(crudman_db):
 def test_the_configured_superuser_is_recognised(admin_db):
     """is_protected_role derives the superuser rather than assuming it is called "postgres".
 
-    SUPERUSER_NAME is configurable, so a listed name would protect a role that does not
-    exist here and leave the real superuser reachable.
+    PG_SUPERUSER_ROLE is configurable, so a listed name would protect a role that does
+    not exist here and leave the real superuser reachable.
     """
     with admin_db.cursor() as cur:
-        cur.execute("SELECT is_protected_role(%s)", (SUPERUSER_NAME,))
-        assert cur.fetchone()[0], f"{SUPERUSER_NAME} must be recognised as protected"
+        cur.execute("SELECT is_protected_role(%s)", (PG_SUPERUSER_ROLE,))
+        assert cur.fetchone()[0], f"{PG_SUPERUSER_ROLE} must be recognised as protected"
 
         cur.execute("SELECT is_protected_role(%s)", (VIEWER,))
         assert not cur.fetchone()[0], "a provisioned account must not be protected"

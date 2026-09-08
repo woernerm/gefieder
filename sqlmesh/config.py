@@ -11,7 +11,9 @@ next to this file. Do not reintroduce one.
 import getpass
 import os
 import re
+from datetime import timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 
 from dotenv import dotenv_values
 from sqlmesh.core.config import (
@@ -36,11 +38,78 @@ The secret is mounted only in the container, so unlike a hostname or an environm
 variable its presence cannot accidentally be true elsewhere.
 """
 
-# A role the session assumes after connecting, empty everywhere but in a notebook on the
-# server. There the login is a sibling of the person's own role (<person>_nb, see
-# postgresql/initdb/gf_0009) and assuming that role is what makes current_user the person,
-# so a table a plan creates is owned by them rather than by a second account of theirs.
-role = os.environ.get("SQLMESH_ROLE") or None
+CACHE = Path.home() / ".cache" / "sqlmesh" / "password.json"
+"""Where a fetched password waits until it expires, so one run in ten fetches.
+
+Under the home directory rather than beside the project: it is this machine's credential,
+not part of the checkout, and a clone copied elsewhere must not carry it.
+"""
+
+LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "[::1]"})
+"""Where plain http is the dev stack on this machine rather than a network hop."""
+
+
+def fetch_password(url: str, token: str) -> str:
+    """Get a database password from the admin panel, or reuse the cached one.
+
+    Args:
+        url: The admin panel's base address, from server.env.
+        token: The token its owner created there.
+
+    Returns:
+        The password, cached under the home directory until it expires.
+
+    Raises:
+        ValueError: No token, or the panel refused it.
+    """
+    import json
+    import urllib.request
+    from datetime import datetime, timezone
+
+    if not token:
+        raise ValueError(
+            "SQLMESH_TOKEN is not set. Create one in the admin panel under Database "
+            "access and write it to sqlmesh/.env, which is never committed."
+        )
+
+    # A cached password is reused until it is nearly spent, a plan being long enough that
+    # one expiring mid-run would fail halfway.
+    if CACHE.exists():
+        cached = json.loads(CACHE.read_text())
+        expires = datetime.fromisoformat(cached["expires_at"])
+        if cached.get("url") == url and expires - datetime.now(timezone.utc) > timedelta(
+            minutes=5
+        ):
+            return cached["db_password"]
+
+    # Https everywhere but a stack on this machine, where dev.sh serves plain http and
+    # nothing leaves the loopback. Anywhere else the token would cross a network in the
+    # clear, so this refuses rather than warning.
+    parsed = urlparse(url)
+    if parsed.scheme != "https" and parsed.hostname not in LOCAL_HOSTS:
+        raise ValueError(
+            f"{url} is not https. The token would cross the network in the clear; "
+            "point SQLMESH_CRUDMAN_URL at the https address."
+        )
+
+    request = urllib.request.Request(
+        f"{url.rstrip('/')}/dbusers/password/",
+        method="POST",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            answer = json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode(errors="replace")
+        raise ValueError(f"{url} refused the token ({error.code}): {detail}") from error
+
+    CACHE.parent.mkdir(parents=True, exist_ok=True)
+    CACHE.write_text(json.dumps({**answer, "url": url}))
+    # Readable by nobody else: it holds a working credential until it expires.
+    CACHE.chmod(0o600)
+    return answer["db_password"]
+
 
 if IN_CONTAINER:
     # The quadlet sets these; the pod shares one network namespace, so the database is
@@ -74,6 +143,13 @@ else:
             # A build-time setting; the quadlet fills POSTGRES_DB from the same value.
             "SQLMESH_DATABASE": buildtime_env["PG_DATABASE"],
             "SQLMESH_USER_PREFIX": buildtime_env.get("DB_USER_PREFIX", "gf_"),
+            # Where the token is exchanged for a password. Http only because this branch
+            # is a checkout beside a local stack; a deployment writes the https address
+            # into server.env instead.
+            "SQLMESH_CRUDMAN_URL": (
+                f"http://{runtime_env['SERVER_NAME']}"
+                f"/{buildtime_env.get('CRUDMAN_PATH', 'crudman')}"
+            ),
         }
 
     def setting(name: str) -> str:
@@ -83,16 +159,6 @@ else:
     host = setting("SQLMESH_HOST")
     port = int(setting("SQLMESH_PORT"))
     database = setting("SQLMESH_DATABASE")
-    # SQLMesh loads sqlmesh/.env before importing this file, so an exported variable and
-    # the gitignored file both work.
-    password = os.environ.get("SQLMESH_PASSWORD")
-    if not password:
-        raise ValueError(
-            "SQLMESH_PASSWORD is not set. Export it or write it to sqlmesh/.env. "
-            "It is the password of your own database account, issued once when an "
-            "administrator provisioned it in crudman under Database access."
-        )
-
     # Developers connect as themselves, so the shared sqlmesh secret never leaves the
     # server, a query stays traceable to a person and a departure is one role disabled.
     # The name is derived as crudman derives it when provisioning (dbusers.utils.
@@ -103,6 +169,14 @@ else:
         role_prefix
         + re.sub(r"[^a-z0-9]+", "_", getpass.getuser().strip().lower()).strip("_")
     )[:50]
+
+    # SQLMesh loads sqlmesh/.env before importing this file, so an exported variable and
+    # the gitignored file both work. A password set by hand still wins, which is what
+    # keeps a stack without the admin panel reachable usable.
+    password = os.environ.get("SQLMESH_PASSWORD") or fetch_password(
+        setting("SQLMESH_CRUDMAN_URL"), os.environ.get("SQLMESH_TOKEN", "")
+    )
+
 
 def attach_path(**settings: object) -> str:
     """Build the libpq connection string DuckDB attaches PostgreSQL with.
@@ -144,7 +218,6 @@ config = Config(
                 database=database,
                 user=user,
                 password=password,
-                role=role,
             )
         ),
         # DuckDB as the compute engine, PostgreSQL as the storage: the same database is
@@ -167,10 +240,6 @@ config = Config(
                             port=port,
                             user=user,
                             password=password,
-                            # DuckDB opens a connection of its own, which the gateway
-                            # above knows nothing about, so the role is asked for in the
-                            # libpq string instead.
-                            **({"options": f"-c role={role}"} if role else {}),
                         ),
                     )
                 },

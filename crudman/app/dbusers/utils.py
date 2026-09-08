@@ -5,6 +5,8 @@ role needs CREATEROLE, which crudman does not have and should not be given.
 """
 import os
 import re
+import secrets
+from datetime import datetime, timedelta
 
 from django.db import connection, transaction
 from sso.roles import GROUP_FOR_RANK, RANKS
@@ -38,10 +40,9 @@ def role_name_for(username: str) -> str:
 def unmanaged_role(user) -> str | None:
     """The role a user already reaches the database through, when it is not ours to manage.
 
-    A derived name can land on a role this app did not create -- the deployment's
-    superuser is a Django account and a PostgreSQL role at once. The provisioning
-    functions refuse to touch a role without their marker, so the switch reports the
-    access without offering to remove it.
+    A derived name can land on a role this app did not create -- a service role, or one an
+    operator made by hand. The provisioning functions refuse to touch a role without their
+    marker, so this is what tells a caller before one of them raises.
 
     Args:
         user: The Django user.
@@ -88,12 +89,12 @@ def db_role_for_user(user) -> str | None:
 
 
 def enroll(user) -> "DatabaseUser":
-    """Create a user's database role without a credential, ready to be claimed.
+    """Create a user's database role, with no password of its own.
 
-    The administrator's half of provisioning: they decide *that* someone gets database
-    access, while ``issue_credential`` generates the password on that person's next
-    sign-in. So no administrator learns a password that is not theirs. Under
-    scram-sha-256 a role carrying no password cannot authenticate.
+    The administrator decides *that* someone gets database access; the password comes
+    later and belongs to the person alone -- ``issue_password``, called by a notebook
+    spawn or by their own checkout. So no administrator ever learns one, and under
+    scram-sha-256 the role cannot connect until its owner asks for a password.
 
     Args:
         user: The Django user to enroll.
@@ -118,7 +119,8 @@ def enroll(user) -> "DatabaseUser":
     # would promise access that does not exist.
     with transaction.atomic():
         with connection.cursor() as cursor:
-            # A NULL password is what "not claimed yet" looks like in the database.
+            # NULL: the role exists and holds its rank, but cannot connect until its
+            # owner has a password issued to them.
             cursor.execute(
                 "SELECT create_db_user(%s, %s, %s)", [role_name, None, group_role]
             )
@@ -129,62 +131,17 @@ def enroll(user) -> "DatabaseUser":
                 "role_name": role_name,
                 "group_role": group_role,
                 "is_enabled": True,
-                "awaiting_credential": True,
             },
         )
 
     return record
 
 
-def issue_credential(user) -> str | None:
-    """Generate and set the password for a role that is waiting for one.
-
-    Called from the login signal, so the account's owner is the one looking at the
-    screen.
-
-    Args:
-        user: The Django user signing in.
-
-    Returns:
-        The secret, unrecoverable afterwards: PostgreSQL keeps only a SCRAM verifier and
-        this app keeps nothing. None when there is nothing to issue -- no account, one
-        already claimed, or a backend whose provider holds the credential.
-    """
-    from .models import DatabaseUser
-
-    record = DatabaseUser.objects.filter(user=user, awaiting_credential=True).first()
-    if record is None:
-        return None
-
-    backend = get_backend()
-    if not backend.issues_secret:
-        # Nothing to hand over, so the account is claimed the moment it is enrolled.
-        record.awaiting_credential = False
-        record.save(update_fields=["awaiting_credential", "provisioned_on"])
-        return None
-
-    secret = backend.make_secret()
-
-    with transaction.atomic():
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT create_db_user(%s, %s, %s)",
-                [record.role_name, secret, record.group_role],
-            )
-
-        record.awaiting_credential = False
-        record.is_enabled = True
-        record.save(
-            update_fields=["awaiting_credential", "is_enabled", "provisioned_on"]
-        )
-
-    return secret
-
-
 def reset(user) -> None:
-    """Put a role back into the waiting state so a new password is issued on next sign-in.
+    """Clear a person's database password and the token that would mint another.
 
-    The old password is cleared immediately, so a leaked credential stops working now.
+    For a credential that reached the wrong place. Both halves go together: clearing the
+    password alone would leave a token able to issue a fresh one immediately.
 
     Args:
         user: The Django user whose credential is reset.
@@ -204,8 +161,93 @@ def reset(user) -> None:
                 "SELECT clear_db_user_password(%s)", [record.role_name]
             )
 
-        record.awaiting_credential = True
-        record.save(update_fields=["awaiting_credential", "provisioned_on"])
+        record.token = ""
+        record.save(update_fields=["token", "provisioned_on"])
+
+
+def issue_password(user, valid_for: timedelta) -> tuple[str, str, datetime]:
+    """Set a fresh, expiring password on a person's own database role.
+
+    What a notebook spawn and a developer's checkout both call. The role is the person's
+    own, so there is no second account to grant anything between: current_user in the
+    session is them.
+
+    Issuing replaces the previous password, so a person holds one at a time. That is what
+    keeps a leaked one bounded, and why the caller is expected to be the person's own
+    client rather than something that hands the result on.
+
+    Args:
+        user: The Django user whose role gets the password.
+        valid_for: How long it stays usable.
+
+    Returns:
+        The person's role name, the password, and the instant it expires.
+
+    Raises:
+        ValueError: The person has no usable database account. Provisioning one is an
+            administrator's deliberate act, so this reports rather than creates.
+    """
+    from .models import DatabaseUser
+
+    record = DatabaseUser.objects.filter(user=user, is_enabled=True).first()
+    if record is None:
+        raise ValueError(
+            f"{user.username} has no database account. An administrator switches Database "
+            "access on for them."
+        )
+
+    password = get_backend().make_secret()
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT issue_db_user_password(%s, %s, %s)",
+            [record.role_name, password, valid_for],
+        )
+        return record.role_name, password, cursor.fetchone()[0]
+
+
+def issue_token(user) -> str:
+    """Create or replace the token a person's checkout authenticates with.
+
+    One per person: issuing again invalidates whatever they had, which is how a token that
+    reached the wrong place is taken back without touching their account.
+
+    Args:
+        user: The Django user the token belongs to.
+
+    Returns:
+        The token, shown once. Only its owner ever sees it.
+
+    Raises:
+        ValueError: The user has no database account to attach it to.
+    """
+    from .models import DatabaseUser
+
+    record = DatabaseUser.objects.filter(user=user).first()
+    if record is None:
+        raise ValueError(f"{user.username} has no database account.")
+
+    record.token = secrets.token_urlsafe(32)
+    record.save(update_fields=["token", "provisioned_on"])
+    return record.token
+
+
+def user_for_token(token: str):
+    """Whose token this is, if it is anyone's.
+
+    Args:
+        token: The token presented by a checkout.
+
+    Returns:
+        The Django user, or None. A disabled account matches nothing, so switching Database
+        access off revokes the token by the same click.
+    """
+    from .models import DatabaseUser
+
+    if not token:
+        return None
+
+    record = DatabaseUser.objects.filter(token=token, is_enabled=True).first()
+    return record.user if record and record.user.is_active else None
 
 
 def disable(role_name: str) -> None:
@@ -223,7 +265,10 @@ def disable(role_name: str) -> None:
         with connection.cursor() as cursor:
             cursor.execute("SELECT delete_db_user(%s)", [role_name])
 
-        DatabaseUser.objects.filter(role_name=role_name).update(is_enabled=False)
+        # The token mints passwords, so it must not outlive the access it stands for.
+        DatabaseUser.objects.filter(role_name=role_name).update(
+            is_enabled=False, token=""
+        )
 
 
 def sync(user) -> None:

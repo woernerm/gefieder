@@ -13,7 +13,12 @@ from django.urls import reverse
 from sso.roles import GROUP_FOR_RANK
 
 from .context_processors import NOTEBOOK_PATH
-from .utils import issue_notebook_credential, may_use_notebooks, refusal
+from .utils import (
+    CREDENTIAL_LIFETIME,
+    issue_notebook_credential,
+    may_use_notebooks,
+    refusal,
+)
 
 
 def make_user(username, group=None, **flags):
@@ -31,7 +36,6 @@ def enrolled(user):
         role_name=f"gf_{user.username}",
         group_role=GROUP_FOR_RANK["editor"],
         is_enabled=True,
-        awaiting_credential=False,
     )
 
 
@@ -69,18 +73,9 @@ class RankTests(TestCase):
         self.assertTrue(may_use_notebooks(user))
 
     def test_an_editor_without_a_database_account_may_not(self):
-        """The rank alone is not enough: the notebook login is a sibling of an account
-        that has to be there. Offering a link that then fails to spawn is worse than
-        offering none -- which is what the deployment's superuser used to get."""
+        """The rank alone is not enough: the credential is issued on a role that has to
+        exist. Offering a link that then fails to spawn is worse than offering none."""
         self.assertFalse(may_use_notebooks(make_user("editor", GROUP_FOR_RANK["editor"])))
-
-    def test_an_unclaimed_account_is_not_enough(self):
-        """Until the password is issued the role cannot connect at all."""
-        user = make_user("editor", GROUP_FOR_RANK["editor"])
-        record = enrolled(user)
-        record.awaiting_credential = True
-        record.save()
-        self.assertFalse(may_use_notebooks(user))
 
     def test_deactivated_editor_may_not(self):
         """Losing every role in the provider deactivates the account; it must close this
@@ -104,41 +99,46 @@ class RefusalTests(TestCase):
         message = refusal(make_user("editor", GROUP_FOR_RANK["editor"]))
         self.assertIn("Database access", message)
 
-    def test_an_unclaimed_account_is_told_to_sign_in_again(self):
-        user = make_user("editor", GROUP_FOR_RANK["editor"])
-        record = enrolled(user)
-        record.awaiting_credential = True
-        record.save()
-        self.assertIn("sign", refusal(user).lower())
-
 
 class CredentialTests(TestCase):
     """Rotating the login a notebook server connects with."""
 
-    def test_calls_the_database_function_with_the_persons_role(self):
+    def test_issues_on_the_persons_own_role(self):
+        """There is no second account: the notebook connects as the person, so what a
+        plan creates is owned by them."""
         user = make_user("editor", GROUP_FOR_RANK["editor"])
         record = enrolled(user)
 
-        with patch("notebooks.utils.connection") as connection:
+        with patch("dbusers.utils.connection") as connection:
             cursor = connection.cursor.return_value.__enter__.return_value
-            cursor.fetchone.return_value = (f"{record.role_name}_nb",)
-            login, password, role = issue_notebook_credential(user)
+            cursor.fetchone.return_value = (None,)
+            role, password = issue_notebook_credential(user)
 
         sql, args = cursor.execute.call_args[0]
-        self.assertIn("create_notebook_login", sql)
+        self.assertIn("issue_db_user_password", sql)
         self.assertEqual(args[0], record.role_name)
         self.assertEqual(args[1], password)
-        self.assertEqual(login, f"{record.role_name}_nb")
-        self.assertEqual(role, record.role_name, "the session assumes the person's role")
+        self.assertEqual(role, record.role_name)
 
-    def test_password_is_new_every_time(self):
-        """A credential in a process environment is safe because it does not outlive the
-        session it was made for."""
+    def test_the_password_expires(self):
+        """A credential in a process environment is acceptable because it is bounded."""
         user = make_user("editor", GROUP_FOR_RANK["editor"])
         enrolled(user)
 
-        with patch("notebooks.utils.connection") as connection:
-            connection.cursor.return_value.__enter__.return_value.fetchone.return_value = ("r",)
+        with patch("dbusers.utils.connection") as connection:
+            cursor = connection.cursor.return_value.__enter__.return_value
+            cursor.fetchone.return_value = (None,)
+            issue_notebook_credential(user)
+
+        self.assertEqual(cursor.execute.call_args[0][1][2], CREDENTIAL_LIFETIME)
+
+    def test_password_is_new_every_time(self):
+        """Rotated at every spawn, so the previous one stops working."""
+        user = make_user("editor", GROUP_FOR_RANK["editor"])
+        enrolled(user)
+
+        with patch("dbusers.utils.connection") as connection:
+            connection.cursor.return_value.__enter__.return_value.fetchone.return_value = (None,)
             first = issue_notebook_credential(user)[1]
             second = issue_notebook_credential(user)[1]
 
@@ -147,17 +147,6 @@ class CredentialTests(TestCase):
     def test_refuses_without_a_database_account(self):
         """Provisioning one is an administrator's deliberate act, so this reports."""
         user = make_user("editor", GROUP_FOR_RANK["editor"])
-        with self.assertRaises(ValueError):
-            issue_notebook_credential(user)
-
-    def test_refuses_while_the_password_is_unclaimed(self):
-        """The role cannot connect until the person has signed in and claimed it, so a
-        notebook login built on it would be a working credential for a dead account."""
-        user = make_user("editor", GROUP_FOR_RANK["editor"])
-        record = enrolled(user)
-        record.awaiting_credential = True
-        record.save()
-
         with self.assertRaises(ValueError):
             issue_notebook_credential(user)
 
@@ -254,15 +243,12 @@ class WhoamiTests(TestCase):
         enrolled(user)
         self.client.login(username="editor", password="x")
 
-        with patch("notebooks.utils.connection") as connection:
-            connection.cursor.return_value.__enter__.return_value.fetchone.return_value = (
-                "gf_editor_nb",
-            )
+        with patch("dbusers.utils.connection") as connection:
+            connection.cursor.return_value.__enter__.return_value.fetchone.return_value = (None,)
             answer = self.client.post(self.url).json()
 
-        self.assertEqual(answer["db_user"], "gf_editor_nb")
+        self.assertEqual(answer["db_user"], "gf_editor")
         self.assertTrue(answer["db_password"])
-        self.assertEqual(answer["db_role"], "gf_editor")
 
     def test_post_without_an_account_explains_itself(self):
         """Refused before the credential is even attempted, since a database account is
@@ -281,8 +267,8 @@ class WhoamiTests(TestCase):
         enrolled(user)
         self.client.login(username="editor", password="x")
 
-        with patch("notebooks.utils.connection") as connection:
-            connection.cursor.return_value.__enter__.return_value.fetchone.return_value = ("r",)
+        with patch("dbusers.utils.connection") as connection:
+            connection.cursor.return_value.__enter__.return_value.fetchone.return_value = (None,)
             response = self.client.post(self.url)
 
         self.assertEqual(response.headers["Cache-Control"], "no-store")

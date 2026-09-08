@@ -94,7 +94,10 @@ class WorkspaceSpawner(LocalProcessSpawner):
         account = pwd.getpwnam(self.user.name)
         self._refresh_skeleton(account)
         workspace = self._clone(account)
-        # Lab opens on the SQLMesh project rather than the repository root, so the tree in
-        # the file browser is the one the models live in.
-        self.notebook_dir = str(workspace / PROJECT)
+        # The repository root, not the SQLMesh project inside it: the git panel looks for
+        # .git at or below the server's root directory, and rooting one level down leaves
+        # it reporting no repository at all. Lab still opens on the project, through
+        # default_url below, so the file browser lands where the models are.
+        self.notebook_dir = str(workspace)
+        self.default_url = f"/lab/tree/{PROJECT}"
         return super().start()

@@ -46,13 +46,18 @@ class DatabaseUser(models.Model):
         help_text="Disabled roles keep everything they own but cannot connect.",
     )
 
-    # An administrator enrolls someone, but the credential is generated on that person's
-    # next sign-in and shown to them alone. Until then the role cannot connect.
-    awaiting_credential = models.BooleanField(
-        "awaiting credential",
-        default=True,
+    # What a developer's checkout authenticates with to fetch a password of its own. A
+    # credential of this system's making rather than their sign-in: it does one thing --
+    # mint a short-lived database password for its owner -- so a laptop never stores the
+    # account that administers the system. Cleared when database access is switched off,
+    # which is what revoking it means.
+    token = models.CharField(
+        "access token",
+        max_length=64,
+        blank=True,
+        default="",
         editable=False,
-        help_text="The password is issued on the user's next sign-in, once, to them.",
+        help_text="Authenticates a developer's checkout when it fetches a password.",
     )
 
     provisioned_on = models.DateTimeField("provisioned", auto_now=True)
@@ -64,3 +69,20 @@ class DatabaseUser(models.Model):
 
     def __str__(self):
         return self.role_name
+
+
+class AccessToken(DatabaseUser):
+    """The token page, as a model so the admin lists it under Access.
+
+    A proxy of DatabaseUser rather than a table of its own: the token is a field on that
+    row, and this exists only to give the sidebar an entry. Its changelist is replaced by
+    the page a person creates their own token on.
+    """
+
+    class Meta:
+        proxy = True
+        # Beside the users and groups the section is about, rather than a heading of its
+        # own for a single page.
+        app_label = "auth"
+        verbose_name = "access token"
+        verbose_name_plural = "Access token"

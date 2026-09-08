@@ -34,7 +34,7 @@ build_image() {  # engine, service
     --build-arg "DOCKER_IO_MIRROR=${DOCKER_IO_MIRROR}" \
     --build-arg "GHCR_IO_MIRROR=${GHCR_IO_MIRROR}" \
     --build-arg "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}" \
-    --build-arg "SECRET_SUPERUSER_PASSWORD=${SECRET_SUPERUSER_PASSWORD}" \
+    --build-arg "SECRET_PG_SUPERUSER_PASSWORD=${SECRET_PG_SUPERUSER_PASSWORD}" \
     --build-arg "DUCKDB_EXTENSIONS=${DUCKDB_EXTENSIONS}" \
     --build-arg "GRAFANA_PLUGINS=${GRAFANA_PLUGINS}" \
     --build-arg "GRAFANA_MCP_TOOLS=${GRAFANA_MCP_TOOLS}" \
