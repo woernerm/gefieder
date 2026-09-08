@@ -10,6 +10,7 @@ interfaces:
 
 - an **administration panel** (Django) for entering and editing organizational data
 - **Grafana dashboards** with the database already wired up as a read-only data source
+- **notebooks** (JupyterLab) for writing and trying out the analytics models in the browser
 
 This README walks you from nothing to a running system: first locally on your own
 machine, then deployed on a server, followed by reference sections for the settings,
@@ -125,7 +126,7 @@ builds through `build.sh`, so CI and a developer build identically.
 
 ## The containers
 The system is a single pod (named after `APP_NAME`, `gefieder` by default; the pod file
-is `main.pod`, so the systemd unit is `main-pod.service`) of seven containers:
+is `main.pod`, so the systemd unit is `main-pod.service`) of eight containers:
 
 - `postgresql` — the database holding the engineering, analytics and application data,
   published on `PG_PORT` (5432 by default) so external tools can read and write it
@@ -139,7 +140,9 @@ is `main.pod`, so the systemd unit is `main-pod.service`) of seven containers:
   data source and the extra panel types from `GRAFANA_PLUGINS` ready to use
 - `grafana_mcp` — the Grafana MCP server, which lets an AI assistant read and change Grafana on
   your behalf (see [AI assistant access](#ai-assistant-access))
-- `proxy` — an nginx reverse proxy that serves the admin panel and Grafana under
+- `jupyter` — JupyterHub, giving each person a notebook for writing analytics models
+  (see [Writing analytics models](#writing-analytics-models))
+- `proxy` — an nginx reverse proxy that serves the admin panel, Grafana and the notebooks under
   `SERVER_NAME` and publishes the pod's ports 80/443
 
 The unit files live in `quadlets/` as templates with `${...}` tokens. The release
@@ -165,12 +168,14 @@ adjust:
 | `CRUDMAN_PATH` | the base path of the admin panel, e.g. `crudman` → `https://SERVER_NAME/crudman/` |
 | `GRAFANA_PATH` | the base path of Grafana, e.g. `grafana` → `https://SERVER_NAME/grafana/` |
 | `MCP_PATH` | the base path of the AI assistant endpoint, e.g. `ai/grafana_mcp` → `https://SERVER_NAME/ai/grafana_mcp/mcp`. The `/ai/` prefix leaves room for further assistant endpoints beside it |
+| `NOTEBOOK_PATH` | the base path of the notebooks, e.g. `jupyter` → `https://SERVER_NAME/jupyter/` |
 | `PG_DATABASE` | the database everything lives in; change it if the cluster already has one named `postgres` |
 | `SERVER_STATS_SCHEMA` | the schema that holds the server-usage and query statistics (see [Server statistics](#server-statistics)) |
 | `SERVER_STATS_INTERVAL` | how often, in seconds, the server statistics are sampled (default 60) |
 | `DUCKDB_EXTENSIONS` | the DuckDB extensions baked into the database image, comma-separated; they are downloaded at build time, so the server needs no internet access to use them |
 | `GRAFANA_PLUGINS` | the extra panel types baked into the Grafana image, comma-separated plugin ids; downloaded at build time as well, so the dashboards can use them offline |
 | `GRAFANA_MCP_TOOLS` | what an AI assistant may ask the system to do, comma-separated (see [AI assistant access](#ai-assistant-access)) |
+| `JUPYTER_EXTENSIONS` | extra JupyterLab extensions baked into the notebook image, comma-separated package names; empty by default, and downloaded at build time like the two lists above |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | company proxy for image builds (empty = direct) |
 | `PYTHON_INDEX` | additional Python package index for the build, e.g. a company mirror (empty = PyPI) |
 | `DOCKER_IO_MIRROR`, `GHCR_IO_MIRROR` | where the build pulls its base images from; set them to a company mirror if `docker.io` and `ghcr.io` are slow to reach |
@@ -240,6 +245,7 @@ take effect.
 | `sqlmesh_password` | the database user the analytics engine connects with |
 | `grafana_password` | the read-only database user for the Grafana data source |
 | `oidc_client_secret` | the single sign-on client secret, if you use it (see below) |
+| `jupyter_secret` | encrypts the notebook sessions JupyterHub keeps |
 
 These are the names as shipped. If one of them collides with a podman secret your server
 already has, rename it in `buildtime.env` (the `SECRET_*` settings) and rebuild — the
@@ -256,7 +262,7 @@ Their access is decided by three roles, which you assign to people at the provid
 | Role | In Grafana | In the admin panel |
 | --- | --- | --- |
 | `Viewer` | may look at dashboards | may look at the data |
-| `Editor` | may build dashboards | may add and change data |
+| `Editor` | may build dashboards | may add and change data, and use the notebooks |
 | `Admin` | full access | full access |
 
 Someone who signs in successfully but holds none of the three is refused rather than let in
@@ -406,10 +412,13 @@ user owns their contents):
 - `sftp_data` — the host key of the SFTP upload endpoint, so uploaders' SFTP clients
   keep trusting the server across updates
 - `proxy_data` — the page-visit records the server statistics are built from
-- `models_data` — the analytics models: the working tree the engine runs and, unless
-  `REPO_MODELS` points at a git host, the repository itself. **Back this one up.** With
-  the default setting it is the only copy of your models and their history; with a git
-  host configured it is a clone and can be thrown away
+- `models_data` — the analytics models: the working tree the engine runs, everyone's
+  notebook workspaces and, unless `REPO_MODELS` points at a git host, the repository
+  itself. **Back this one up.** With the default setting it is the only copy of your models
+  and their history; with a git host configured it is a clone and can be thrown away, apart
+  from work in a notebook that has not been pushed yet
+- `jupyter_data` — the notebook homes and JupyterHub's own state; removing it costs a
+  sign-in, not any work
 
 They survive stopping the stack. Inspect them with `podman volume ls`. To delete the
 data, remove the volume explicitly, e.g. `podman volume rm postgresql_data`.
@@ -533,8 +542,22 @@ own git host — GitHub, GitLab, anything `git clone` accepts — and that becom
 commit on `main`. It takes the editor rank, choosing what production computes being a
 change rather than a reading.
 
-### 1. Set up your machine
-You work on your own machine and connect to the server's database over the network. Ask an
+### 1. Choose where you work
+There are two ways to write models, and they are the same models in the same repository.
+
+**In the browser.** Open the admin panel and follow **Notebooks** at the bottom of the
+sidebar, or go to `https://SERVER_NAME/jupyter/` directly. You are already signed in, and
+everything is set up for you: your own copy of the models, a database connection of your
+own, and the git panel on the left to commit and push with. Nothing to install. Skip to
+step 2.
+
+You need two things, and the link only appears once you have both: the editor rank, and a
+database account an administrator switches on under **Database access** on your user page.
+The `admin` account the system installs with is the exception — it is the database's own
+superuser, so it cannot be given a notebook. Create yourself an ordinary account and use
+that.
+
+**On your own machine**, if you would rather use your own editor. Ask an
 administrator for a database account; they create it in the admin panel under a person's
 **Database access**, and the password is shown to you once, the next time you sign in.
 
@@ -562,6 +585,14 @@ Open `models/gold/issue_metrics.sql` and add a column to the query — say
 `AVG(effort) AS average_effort`. Models are plain SQL wrapped in a `MODEL (...)` block
 that names the model and says how it is materialized: `VIEW` for the thin harmonizing
 layer, `FULL` for the gold tables dashboards read, `SEED` for the example CSVs.
+
+In the notebooks a model opens as a notebook: the file is one cell, and running it
+(Shift+Enter) checks the definition, shows the SQL it compiles to and the first rows it
+produces. Ctrl+S saves it back as the same `.sql` file, so what you commit is SQL and
+nothing is generated behind your back. Add cells below to explore — a cell starting with
+`SELECT` returns a table, and `%evaluate <model>` runs a model and shows its rows. Prose
+written in a cell above the definition becomes the model's description on the documentation
+pages. Notebooks with charts and saved output belong in `notebooks/` beside the models.
 
 ### 3. Plan it into your own environment
 A *plan* compares your files against a target environment and shows what would change

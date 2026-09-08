@@ -1,0 +1,74 @@
+# JupyterHub: a JupyterLab per person, for developing the analytics models.
+#
+# Reached at /${NOTEBOOK_PATH}/ through the proxy, never on a port of its own: it listens on
+# the pod's loopback at 8888, with the hub on 8081 and its routing proxy's API on 8082 (see
+# jupyter/jupyterhub_config.py, where those are chosen clear of 8000, 8001 and 3000). It has no
+# accounts: crudman authenticates every visitor (see crudman/app/notebooks/), so the
+# notebooks inherit single sign-on, the ranks and the offboarding without configuring any
+# of it a second time.
+[Unit]
+Description=${APP_NAME} JupyterHub (model development notebooks)
+# It authenticates against crudman and clones the workspaces crudman creates the repository
+# for. Only a hint: the entrypoint waits for both itself.
+After=postgresql.service
+After=crudman.service
+
+[Container]
+ContainerName=jupyter
+Pod=main.pod
+Image=${REGISTRY}/jupyter:${IMAGE_TAG}
+Notify=healthy
+# The hub spawns a proxy and one server per person; an init at PID 1 reaps them and
+# forwards the stop signal, or they outlive the container.
+RunInit=true
+# The host's timezone rather than the image's UTC, so a date a notebook prints and one
+# journald stamps read the same. The routing proxy the hub spawns is unaffected either way:
+# it stamps its own lines in UTC with a trailing "Z" and offers no setting for it, which is
+# unambiguous rather than wrong -- tests/test_logs.py records that exception.
+Timezone=local
+# Where the proxy serves it, so the hub's base_url matches the path the browser used.
+Environment=NOTEBOOK_PATH=${NOTEBOOK_PATH}
+# Whom to ask who a visitor is. The admin panel's own path, on the localhost the pod
+# shares.
+Environment=CRUDMAN_PATH=${CRUDMAN_PATH}
+# What a workspace is cloned from -- the same repository crudman deploys from, so a push
+# from a notebook is deployed by the ordinary poll.
+Environment=REPO_MODELS=${REPO_MODELS}
+Environment=MODELS_DIR=/var/lib/app/models
+# The prefix on the login roles crudman provisions. The Unix account a server runs as
+# carries the same name, which is what lets sqlmesh/config.py derive the connection.
+Environment=DB_USER_PREFIX=${DB_USER_PREFIX}
+# What a developer's clone connects to, as crudman writes it into the repository. The
+# notebook is on the pod's localhost, so it uses the in-pod port rather than the published
+# one; the personal credential arrives from crudman at spawn time.
+Environment=SQLMESH_HOST=localhost
+Environment=SQLMESH_PORT=5432
+Environment=SQLMESH_DATABASE=${PG_DATABASE}
+# Read-write, unlike the engine's mount: each person's workspace lives here under
+# workspaces/, which is what that directory was reserved for. The deployed tree beside it
+# stays crudman's alone.
+Volume=models_data.volume:/var/lib/app/models:z
+# The uploads the bronze models read, at the path the database rows name, so a model
+# evaluates in a notebook exactly as it does in the engine.
+Volume=uploads_data.volume:/var/lib/app/uploads:ro,z
+# Homes, the hub's state and its cookie secret. Losing it costs a re-login and a re-clone,
+# not data: everything that matters has been pushed.
+Volume=jupyter_data.volume:/var/lib/app/jupyter:z
+# So the code reading the file back out of /run/secrets looks for the name podman put
+# there (see SECRET_* in buildtime.env).
+Environment=SECRET_JUPYTER=${SECRET_JUPYTER}
+Secret=${SECRET_JUPYTER}
+# The hub's own API. Any answer below 500 counts: it redirects an unauthenticated caller to
+# the admin panel, and following that would test crudman instead. Single-quoted, quadlet
+# mangling a double-quoted -c argument.
+HealthCmd=python3 -c 'import http.client,os; c=http.client.HTTPConnection("127.0.0.1",8888,timeout=5); c.request("GET","/"+os.environ["NOTEBOOK_PATH"]+"/hub/health"); raise SystemExit(0 if c.getresponse().status<500 else 1)'
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=5
+HealthStartPeriod=60s
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

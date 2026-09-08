@@ -224,6 +224,9 @@ BEGIN
             RAISE EXCEPTION 'refusing to modify %, which is not a provisioned user role', user_name;
         END IF;
 
+        -- Their notebook login is a working credential of its own, so it goes with them.
+        -- Resolved at run time: gf_0009 defines it and runs after this script.
+        EXECUTE 'SELECT drop_notebook_login($1)' USING user_name;
         EXECUTE format('ALTER ROLE %I NOLOGIN', user_name);
         EXECUTE format('REVOKE ${ROLE_PREFIX}viewer FROM %I', user_name);
         EXECUTE format('REVOKE ${ROLE_PREFIX}editor FROM %I', user_name);
@@ -296,6 +299,9 @@ BEGIN
             RAISE EXCEPTION 'refusing to drop %, which is not a provisioned user role', user_name;
         END IF;
 
+        -- Before the person's own role: the notebook login is a member of it, and
+        -- PostgreSQL refuses to drop a role another still depends on.
+        EXECUTE 'SELECT drop_notebook_login($1)' USING user_name;
         EXECUTE format('DROP OWNED BY %I CASCADE', user_name);
         EXECUTE format('DROP ROLE %I', user_name);
         RAISE NOTICE 'Database user % dropped', user_name;

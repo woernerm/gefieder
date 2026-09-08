@@ -160,7 +160,8 @@ printf '%s' "$SUPERUSER_DEFAULT_PASSWORD" | podman secret create "$SECRET_SUPERU
 
 # --- volumes --------------------------------------------------------------------------
 # Created up front so the rootless user owns their contents, as install.sh does.
-for vol in postgresql_data grafana_data sftp_data proxy_data uploads_data models_data; do
+for vol in postgresql_data grafana_data sftp_data proxy_data uploads_data models_data \
+           jupyter_data; do
   podman volume exists "$vol" || podman volume create "$vol" >/dev/null
 done
 
@@ -212,6 +213,10 @@ run_quadlet grafana \
 # credentials arrive with each request rather than from the environment.
 run_quadlet grafana_mcp
 
+# Likewise: it authenticates against crudman on the pod's localhost, and the database it
+# hands each notebook is the in-pod one whatever port the stack publishes.
+run_quadlet jupyter
+
 # DEBUG=true picks the plain-HTTP template, so the certificate directory the quadlet
 # mounts is only created for the mount to resolve.
 mkdir -p "$(quadlet_expand "$CERTIFICATE_PATH" | sed "s|%h|${HOME}|g")"
@@ -231,6 +236,7 @@ ${APP_NAME} is starting in development mode (plain HTTP, no certificate).
   Model docs:   http://${HOST_ADDR}:${HTTP_PORT}/${CRUDMAN_PATH}/docs/
   Versions:     http://${HOST_ADDR}:${HTTP_PORT}/${CRUDMAN_PATH}/system/deployment/
   Grafana:      http://${HOST_ADDR}:${HTTP_PORT}/${GRAFANA_PATH}/
+  Notebooks:    http://${HOST_ADDR}:${HTTP_PORT}/${NOTEBOOK_PATH}/
   Login:        ${SUPERUSER_NAME} / ${SUPERUSER_DEFAULT_PASSWORD}
 
   PostgreSQL:   host=${HOST_ADDR} port=${PG_PORT} dbname=${PG_DB} user=${PG_USER}

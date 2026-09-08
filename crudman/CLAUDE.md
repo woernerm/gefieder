@@ -13,6 +13,8 @@ non-admin, non-technical users.
    Apache Arrow Flight protocol and others, pipeline for checking and converting data.
 - `app/sso/` — OpenID Connect login via allauth
 - `app/docs/` — the deployed models, described; reads the export from the deployment row
+- `app/notebooks/` — what JupyterHub authenticates its visitors against, and where the
+   database login a notebook server connects with is issued. No admin page of its own.
 - `app/example/` — an empty scaffold; Perfect to quickly spin up forms for non-technical 
    users to input their data.
 

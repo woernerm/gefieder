@@ -14,7 +14,7 @@
 # output.
 
 # The services with a Dockerfile. Each builds independently, so the order is arbitrary.
-SERVICES="postgresql crudman sqlmesh proxy grafana grafana_mcp"
+SERVICES="postgresql crudman sqlmesh proxy grafana grafana_mcp jupyter"
 
 # The templated parts of the two images whose Dockerfiles COPY them in: Grafana's dashboard
 # JSON, which Grafana cannot interpolate, and the psql init scripts, whose role names sit
@@ -37,7 +37,8 @@ build_image() {  # engine, service
     --build-arg "SECRET_SUPERUSER_PASSWORD=${SECRET_SUPERUSER_PASSWORD}" \
     --build-arg "DUCKDB_EXTENSIONS=${DUCKDB_EXTENSIONS}" \
     --build-arg "GRAFANA_PLUGINS=${GRAFANA_PLUGINS}" \
-    --build-arg "GRAFANA_MCP_TOOLS=${GRAFANA_MCP_TOOLS}"
+    --build-arg "GRAFANA_MCP_TOOLS=${GRAFANA_MCP_TOOLS}" \
+    --build-arg "JUPYTER_EXTENSIONS=${JUPYTER_EXTENSIONS}"
   if [ "$engine" = "docker" ]; then
     set -- "$@" \
       --build-arg "http_proxy=${HTTP_PROXY}" \
@@ -66,6 +67,8 @@ create_service_secrets() {
   create_secret "$SECRET_CRUDMAN_PASSWORD" "$(openssl rand -hex 32)"
   create_secret "$SECRET_SQLMESH_PASSWORD" "$(openssl rand -hex 32)"
   create_secret "$SECRET_GRAFANA_PASSWORD" "$(openssl rand -hex 32)"
+  # Encrypts the session the hub keeps for each person; see jupyter/entrypoint.sh.
+  create_secret "$SECRET_JUPYTER"          "$(openssl rand -hex 32)"
   # A placeholder for the single sign-on a development or test stack leaves off. It still
   # has to exist: the crudman and grafana quadlets name it in a Secret=.
   create_secret "$SECRET_OIDC_CLIENT" "unconfigured"

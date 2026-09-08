@@ -70,6 +70,14 @@ Project A, B and C are worked examples shipped in the seed repository, meant to 
 deleted for production. Layer details: `models/bronze/README.md`,
 `models/silver/README.md`. For SQLMesh itself use the `sqlmesh-docs` skill.
 
+## Developing models in a notebook
+
+The `jupyter` container serves a JupyterLab per person at `/${NOTEBOOK_PATH}/`, where a
+`.sql` model opens *as* a notebook: the file is the cell, running it validates and previews
+the model, saving writes the same `.sql` back. There is no generated file and no second copy
+-- see `jupyter/requirements.md`. Cells are separated by `-- %%` when somebody splits one,
+which stays valid SQL. Analysis notebooks with saved output live in `notebooks/`.
+
 ## Developing models with your own account
 
 Developers connect as themselves, not as the deployed engine: the shared `sqlmesh_password`

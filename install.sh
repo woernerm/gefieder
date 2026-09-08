@@ -47,12 +47,13 @@ fi
 trap 'rm -rf "$WORK"' EXIT
 
 # Keep in sync with the workflow's matrix and the quadlets/ directory.
-IMAGES="postgresql crudman sqlmesh proxy grafana grafana_mcp"
+IMAGES="postgresql crudman sqlmesh proxy grafana grafana_mcp jupyter"
 QUADLETS="main.pod postgresql.container crudman.container sftp.container \
-  flight.container sqlmesh.container grafana.container grafana_mcp.container proxy.container \
+  flight.container sqlmesh.container grafana.container grafana_mcp.container \
+  jupyter.container proxy.container \
   postgresql_data.volume \
   grafana_data.volume sftp_data.volume \
-  proxy_data.volume uploads_data.volume models_data.volume"
+  proxy_data.volume uploads_data.volume models_data.volume jupyter_data.volume"
 
 # --- progress reporting ---------------------------------------------------------------
 # The tools' own progress bars, enabled only when stderr is a terminal: piped into a log
@@ -302,7 +303,8 @@ install -m 0755 "${WORK}/collect.sh" "$APP_CONFIG_DIR/serverstats/collect.sh"
 # container user mapped to a subuid, so reading those from the host needs `podman unshare`.
 # Owning them too would need UserNS=keep-id, which the PostgreSQL image does not survive.
 step "Creating data volumes"
-VOLUMES="postgresql_data grafana_data sftp_data proxy_data uploads_data models_data"
+VOLUMES="postgresql_data grafana_data sftp_data proxy_data uploads_data models_data \
+  jupyter_data"
 for vol in $VOLUMES; do
   podman volume exists "$vol" || podman volume create "$vol" >/dev/null
 done
@@ -342,6 +344,7 @@ create_secret "$SECRET_DJANGO_KEY"       "$(openssl rand -hex 32)"
 create_secret "$SECRET_CRUDMAN_PASSWORD" "$(openssl rand -hex 32)"
 create_secret "$SECRET_SQLMESH_PASSWORD" "$(openssl rand -hex 32)"
 create_secret "$SECRET_GRAFANA_PASSWORD" "$(openssl rand -hex 32)"
+create_secret "$SECRET_JUPYTER"          "$(openssl rand -hex 32)"
 
 # The one credential this script cannot produce, the identity provider issuing it. Created
 # anyway, because a quadlet whose Secret= names a missing secret refuses to start; the
@@ -431,7 +434,7 @@ for u in $QUADLETS; do
   esac
 done
 
-UNITS="postgresql crudman sftp flight sqlmesh grafana grafana_mcp proxy"
+UNITS="postgresql crudman sftp flight sqlmesh grafana grafana_mcp jupyter proxy"
 stack_start="$(date +%s)"
 if systemctl --user restart main-pod.service 2>/dev/null; then
   for u in $UNITS; do

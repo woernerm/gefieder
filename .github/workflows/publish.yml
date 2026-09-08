@@ -1,6 +1,6 @@
 name: Build and release
 
-# Build the five custom images with docker, render the quadlets and publish everything as a
+# Build the custom images with docker, render the quadlets and publish everything as a
 # GitHub release: one tarball per image, one file per quadlet, plus install.sh, which a
 # server then runs without a checkout.
 #
@@ -71,12 +71,12 @@ jobs:
       - name: Stage the release assets
         run: |
           mkdir -p dist
-          for svc in postgresql crudman sqlmesh proxy grafana grafana_mcp; do
+          for svc in postgresql crudman sqlmesh proxy grafana grafana_mcp jupyter; do
             docker save "${REGISTRY}/${svc}:${IMAGE_TAG}" -o "dist/${svc}.tar"
           done
 
           # Only the known tokens, so nginx's $host and Grafana's %(domain)s survive.
-          VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_USER_PREFIX} ${ROLE_PREFIX} ${SECRET_SUPERUSER_PASSWORD} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD} ${SECRET_DJANGO_KEY} ${SECRET_OIDC_CLIENT} ${REPO_MODELS}'
+          VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${NOTEBOOK_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_USER_PREFIX} ${ROLE_PREFIX} ${SECRET_SUPERUSER_PASSWORD} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD} ${SECRET_DJANGO_KEY} ${SECRET_OIDC_CLIENT} ${SECRET_JUPYTER} ${REPO_MODELS}'
           for f in quadlets/* serverstats/server-stats.service serverstats/server-stats.timer; do
             envsubst "$VARS" < "$f" > "dist/$(basename "$f")"
           done
@@ -93,6 +93,7 @@ jobs:
             echo "CRUDMAN_PATH=${CRUDMAN_PATH}"
             echo "GRAFANA_PATH=${GRAFANA_PATH}"
             echo "MCP_PATH=${MCP_PATH}"
+            echo "NOTEBOOK_PATH=${NOTEBOOK_PATH}"
             echo "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}"
             echo "PG_DATABASE=${PG_DATABASE}"
             echo "SECRET_SUPERUSER_PASSWORD=${SECRET_SUPERUSER_PASSWORD}"
@@ -101,6 +102,7 @@ jobs:
             echo "SECRET_GRAFANA_PASSWORD=${SECRET_GRAFANA_PASSWORD}"
             echo "SECRET_DJANGO_KEY=${SECRET_DJANGO_KEY}"
             echo "SECRET_OIDC_CLIENT=${SECRET_OIDC_CLIENT}"
+            echo "SECRET_JUPYTER=${SECRET_JUPYTER}"
           } > dist/manifest.env
 
           # The installer runs standalone from the release, so neither can come from

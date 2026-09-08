@@ -14,8 +14,9 @@ PROFILE=dev
 case "${1:-}" in
   dev|production) PROFILE="$1"; shift ;;
 esac
-REPO="$(cd "$(dirname "$0")" && pwd)"
-cd "$REPO"
+# Not REPO: buildtime.env carries a REPO of its own (the GitHub URL) and is sourced below.
+CHECKOUT="$(cd "$(dirname "$0")" && pwd)"
+cd "$CHECKOUT"
 
 # Checked up front, so a missing one fails in a second rather than after the image build.
 
@@ -168,11 +169,11 @@ QUADLET_DIR="$HOME/.config/containers/systemd"
 SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 mkdir -p "$QUADLET_DIR"
 
-UNITS="postgresql crudman sftp flight sqlmesh grafana grafana_mcp proxy"
+UNITS="postgresql crudman sftp flight sqlmesh grafana grafana_mcp jupyter proxy"
 # The volumes the current deployment uses, plus crudman_data/sqlmesh_data, which held the
 # logs that now go to journald and linger on an older installation.
 VOLUMES="postgresql_data grafana_data sftp_data proxy_data uploads_data models_data \
-  crudman_data sqlmesh_data"
+  jupyter_data crudman_data sqlmesh_data"
 
 # Stop the services and drop the pod, volumes and unit files. Shared by our own teardown
 # and by the removal of a pre-existing deployment, both living under the same names.
@@ -226,7 +227,7 @@ fi
 
 # As the release workflow does: only the known tokens, so nginx's $host and Grafana's
 # %(domain)s survive.
-VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_USER_PREFIX} ${ROLE_PREFIX} ${SECRET_SUPERUSER_PASSWORD} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD} ${SECRET_DJANGO_KEY} ${SECRET_OIDC_CLIENT} ${REPO_MODELS}'
+VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${NOTEBOOK_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_USER_PREFIX} ${ROLE_PREFIX} ${SECRET_SUPERUSER_PASSWORD} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD} ${SECRET_DJANGO_KEY} ${SECRET_OIDC_CLIENT} ${SECRET_JUPYTER} ${REPO_MODELS}'
 for f in quadlets/*; do
   envsubst "$VARS" < "$f" > "$QUADLET_DIR/$(basename "$f")"
 done
@@ -425,6 +426,17 @@ unit_tests \
   -e OIDC_ISSUER="$OIDC_ISSUER" \
   -e OIDC_CLIENT_ID="$OIDC_CLIENT_ID"
 rm -rf "$UNIT_SECRET_DIR"
+
+# The notebook translation, in a throwaway container from the jupyter image: it is what
+# stands between a model file and being rewritten the first time somebody opens it, and it
+# runs against the models this release ships.
+echo "Running the notebook unit tests ..."
+podman run --rm \
+  -v "${CHECKOUT}/jupyter/tests:/jupyter/tests:ro,Z" \
+  -v "${CHECKOUT}/sqlmesh/models:/sqlmesh/models:ro,Z" \
+  -e TEST_MODELS_DIR=/sqlmesh/models \
+  --entrypoint sh "${REGISTRY}/jupyter:${IMAGE_TAG}" -c \
+  'python -m pytest /jupyter/tests -q -p no:cacheprovider'
 
 # Run the suite. uv provides the test dependencies from tests/pyproject.toml.
 echo "Running the integration test suite ..."

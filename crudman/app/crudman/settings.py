@@ -135,6 +135,8 @@ INSTALLED_APPS = [
     'sso.apps.SsoConfig',
     # The SQLMesh model documentation, open from the viewer rank up.
     'docs.apps.DocsConfig',
+    # What JupyterHub asks who a visitor is; it registers no admin page of its own.
+    'notebooks.apps.NotebooksConfig',
 ]
 
 MIDDLEWARE = [
@@ -153,13 +155,19 @@ ROOT_URLCONF = 'crudman.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        # Searched before any app's own, which is what lets templates/unfold/ override
+        # a template Unfold ships: INSTALLED_APPS lists unfold first, so an app-level
+        # copy would lose to it.
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                # Whether to draw the sidebar's link to the notebooks, which the
+                # overridden unfold/helpers/navigation.html reads.
+                'notebooks.context_processors.notebooks',
             ],
         },
     },

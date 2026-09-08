@@ -1,0 +1,37 @@
+{# The admin's sidebar, with one entry added: the notebooks, which the admin links to but #}
+{# does not serve. Unfold's own navigation.html, plus the block at the end. #}
+{# #}
+{# An override rather than UNFOLD's "navigation" setting, which replaces the app list with #}
+{# whatever it is given and would hide every registered model; and rather than #}
+{# "SITE_DROPDOWN", which renders a panel that only appears once somebody clicks the site #}
+{# name -- a link nobody finds. #}
+{% load i18n unfold %}
+
+<nav id="nav-sidebar-inner" class="bg-base-50 flex flex-col min-h-screen dark:text-font-default-dark dark:bg-base-950/20 {% element_classes 'navigation_inner' %}">
+    {% include "unfold/helpers/navigation_header.html" %}
+
+    {% include "unfold/helpers/search.html" %}
+
+    {% if sidebar_navigation|length > 0 %}
+        {% include "unfold/helpers/app_list.html" with app_list=available_apps %}
+    {% else %}
+        {% include "admin/app_list.html" with app_list=available_apps show_changelinks=False %}
+    {% endif %}
+
+    {# The one entry this override exists for: the notebooks, which the admin links to #}
+    {# but does not serve. notebooks_url is set by a context processor only for someone #}
+    {# the hub would actually admit, so a viewer is never offered a page answering 403. #}
+    {# mt-auto puts it at the bottom, above the user menu; the styling is the app list's #}
+    {# own heading, so it reads as another section rather than an afterthought. #}
+    {% if notebooks_url %}
+        <div class="mt-auto px-3 pb-3">
+            <a href="{{ notebooks_url }}"
+               class="bg-base-100 flex flex-row font-semibold gap-2 h-[38px] items-center px-3 rounded-default text-important dark:bg-white/[.02] hover:bg-base-200 dark:hover:bg-white/[.06]">
+                <span class="material-symbols-outlined md-18">science</span>
+                {% translate "Notebooks" %}
+            </a>
+        </div>
+    {% endif %}
+
+    {% include "unfold/helpers/navigation_user.html" %}
+</nav>

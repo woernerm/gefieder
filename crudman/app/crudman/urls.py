@@ -23,6 +23,9 @@ urlpatterns = [
     # The SQLMesh model documentation, open from the viewer rank up rather than to staff
     # only.
     path(f"{CRUDMAN_PATH}/docs/", include("docs.urls")),
+    # What JupyterHub authenticates its visitors against, so the notebooks have no
+    # accounts of their own.
+    path(f"{CRUDMAN_PATH}/notebooks/", include("notebooks.urls")),
     # The admin's own login address, claimed so an unauthenticated visitor is sent to the
     # identity provider instead of a form. Django redirects here by name, so nothing else
     # needs to change.

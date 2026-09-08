@@ -78,6 +78,8 @@ RUN printf '%s\n' \
       'sqlmesh/.env' \
       'sqlmesh/.cache/' \
       'sqlmesh/logs/' \
+      '.ipynb_checkpoints/' \
+      '.virtual_documents/' \
       > /seed/.gitignore
 
 # Committed executable, so a plain COPY preserves the mode without BuildKit's --chmod.

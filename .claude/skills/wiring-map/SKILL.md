@@ -58,6 +58,26 @@ The three build loops — `SERVICES=` in `build-lib.sh` (used by `build.sh`, `de
 ships an image of its own.
 `sftp` and `flight` run the crudman image in a different role and appear in none of them.
 
+## Notebooks
+
+The `jupyter` container has no accounts of its own: it asks crudman who a visitor is
+(`crudman/app/notebooks/`) and crudman rotates the database login its servers connect with.
+So the two move together.
+
+| Also touch | Because |
+|---|---|
+| `crudman/app/notebooks/views.py` | the hub reads exactly these fields out of the answer, so a renamed key is a spawn that fails with a KeyError |
+| `jupyter/crudman.py` | the other half of that contract, and the only place the session cookie is presented back |
+| `postgresql/initdb/gf_0009_*.sql` | the sibling login and its `SET role`, which is what makes a notebook session *be* the person. `gf_0003`'s `delete_db_user` and `drop_db_user` call `drop_notebook_login` from here, so the two files are ordered as well as related |
+| `jupyter/spawn.py` | the Unix account is named as `dbusers.utils.role_name_for` names the database role — that is what lets `sqlmesh/config.py` derive the connection unchanged. A change to either derivation is a change to both |
+| `jupyter/requirements.txt` | what the workflow itself depends on; `JUPYTER_EXTENSIONS` in `buildtime.env` is the operator's list and a **build-time setting**, so that table applies |
+| `jupyter/tests/` | run inside the image by `run-tests.sh`, against `sqlmesh/models/` — the round trip that keeps opening a model from rewriting it |
+| `crudman/app/templates/unfold/helpers/navigation.html` | the sidebar link, as a copy of Unfold's own template plus one entry. It lives in `TEMPLATES["DIRS"]` rather than in the app: `INSTALLED_APPS` lists `unfold` first, so an app-level copy loses to it. An Unfold upgrade that changes that template needs this one re-based |
+
+`NOTEBOOK_PATH` is a **build-time setting** and reaches three places: the proxy (template,
+`entrypoint.sh` envsubst list, `proxy.container`), the hub's `base_url`, and
+`crudman.container`, which passes it to Django only so the admin can link to it.
+
 `uninstall.sh` derives its unit list from the quadlet directory, so it needs nothing.
 
 ## Models repository

@@ -41,6 +41,7 @@ SELF_TIMESTAMPING = {
     "sqlmesh": (False, "SQLMesh formats its records with a hardcoded module constant"),
     "grafana": (True, "every Grafana log format puts t= inside the line, never first"),
     "proxy": (False, "nginx's error_log format is fixed"),
+    "jupyter": (True, "configurable-http-proxy offers a log level and no format at all"),
 }
 
 # How far a service's own stamp may sit from journald's. They mark emission and
@@ -59,6 +60,10 @@ OWN_TIMESTAMP_FORMATS = (
     (re.compile(r"(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})"), False),
     # SQLMesh: "2026-08-05 22:49:58,688"
     (re.compile(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+"), False),
+    # The notebook proxy: "2026-09-07T20:53:27.467Z [ConfigProxy]". Anchored on the tag
+    # that follows, an ISO stamp with no punctuation of its own being what a line could
+    # equally be quoting.
+    (re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\.\d+(Z) \[ConfigProxy\]"), True),
 )
 
 
@@ -245,7 +250,9 @@ class TestLogTimestamps:
 
     # The units whose steady-state log carries a second timestamp in a readable format.
     # postgresql's only self-stamped lines spell the zone as a name ("UTC").
-    @pytest.mark.parametrize("unit", ["crudman", "sqlmesh", "grafana", "proxy"])
+    @pytest.mark.parametrize(
+        "unit", ["crudman", "sqlmesh", "grafana", "proxy", "jupyter"]
+    )
     def test_a_second_timestamp_shall_not_contradict_the_journal(self, unit):
         compared, disagreeing = 0, []
         for line in _container_lines(unit):

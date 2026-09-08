@@ -36,6 +36,12 @@ The secret is mounted only in the container, so unlike a hostname or an environm
 variable its presence cannot accidentally be true elsewhere.
 """
 
+# A role the session assumes after connecting, empty everywhere but in a notebook on the
+# server. There the login is a sibling of the person's own role (<person>_nb, see
+# postgresql/initdb/gf_0009) and assuming that role is what makes current_user the person,
+# so a table a plan creates is owned by them rather than by a second account of theirs.
+role = os.environ.get("SQLMESH_ROLE") or None
+
 if IN_CONTAINER:
     # The quadlet sets these; the pod shares one network namespace, so the database is
     # on localhost. The password comes from the secret rather than the environment, so
@@ -138,6 +144,7 @@ config = Config(
                 database=database,
                 user=user,
                 password=password,
+                role=role,
             )
         ),
         # DuckDB as the compute engine, PostgreSQL as the storage: the same database is
@@ -160,6 +167,10 @@ config = Config(
                             port=port,
                             user=user,
                             password=password,
+                            # DuckDB opens a connection of its own, which the gateway
+                            # above knows nothing about, so the role is asked for in the
+                            # libpq string instead.
+                            **({"options": f"-c role={role}"} if role else {}),
                         ),
                     )
                 },

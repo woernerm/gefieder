@@ -55,6 +55,28 @@
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # JupyterHub serves from /${NOTEBOOK_PATH} itself, so the path is unchanged.
+    location /${NOTEBOOK_PATH}/ {
+        access_log /var/log/app/visits.log visit_json if=$visit_log;
+        # A kernel talks to the browser over a WebSocket, and Upgrade and Connection are
+        # hop-by-hop headers nginx drops; its upstream HTTP/1.0 cannot carry an upgrade
+        # at all.
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        # A kernel that is idle between cells must not have its connection cut, and output
+        # a cell streams back has to arrive as it is produced rather than in blocks.
+        proxy_buffering off;
+        proxy_read_timeout 24h;
+        # A notebook is uploaded and downloaded whole, and a seed file may be large.
+        client_max_body_size 512m;
+        proxy_pass http://127.0.0.1:8888;
+        # $http_host, as above.
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     # Convenience redirect to the administration panel.
     location = / {
         return 302 /${CRUDMAN_PATH}/;

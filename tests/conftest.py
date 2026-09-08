@@ -81,10 +81,12 @@ SECRETS = {
     "grafana": os.environ["SECRET_GRAFANA_PASSWORD"],
     "django_key": os.environ["SECRET_DJANGO_KEY"],
     "oidc_client": os.environ["SECRET_OIDC_CLIENT"],
+    "jupyter": os.environ["SECRET_JUPYTER"],
 }
 CRUDMAN_PATH = os.environ["CRUDMAN_PATH"]
 GRAFANA_PATH = os.environ["GRAFANA_PATH"]
 MCP_PATH = os.environ["MCP_PATH"]
+NOTEBOOK_PATH = os.environ["NOTEBOOK_PATH"]
 
 # The database login roles the init scripts created, and the prefix on the roles that
 # belong to people. The access-control checks connect as these, so they have to be the
@@ -128,7 +130,7 @@ APP_CONFIG_DIR = os.environ.get("TEST_APP_CONFIG_DIR", "")
 # forwards the stream to journald. One list, so a service added to the stack cannot reach
 # the startup checks while the logging checks silently skip it.
 CONTAINERS = ["postgresql", "crudman", "sftp", "flight", "sqlmesh", "grafana", "grafana_mcp",
-              "proxy"]
+              "jupyter", "proxy"]
 LOGGING_UNITS = CONTAINERS
 
 # In the production profile the proxy serves a self-signed certificate, so TLS
