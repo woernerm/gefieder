@@ -4,7 +4,7 @@
 --
 -- As thin as silver.issues, and for the same reason. Here that goes one step further: both
 -- halves come from the same macro, but project_a's was executed by PostgreSQL and
--- project_b's by DuckDB. This union cannot tell the difference -- both wrote into the same
+-- the project_b half by DuckDB. This union cannot tell the difference -- both wrote into the same
 -- database, and the macro guarantees they mean the same thing.
 MODEL (
   name silver.issue_risk_history,

@@ -3,7 +3,7 @@
 -- GitHub-flavoured, an issue being a number and an "area" label standing in for the
 -- component.
 --
--- The uniqueness audit is the silver transform's precondition: it looks up the row in
+-- The uniqueness audit is a precondition of the silver transform: it looks up the row in
 -- effect at a point in time, and two rows sharing a timestamp would make that arbitrary.
 MODEL (
   name bronze_project_b.issue_history,

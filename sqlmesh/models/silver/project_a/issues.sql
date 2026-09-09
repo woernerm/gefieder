@@ -1,9 +1,9 @@
--- Project A's bronze -> silver transform. Everything specific to how *this* project records
+-- The bronze -> silver transform of Project A. Everything specific to how *this* project records
 -- issues lives here: its Jira-style column names, and its own status vocabulary mapped onto
--- the canonical open/closed states every project's silver output agrees on.
+-- the canonical open/closed states that every silver output agrees on.
 --
--- The output column list IS the harmonization contract; it must match the other projects'
--- staging models and the silver.issues union exactly.
+-- The output column list IS the harmonization contract; it must match the other staging
+-- models and the silver.issues union exactly.
 MODEL (
   name silver_staging.issues__project_a,
   kind FULL,

@@ -6,7 +6,7 @@
 -- a bespoke source. See models/bronze/README.md.
 --
 -- This example uses a SEED instead, so the pipeline has data out of the box. The raw
--- columns are GitHub-flavoured where Project A's are Jira-flavoured, which is why each
+-- columns are GitHub-flavoured where those of Project A are Jira-flavoured, which is why each
 -- project needs its own bronze -> silver transform.
 MODEL (
   name bronze_project_b.issues,

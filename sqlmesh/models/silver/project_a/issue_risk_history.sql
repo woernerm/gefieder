@@ -1,5 +1,5 @@
--- Project A's second bronze -> silver transform, and the worked example for @temporal_join
--- (macros/temporal_join.py): an issue's history combined with its component's.
+-- The second bronze -> silver transform of Project A, and the worked example for @temporal_join
+-- (macros/temporal_join.py): the history of an issue combined with that of its component.
 --
 -- Both sides move on their own timeline, so a plain ASOF join would follow one and miss
 -- every change of the other. The macro builds the joined history from the union of both, so

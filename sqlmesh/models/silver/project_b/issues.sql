@@ -3,8 +3,8 @@
 -- silver column filled from completely different raw data per project. Its status vocabulary
 -- is its own and is mapped here onto the canonical open/closed states.
 --
--- The output column list IS the harmonization contract; it must match the other projects'
--- staging models and the silver.issues union exactly.
+-- The output column list IS the harmonization contract; it must match the other staging
+-- models and the silver.issues union exactly.
 MODEL (
   name silver_staging.issues__project_b,
   kind FULL,

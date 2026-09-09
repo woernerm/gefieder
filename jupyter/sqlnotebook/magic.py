@@ -67,6 +67,11 @@ class ModelMagics(Magics):
             parse(cell, default_dialect=defaults.dialect),
             macros=context._macros,
             jinja_macros=context._jinja_macros,
+            # The project's audits, or a model naming one in its audits() clause fails to
+            # load: the name is resolved against this and none is known. Spelled
+            # ``audit_definitions``, which reaches the model through **kwargs -- the
+            # ``audits`` parameter beside it is accepted and then dropped.
+            audit_definitions=context._audits,
             dialect=defaults.dialect,
             default_catalog=context.default_catalog,
             defaults=defaults.dict(),
