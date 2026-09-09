@@ -5,6 +5,7 @@ that fails, every model in the repository gets rewritten the first time somebody
 and the diff a reviewer reads is noise. So the round trip is tested against the models this
 release actually ships, not only against examples written for the test.
 """
+import json
 import os
 from pathlib import Path
 
@@ -135,3 +136,63 @@ class TestCellRouting:
         rewrote it would rewrite what gets committed."""
         source = "MODEL (\n  name a.b\n);\nSELECT 1\n"
         assert "".join(route(source.splitlines(keepends=True))[1:]) == source
+
+
+class TestDefaultViewer:
+    """That a model opens as a notebook rather than in the text editor.
+
+    Two viewers claim .sql -- jupytext's and the editor -- and the settings override is
+    what decides which a double-click gets. It is a file in a directory Lab searches, so
+    nothing fails loudly when it is written to the wrong one: the model simply opens as
+    text, which is the whole feature gone. Hence a test on the path rather than on the
+    JSON alone.
+    """
+
+    @staticmethod
+    def overrides():
+        """The overrides Lab actually loads, from the application directory it reports."""
+        from jupyterlab.commands import get_app_dir
+
+        return Path(get_app_dir()) / "settings" / "overrides.json"
+
+    def test_the_overrides_are_in_the_directory_lab_reads(self):
+        """A copy anywhere else -- /usr/local/share/jupyter/lab, say -- is ignored."""
+        assert self.overrides().is_file(), (
+            f"no overrides.json in Lab's application directory ({self.overrides().parent}); "
+            "a model will open in the text editor"
+        )
+
+    def test_a_model_opens_as_a_jupytext_notebook(self):
+        """The viewer name is jupytext's own; a typo in it fails the same way as a
+        missing file, silently."""
+        viewers = json.loads(self.overrides().read_text())[
+            "@jupyterlab/docmanager-extension:plugin"
+        ]["defaultViewers"]
+        assert viewers["sql"] == "Jupytext Notebook"
+
+
+class TestKernel:
+    """That a model opens on the kernel that can run it.
+
+    A .sql file has nowhere to record a kernel, so the notebook has to carry one or
+    Jupyter asks on every open -- and offers python3, which starts and then fails every
+    cell, since the magics and the project are loaded only for the sqlmesh kernel.
+    """
+
+    def test_a_model_opens_on_the_sqlmesh_kernel(self):
+        spec = to_notebook("SELECT 1").metadata.kernelspec
+        assert spec.name == "sqlmesh"
+        assert spec.language == "sql"
+
+    def test_the_kernel_exists_under_that_name(self):
+        """The name is what Jupyter looks up; a typo asks again, silently."""
+        from jupyter_client.kernelspec import KernelSpecManager
+
+        assert "sqlmesh" in KernelSpecManager().find_kernel_specs()
+
+    @pytest.mark.parametrize("path", MODELS, ids=lambda p: p.name)
+    def test_the_kernel_never_reaches_the_file(self, path):
+        """Metadata is a property of the view, not of the model: a kernel written into
+        the .sql would put JSON in the file and a diff on every model."""
+        original = path.read_text()
+        assert "kernelspec" not in from_notebook(to_notebook(original))

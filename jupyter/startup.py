@@ -9,7 +9,28 @@ Failures here are printed rather than raised: a kernel that starts is one a pers
 things from, and the most likely cause is a database that is still coming up.
 """
 import os
+import warnings
 from pathlib import Path
+
+
+def _silence_seed_warnings() -> None:
+    """Drop the pandas deprecations SQLMesh emits while loading a seed model.
+
+    ``sqlmesh.core.model.definition`` passes ``infer_datetime_format`` and
+    ``errors="ignore"``, both deprecated in pandas 2; the first is now the default and
+    ignored, so neither changes a result today. There is no release to upgrade to -- 0.236.2
+    is current -- and the pair is printed around every rendered model, which is where a
+    warning a person should read would appear too.
+
+    Scoped to that module and those two messages: a future pandas will raise on the second
+    rather than warn, and anything else SQLMesh warns about still reaches the notebook.
+    """
+    for message in ("infer_datetime_format", "errors='ignore' is deprecated"):
+        warnings.filterwarnings(
+            "ignore",
+            message=f".*{message}.*",
+            module=r"sqlmesh\.core\.model\.definition",
+        )
 
 
 PROJECT = "sqlmesh"
@@ -44,6 +65,8 @@ def _project() -> Path | None:
 
 def _load() -> None:
     """Load the extensions and open the project."""
+    _silence_seed_warnings()
+
     from sqlmesh.magics import register_magics
 
     ipython = get_ipython()  # noqa: F821 -- IPython provides this in the namespace.

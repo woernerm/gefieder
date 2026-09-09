@@ -23,6 +23,14 @@ where SQLMesh reads a leading comment as the model's description -- so documenta
 written here reaches the documentation pages."""
 
 
+KERNELSPEC = {
+    "kernelspec": {"name": "sqlmesh", "display_name": "SQLMesh", "language": "sql"},
+}
+"""The kernel a model opens on. A .sql file has nowhere to record one, so without this
+Jupyter asks on every open and offers python3 -- which starts, and then fails every cell,
+the magics and the project being loaded only for the kernel named here."""
+
+
 def to_notebook(text: str) -> nbformat.NotebookNode:
     """Read the source of a model file as notebook cells.
 
@@ -33,7 +41,7 @@ def to_notebook(text: str) -> nbformat.NotebookNode:
         A notebook whose cells are the marked regions, or a single code cell holding
         everything when the file carries no markers.
     """
-    notebook = nbformat.v4.new_notebook()
+    notebook = nbformat.v4.new_notebook(metadata=KERNELSPEC)
     kind, lines = "code", []
 
     def flush():

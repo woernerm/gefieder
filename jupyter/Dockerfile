@@ -124,7 +124,11 @@ RUN git config --system core.excludesFile "~/.gitignore" \
 # is configuration of this system, not a library anyone imports.
 COPY jupyter/sqlnotebook/ ${NOTEBOOK_VENV}/lib/python3.13/site-packages/sqlnotebook/
 COPY jupyter/jupyter_server_config.py /usr/local/etc/jupyter/jupyter_server_config.py
-COPY jupyter/overrides/overrides.json /usr/local/share/jupyter/lab/settings/overrides.json
+# Into the venv, which is JupyterLab's application directory here: overrides are read
+# from there alone, so the same file under /usr/local is silently ignored and a model
+# opens in the text editor instead.
+COPY jupyter/overrides/overrides.json \
+     ${NOTEBOOK_VENV}/share/jupyter/lab/settings/overrides.json
 
 # The hub's own configuration and the two modules it imports.
 COPY jupyter/jupyterhub_config.py jupyter/crudman.py jupyter/spawn.py /etc/jupyterhub/
