@@ -8,3 +8,10 @@ c = get_config()  # noqa: F821 -- Jupyter injects this into the file's namespace
 # What makes a model file a notebook. The frontend asks for a .sql file as a notebook
 # because the settings overrides register it as one; this is what answers with cells.
 c.ServerApp.contents_manager_class = "sqlnotebook.contents.ModelContentsManager"
+
+# SQLMesh is the only kernel: one started on the stock python3 loads no magics and opens no
+# project, so every model cell fails on a context that was never created. Deleting the
+# kernelspec is not enough -- ipykernel carries a fallback inside the package and Jupyter
+# synthesizes it back unless ensure_native_kernel says otherwise.
+c.KernelSpecManager.ensure_native_kernel = False
+c.KernelSpecManager.allowed_kernelspecs = ["sqlmesh"]

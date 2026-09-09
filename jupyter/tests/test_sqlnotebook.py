@@ -248,3 +248,92 @@ class TestPythonModels:
             served = manager.get(rel, content=True, type="notebook")
             manager.save({"type": "notebook", "format": "json", "content": served["content"]}, rel)
             assert (root / rel).read_text() == before
+
+
+class TestDataframeTables:
+    """That the itables bundle reaches a cell whose output the notebook keeps.
+
+    Offline, the HTML ``init_notebook_mode`` displays *is* the DataTables library, and a
+    table rendered later refers back to it. Run from the startup file it is displayed with
+    no cell to land in, and every table then shows "Loading ITables..." forever.
+    """
+
+    @staticmethod
+    def startup():
+        """The startup module's namespace, without running the parts that need a kernel."""
+        source = Path(__file__).resolve().parents[1] / "startup.py"
+        namespace = {}
+        exec(source.read_text().split('PROJECT =')[0], namespace)
+        return namespace
+
+    def test_the_bundle_is_deferred_to_a_cell(self):
+        """Registered on pre_run_cell rather than called: a startup file has no output."""
+        pytest.importorskip("itables")
+        events = []
+
+        class Events:
+            def register(self, name, function):
+                events.append((name, function))
+
+            def unregister(self, name, function):
+                events.remove((name, function))
+
+        shell = type("Shell", (), {"events": Events()})()
+        namespace = self.startup()
+        namespace["get_ipython"] = lambda: shell
+        namespace["_render_dataframes_as_tables"]()
+
+        assert [name for name, _ in events] == ["pre_run_cell"]
+
+    def test_the_bundle_is_sent_once(self):
+        """A 971 KB bundle in every cell would bloat the notebook it is kept in."""
+        pytest.importorskip("itables")
+        events = []
+
+        class Events:
+            def register(self, name, function):
+                events.append((name, function))
+
+            def unregister(self, name, function):
+                events.remove((name, function))
+
+        shell = type("Shell", (), {"events": Events()})()
+        namespace = self.startup()
+        namespace["get_ipython"] = lambda: shell
+        namespace["_render_dataframes_as_tables"]()
+
+        events[0][1]()
+        assert events == []
+
+
+class TestKernelLanguage:
+    """That the kernel presents itself as SQL.
+
+    JupyterLab overwrites a notebook's ``language_info`` with whatever the kernel reports
+    as soon as it connects, so the metadata written when the file is opened does not
+    survive: a model opens highlighted as SQL and turns into Python a second later, where
+    ``--`` starts no comment and an apostrophe opens a string.
+    """
+
+    def test_the_kernel_reports_sql(self):
+        from sqlnotebook.ipkernel import SQLKernel
+
+        assert SQLKernel.language_info["mimetype"] == "text/x-sql"
+        assert SQLKernel.language_info["name"] == "sql"
+
+    def test_the_kernelspec_launches_that_kernel(self):
+        """The spec is what Jupyter runs; a stock ipykernel_launcher there reports
+        Python again and the highlighting reverts."""
+        spec = json.loads(
+            (Path(__file__).resolve().parents[1] / "kernel" / "kernel.json").read_text()
+        )
+        assert "sqlnotebook.ipkernel" in spec["argv"]
+
+    def test_it_is_still_an_ipython_kernel(self):
+        """Cells are Python -- the routing turns a MODEL or a query into a magic, and the
+        language is only what an editor highlights."""
+        from ipykernel.ipkernel import IPythonKernel
+
+        from sqlnotebook.ipkernel import SQLKernel
+
+        assert issubclass(SQLKernel, IPythonKernel)

@@ -40,6 +40,12 @@ def _render_dataframes_as_tables() -> None:
     few rows -- which is the wrong shape for looking at what a model produced. itables
     replaces that repr with a DataTables grid, so no cell has to call anything.
 
+    ``init_notebook_mode`` displays the DataTables bundle as HTML, and offline that output
+    *is* the library: a table rendered later refers back to it. Displayed from here it goes
+    nowhere -- a startup file has no cell -- and every table then waits forever on a script
+    that was never delivered. So it runs on the first cell the person executes, whose output
+    the notebook keeps, and unregisters itself afterwards.
+
     Left out when itables is not installed: it is an operator's entry in
     ``JUPYTER_EXTENSIONS``, so an image built without it must still start a kernel.
     """
@@ -48,9 +54,15 @@ def _render_dataframes_as_tables() -> None:
     except ImportError:
         return
 
-    # connected=False bundles the JavaScript rather than fetching it from a CDN, which the
-    # target machine cannot reach.
-    init_notebook_mode(all_interactive=True, connected=False)
+    ipython = get_ipython()  # noqa: F821 -- IPython provides this in the namespace.
+
+    def load_bundle(*_) -> None:
+        ipython.events.unregister("pre_run_cell", load_bundle)
+        # connected=False bundles the JavaScript rather than fetching it from a CDN, which
+        # the target machine cannot reach.
+        init_notebook_mode(all_interactive=True, connected=False)
+
+    ipython.events.register("pre_run_cell", load_bundle)
 
 
 PROJECT = "sqlmesh"
