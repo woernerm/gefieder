@@ -1,7 +1,8 @@
 {
   "@jupyterlab/docmanager-extension:plugin": {
     "defaultViewers": {
-      "sql": "Jupytext Notebook"
+      "sql": "Jupytext Notebook",
+      "python": "Jupytext Notebook"
     }
   }
 }

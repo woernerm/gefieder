@@ -196,3 +196,43 @@ class TestKernel:
         the .sql would put JSON in the file and a diff on every model."""
         original = path.read_text()
         assert "kernelspec" not in from_notebook(to_notebook(original))
+
+
+class TestPythonModels:
+    """That a Python model opens the same way a SQL one does.
+
+    jupytext builds the notebook for a .py and records no kernel in it, so without a
+    kernelspec of ours Jupyter asks on every open -- the .py, like the .sql, having
+    nowhere to keep the answer.
+    """
+
+    @staticmethod
+    def manager(tmp_path):
+        """A contents manager rooted on a copy, so a save cannot touch the repository."""
+        import shutil
+
+        from sqlnotebook.contents import ModelContentsManager
+
+        shutil.copytree(MODELS_DIR, tmp_path / "models")
+        return ModelContentsManager(root_dir=str(tmp_path))
+
+    def python_models(self):
+        return sorted(MODELS_DIR.rglob("*.py"))
+
+    def test_a_python_model_opens_on_the_sqlmesh_kernel(self, tmp_path):
+        for path in self.python_models():
+            rel = f"models/{path.relative_to(MODELS_DIR)}"
+            served = self.manager(tmp_path / path.stem).get(rel, content=True, type="notebook")
+            assert served["content"]["metadata"]["kernelspec"]["name"] == "sqlmesh"
+
+    def test_opening_and_saving_a_python_model_changes_nothing(self, tmp_path):
+        """The kernel is a property of the view: written into the .py it would put
+        metadata in the file and a diff on every model."""
+        for path in self.python_models():
+            root = tmp_path / path.stem
+            manager = self.manager(root)
+            rel = f"models/{path.relative_to(MODELS_DIR)}"
+            before = (root / rel).read_text()
+            served = manager.get(rel, content=True, type="notebook")
+            manager.save({"type": "notebook", "format": "json", "content": served["content"]}, rel)
+            assert (root / rel).read_text() == before

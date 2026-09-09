@@ -15,7 +15,7 @@ import nbformat
 from jupyter_server.services.contents.filemanager import FileContentsManager
 from jupytext import build_sync_jupytext_contents_manager_class
 
-from .cells import from_notebook, to_notebook
+from .cells import KERNELSPEC, from_notebook, to_notebook
 
 
 class ModelContentsManager(
@@ -48,7 +48,12 @@ class ModelContentsManager(
             The content model.
         """
         if type != "notebook" or not self._is_model(path):
-            return super().get(path, content=content, type=type, format=format)
+            model = super().get(path, content=content, type=type, format=format)
+            # A Python model is a notebook jupytext builds, and it records no kernel --
+            # so Jupyter would ask on every open, the .py having nowhere to keep one.
+            if type == "notebook" and content and path.endswith(".py"):
+                model["content"].setdefault("metadata", {}).update(KERNELSPEC)
+            return model
 
         model = super().get(path, content=content, type="file", format="text")
         model["type"] = "notebook"
