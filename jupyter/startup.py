@@ -33,6 +33,26 @@ def _silence_seed_warnings() -> None:
         )
 
 
+def _render_dataframes_as_tables() -> None:
+    """Render every dataframe as a sortable, searchable table.
+
+    ``%fetchdf`` and ``%evaluate`` hand back a dataframe, and its plain repr truncates to a
+    few rows -- which is the wrong shape for looking at what a model produced. itables
+    replaces that repr with a DataTables grid, so no cell has to call anything.
+
+    Left out when itables is not installed: it is an operator's entry in
+    ``JUPYTER_EXTENSIONS``, so an image built without it must still start a kernel.
+    """
+    try:
+        from itables import init_notebook_mode
+    except ImportError:
+        return
+
+    # connected=False bundles the JavaScript rather than fetching it from a CDN, which the
+    # target machine cannot reach.
+    init_notebook_mode(all_interactive=True, connected=False)
+
+
 PROJECT = "sqlmesh"
 """The SQLMesh project inside the models repository; jupyter/spawn.py spells it too."""
 
@@ -66,6 +86,7 @@ def _project() -> Path | None:
 def _load() -> None:
     """Load the extensions and open the project."""
     _silence_seed_warnings()
+    _render_dataframes_as_tables()
 
     from sqlmesh.magics import register_magics
 

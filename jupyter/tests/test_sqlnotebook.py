@@ -184,6 +184,18 @@ class TestKernel:
         assert spec.name == "sqlmesh"
         assert spec.language == "sql"
 
+    def test_a_model_is_highlighted_as_sql(self):
+        """The kernel is ipykernel and reports Python, so without this the editor treats
+        ``--`` as no comment and ``'`` as a string: an apostrophe in a comment colours the
+        text to the next one, and the SQL below it is highlighted as Python."""
+        info = to_notebook("SELECT 1").metadata.language_info
+        assert info.mimetype == "text/x-sql"
+
+    def test_an_apostrophe_in_a_comment_stays_a_comment(self):
+        """The shape that exposed it: a possessive in the prose above a model."""
+        text = "-- Project B's issue history, under this project's own names.\nSELECT 1"
+        assert to_notebook(text).metadata.language_info.name == "sql"
+
     def test_the_kernel_exists_under_that_name(self):
         """The name is what Jupyter looks up; a typo asks again, silently."""
         from jupyter_client.kernelspec import KernelSpecManager

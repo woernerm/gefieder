@@ -4,5 +4,8 @@
       "sql": "Jupytext Notebook",
       "python": "Jupytext Notebook"
     }
+  },
+  "@jupyterlab/apputils-extension:themes": {
+    "theme": "Material Darker"
   }
 }

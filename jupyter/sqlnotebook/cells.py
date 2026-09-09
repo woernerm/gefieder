@@ -30,6 +30,16 @@ KERNELSPEC = {
 Jupyter asks on every open and offers python3 -- which starts, and then fails every cell,
 the magics and the project being loaded only for the kernel named here."""
 
+SQL_LANGUAGE = {
+    "language_info": {"name": "sql", "mimetype": "text/x-sql", "file_extension": ".sql"},
+}
+"""What the editor highlights a model's cells as.
+
+The kernel is ipykernel and says so -- ``text/x-python`` -- and without this the editor
+believes it: ``--`` opens no comment in Python and ``'`` opens a string, so an apostrophe
+in a comment (``Project B's``) colours the text to the next one and the SQL below it is
+highlighted as Python. Only the .sql view says this; a Python model is Python."""
+
 
 def to_notebook(text: str) -> nbformat.NotebookNode:
     """Read the source of a model file as notebook cells.
@@ -41,7 +51,7 @@ def to_notebook(text: str) -> nbformat.NotebookNode:
         A notebook whose cells are the marked regions, or a single code cell holding
         everything when the file carries no markers.
     """
-    notebook = nbformat.v4.new_notebook(metadata=KERNELSPEC)
+    notebook = nbformat.v4.new_notebook(metadata={**KERNELSPEC, **SQL_LANGUAGE})
     kind, lines = "code", []
 
     def flush():
