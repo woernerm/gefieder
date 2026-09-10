@@ -103,8 +103,16 @@ RUN sed -i "s|\"python\"|\"${NOTEBOOK_VENV}/bin/python\"|" \
 # project. Reached through exec_files in the IPython configuration, which a kernel does
 # read -- unlike a profile's startup/ directory, which ipykernel never runs.
 COPY jupyter/startup.py ${NOTEBOOK_VENV}/etc/sqlmesh_startup.py
+# Beside it, because startup.py reads it relative to itself: the module it wraps around
+# quak's own to reach inside the table's shadow root.
+COPY jupyter/quaktheme/ ${NOTEBOOK_VENV}/etc/quaktheme/
 RUN mkdir -p /etc/skel/.ipython/profile_default
 COPY jupyter/ipython_kernel_config.py /etc/skel/.ipython/profile_default/ipython_kernel_config.py
+
+# Repoints quak's own CSS variables at the theme's, so its table and column histograms
+# follow whichever theme Lab is on rather than staying light. Read only when custom_css is
+# enabled, which jupyter_server_config.py does.
+COPY jupyter/custom/custom.css /etc/skel/.jupyter/custom/custom.css
 
 # What a person's working tree must never carry into a commit. Their own global ignore
 # file, so the models repository's .gitignore stays the one this system ships.

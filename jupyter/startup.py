@@ -13,6 +13,14 @@ import warnings
 from pathlib import Path
 
 
+WRAPPER = Path(os.environ.get("NOTEBOOK_VENV", "/opt/notebook"), "etc", "quaktheme",
+               "widget.js")
+"""The ES module wrapped around quak's own, installed beside this file by the Dockerfile.
+
+Spelled from the environment rather than ``__file__``, which IPython's ``exec_files`` does
+not define -- and that is how this file is run."""
+
+
 def _silence_seed_warnings() -> None:
     """Drop the pandas deprecations SQLMesh emits while loading a seed model.
 
@@ -65,6 +73,91 @@ def _render_dataframes_as_tables() -> None:
     ipython.events.register("pre_run_cell", load_bundle)
 
 
+def _themed_widget(quak):
+    """quak's widget, with the two rules its shipped stylesheet puts out of reach.
+
+    The table is drawn in a shadow root. Custom properties cross that boundary -- which is
+    what ``~/.jupyter/custom/custom.css`` relies on -- but ordinary selectors do not, and
+    quak exports no ``::part``. Its scroll height is written as an inline style, and the
+    row under the pointer shares ``--light-silver`` with every border in the table; neither
+    can be reached from a stylesheet outside.
+
+    So the widget's ES module is composed here: quak's own bundle, its export rewritten to
+    a fixed name, followed by a wrapper that delegates to it and adds a stylesheet to the
+    same shadow root. ``_esm`` is an anywidget trait and the root is ``mode="open"``, so
+    this uses what both publish rather than reaching past it.
+
+    Args:
+        quak: The imported module, whose Widget is subclassed and whose bundle is read.
+
+    Returns:
+        The Widget subclass to render a dataframe with.
+    """
+    import re
+
+    # _esm is anywidget's FileContents, whose str() is the bundle itself.
+    bundle = str(quak.Widget._esm)
+    # Its last statement, naming the factory under whatever minified identifier this
+    # release happens to use. Rewritten rather than matched, so no name is hardcoded.
+    export = re.search(r"export\{([A-Za-z0-9_$]+) as default[^}]*\};?\s*$", bundle)
+    if export is None or not WRAPPER.exists():
+        # A quak whose bundle no longer ends that way: better an unthemed table than a
+        # module that does not load at all.
+        return quak.Widget
+
+    composed = (
+        bundle[: export.start()]
+        + f"const quakFactory = {export.group(1)};\n"
+        + WRAPPER.read_text()
+    )
+
+    class ThemedWidget(quak.Widget):
+        """quak's widget with this system's stylesheet in its shadow root."""
+
+        _esm = composed
+
+    return ThemedWidget
+
+
+def _explore_columns() -> None:
+    """Render a dataframe as quak's column explorer: distributions above every column.
+
+    quak replaces IPython's display formatter, which runs before ``_repr_html_`` -- so
+    where both it and itables are installed, quak is what a result renders as and itables
+    only reaches what quak hands back untouched.
+
+    Its widget loads the table into a DuckDB of its own to compute the summaries, so it is
+    pointed at the previews and results a person reads, not at whatever a cell happens to
+    return: anything that is not a dataframe goes through unchanged.
+
+    Left out when quak is not installed, like itables above: both are operator entries in
+    ``JUPYTER_EXTENSIONS``.
+    """
+    try:
+        import quak
+    except ImportError:
+        return
+
+    widget = _themed_widget(quak)
+
+    def explorer(obj: object) -> object:
+        """quak's own formatter, but only for what it can actually build a table from."""
+        # A Series advertises the Arrow interface quak accepts and then fails to convert:
+        # it is one column, not a struct. Left alone here, it renders the way it did
+        # before -- as itables' grid where that is installed, otherwise as its own repr.
+        import pandas as pd
+
+        if isinstance(obj, pd.Series):
+            return obj
+        rendered = quak.default_formatter(obj)
+        return widget(obj) if isinstance(rendered, quak.Widget) else rendered
+
+    quak.set_formatter(explorer)
+
+    ipython = get_ipython()  # noqa: F821 -- IPython provides this in the namespace.
+    ipython.run_line_magic("load_ext", "quak")
+
+
 PROJECT = "sqlmesh"
 """The SQLMesh project inside the models repository; jupyter/spawn.py spells it too."""
 
@@ -99,6 +192,7 @@ def _load() -> None:
     """Load the extensions and open the project."""
     _silence_seed_warnings()
     _render_dataframes_as_tables()
+    _explore_columns()
 
     from sqlmesh.magics import register_magics
 

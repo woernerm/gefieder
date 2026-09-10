@@ -1,16 +1,16 @@
-"""Running a MODEL cell: validate it, show the SQL it compiles to, preview its rows.
+"""Running a MODEL cell: validate the definition and preview the rows it produces.
 
 SQLMesh's own ``%%model`` magic writes the cell back to the model's file and reformats it.
 Here the file is what the editor has open, so writing it from underneath would race the
 editor and reformatting would rewrite a diff nobody asked for. This does the rest: parse the
-definition, register it with the context, render it, and show what it produces.
+definition, register it with the context, and show what it produces.
 
 The preview evaluates against the database, which needs the model to be part of a loaded
 project -- so it works on a model that has been saved at least once, and says so plainly
 when it has not.
 """
 from IPython.core.magic import Magics, cell_magic, magics_class
-from IPython.display import Code, display
+from IPython.display import display
 
 PREVIEW_LIMIT = 20
 """Rows shown under a model cell. Enough to see the shape of the result; ``%evaluate`` in a
@@ -78,9 +78,7 @@ class ModelMagics(Magics):
         )
         context.upsert_model(model)
 
-        print(f"{model.name} parsed. Compiled query:")
-        display(Code(context.render(model.name).sql(pretty=True, dialect=model.dialect),
-                     language="sql"))
+        print(f"{model.name} parsed.")
 
         try:
             display(context.evaluate(

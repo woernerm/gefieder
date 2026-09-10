@@ -1,0 +1,55 @@
+/* quak draws its table inside a shadow root, entirely through CSS variables its own
+   :host rule defines. Those definitions sit *on* the host element, so a variable set on
+   an ancestor loses to them however specific the selector is -- inheritance only fills in
+   what an element does not set itself. Setting them on the host element is what makes
+   them win, and `all: initial` does not interfere: the CSS `all` shorthand excludes
+   custom properties.
+
+   The host is a bare div with no class of its own, and how deeply ipywidgets nests it is
+   not a contract -- so every div under an output area is named rather than one position.
+   That is harmless: nothing but quak's shadow root reads these names.
+
+   The column histograms follow the same variables, Mosaic drawing them with currentColor
+   and var(--plot-background). Nothing else inside the shadow root can be reached from
+   here: an ordinary selector stops at the boundary, and quak exports no ::part. */
+.jp-OutputArea-output div {
+    --white: var(--jp-layout-color1);
+    --plot-background: var(--jp-layout-color1);
+    --dark-gray: var(--jp-content-font-color1);
+    --moon-gray: var(--jp-border-color1);
+    --gray: var(--jp-content-font-color2);
+    --mid-gray: var(--jp-content-font-color2);
+
+    /* quak's two accents: --primary is the filled part of every column chart and the
+       status bar's Reset button, --secondary the null bin. The brand colour is the theme's
+       own blue, but a chart fills a far larger area with it than a link does, so it is
+       toned down here rather than used neat. --jp-brand-color2 is no help: it is brighter
+       still. Only slightly, because the label on a categorical bar is dark: taking more out
+       of the blue dims the fill and the label together, and the label loses first. */
+    --stone-blue: color-mix(in srgb, var(--jp-brand-color1) 92%, var(--jp-layout-color1));
+    --yellow-gold: var(--jp-warn-color0);
+
+    /* Read by the stylesheet quaktheme/widget.js puts inside the shadow root, for what
+       cannot be reached from out here. The hover is what the file browser paints the row
+       under the pointer with; the height is quak's own 11.5 rows, doubled. The border is
+       what --light-silver held before the hover took it over. */
+    --gf-quak-hover: var(--jp-layout-color2);
+    --gf-quak-border: var(--jp-border-color2);
+    --gf-quak-height: 32rem;
+
+    /* The label that follows the pointer along a chart's axis: quak fills its box with a
+       hardcoded white and leaves the text the axis colour. Given the tooltip colours Lab
+       uses for its own, so it reads like the rest of the interface. */
+    --gf-quak-tooltip-background: var(--jp-layout-color0);
+    --gf-quak-tooltip-color: var(--jp-ui-font-color1);
+
+    /* What an unhovered bar fades to. quak uses 0.3, which against a dark background bar
+       is nearly invisible; this keeps it legible while still receding. */
+    --gf-quak-dimmed: 0.55;
+
+    /* A categorical bar's label sits on the fill, where quak writes it white. This is what
+       Lab puts on that same blue in the file browser's selected row. The separator between
+       bars is white there too, which reads as a bright grid on a dark theme. */
+    --gf-quak-on-primary: var(--jp-ui-inverse-font-color1);
+    --gf-quak-separator: var(--jp-layout-color1);
+}

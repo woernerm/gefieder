@@ -7,5 +7,9 @@
   },
   "@jupyterlab/apputils-extension:themes": {
     "theme": "Material Darker"
+  },
+  "@jupyterlab/apputils-extension:notification": {
+    "fetchNews": "false",
+    "checkForUpdates": false
   }
 }

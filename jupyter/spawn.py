@@ -31,6 +31,13 @@ PROJECT = "sqlmesh"
 class WorkspaceSpawner(LocalProcessSpawner):
     """A JupyterLab per person, on their own clone of the models repository."""
 
+    SKELETON_FILES = (
+        ".ipython/profile_default/ipython_kernel_config.py",
+        ".jupyter/custom/custom.css",
+    )
+    """What every home holds, whichever release the account was created under. The first
+    loads SQLMesh into the kernel, the second themes quak's table."""
+
     def _clone(self, account) -> Path:
         """Make sure this person has a working tree, and return it.
 
@@ -62,28 +69,32 @@ class WorkspaceSpawner(LocalProcessSpawner):
 
     @staticmethod
     def _refresh_skeleton(account) -> None:
-        """Copy the shipped IPython configuration into an existing home.
+        """Copy the shipped configuration into an existing home.
 
         ``/etc/skel`` is copied only when an account is created, so a person who signed in
         under an earlier release keeps whatever it held then -- and the kernel would go on
-        starting without SQLMesh loaded. Overwritten rather than merged: it is this
-        system's file, and a person who wants their own additions has the profile's
-        startup directory beside it.
+        starting without SQLMesh loaded. Overwritten rather than merged: these are this
+        system's files, and a person who wants their own additions has the profile's
+        startup directory beside them.
 
         Args:
             account: The Unix account record the server runs as.
         """
-        source = Path("/etc/skel/.ipython/profile_default/ipython_kernel_config.py")
-        if not source.exists():
-            return
+        for relative in WorkspaceSpawner.SKELETON_FILES:
+            source = Path("/etc/skel", relative)
+            if not source.exists():
+                continue
 
-        target = Path(
-            account.pw_dir, ".ipython", "profile_default", "ipython_kernel_config.py"
-        )
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(source.read_text())
-        for path in (target, target.parent, target.parent.parent):
-            os.chown(path, account.pw_uid, account.pw_gid)
+            target = Path(account.pw_dir, relative)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(source.read_text())
+            # Every directory the file was created under, up to the home itself, which the
+            # account already owns.
+            owned = [target]
+            while owned[-1].parent != Path(account.pw_dir):
+                owned.append(owned[-1].parent)
+            for path in owned:
+                os.chown(path, account.pw_uid, account.pw_gid)
 
     def start(self):
         """Prepare the workspace, then start the server in it.

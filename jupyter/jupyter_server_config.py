@@ -15,3 +15,8 @@ c.ServerApp.contents_manager_class = "sqlnotebook.contents.ModelContentsManager"
 # synthesizes it back unless ensure_native_kernel says otherwise.
 c.KernelSpecManager.ensure_native_kernel = False
 c.KernelSpecManager.allowed_kernelspecs = ["sqlmesh"]
+
+# Serves ~/.jupyter/custom/custom.css, off by default. The image ships one file there,
+# which repoints quak's CSS variables at the theme's so its table reads as part of Lab
+# rather than a light panel inside a dark one.
+c.LabApp.custom_css = True

@@ -260,8 +260,18 @@ class TestDataframeTables:
 
     @staticmethod
     def startup():
-        """The startup module's namespace, without running the parts that need a kernel."""
-        source = Path(__file__).resolve().parents[1] / "startup.py"
+        """The startup module's namespace, without running the parts that need a kernel.
+
+        In the image only ``tests/`` is mounted, so the file is read from where the
+        Dockerfile installs it; a checkout has it beside the tests instead.
+        """
+        venv = os.environ.get("NOTEBOOK_VENV", "/opt/notebook")
+        for source in (Path(__file__).resolve().parents[1] / "startup.py",
+                       Path(venv) / "etc" / "sqlmesh_startup.py"):
+            if source.exists():
+                break
+        else:
+            pytest.skip("startup.py is not readable from here")
         namespace = {}
         exec(source.read_text().split('PROJECT =')[0], namespace)
         return namespace
@@ -306,6 +316,101 @@ class TestDataframeTables:
         assert events == []
 
 
+class TestColumnExplorer:
+    """That quak renders a result, and only what it can actually render.
+
+    It replaces IPython's display formatter outright, so whatever it declines falls back to
+    the rendering that was there before it -- which is the only reason itables still reaches
+    anything once both are installed.
+    """
+
+    def test_a_dataframe_becomes_a_widget(self):
+        """The point of the extension: a result carries its column distributions."""
+        quak = pytest.importorskip("quak")
+        pd = pytest.importorskip("pandas")
+
+        namespace = TestDataframeTables.startup()
+        namespace["get_ipython"] = lambda: type(
+            "Shell", (), {"run_line_magic": lambda *_: None}
+        )()
+        namespace["_explore_columns"]()
+
+        assert isinstance(quak._formatter(pd.DataFrame({"a": [1, 2]})), quak.Widget)
+
+    def test_a_series_is_left_alone(self):
+        """It offers quak the Arrow interface and then fails to convert: one column is no
+        struct. Unguarded, displaying one raises instead of rendering."""
+        quak = pytest.importorskip("quak")
+        pd = pytest.importorskip("pandas")
+
+        namespace = TestDataframeTables.startup()
+        namespace["get_ipython"] = lambda: type(
+            "Shell", (), {"run_line_magic": lambda *_: None}
+        )()
+        namespace["_explore_columns"]()
+
+        series = pd.Series([1, 2, 3])
+        assert quak._formatter(series) is series
+
+
+class TestQuakTheme:
+    """That the module quak actually loads is its own bundle plus this system's wrapper.
+
+    Composed rather than patched: quak's bundle is taken as it ships and only its export
+    statement is rewritten, so the wrapper binds to the factory whatever this release
+    named it.
+    """
+
+    @staticmethod
+    def themed():
+        """The Widget subclass startup.py builds, or a skip when quak is absent."""
+        quak = pytest.importorskip("quak")
+        namespace = TestDataframeTables.startup()
+        return namespace["_themed_widget"](quak), quak
+
+    def test_the_wrapper_is_bound_to_quaks_factory(self):
+        """Its export names a minified identifier that changes with every quak release."""
+        themed, quak = self.themed()
+        if themed is quak.Widget:
+            pytest.skip("quak's bundle no longer ends in a default export")
+
+        module = str(themed._esm)
+        assert "const quakFactory =" in module
+        # An export left in the middle of the module is a syntax error at load.
+        assert module.count("export{") == 0
+        assert module.rstrip().endswith("};")
+
+    def test_it_styles_what_a_stylesheet_cannot_reach(self):
+        """The scroll height is an inline style, and the row hover an inline colour quak
+        writes as var(--light-silver) -- neither is reachable from outside the shadow root,
+        and the class its own stylesheet defines for the hover is never applied."""
+        themed, quak = self.themed()
+        if themed is quak.Widget:
+            pytest.skip("quak's bundle no longer ends in a default export")
+
+        module = str(themed._esm)
+        assert "--gf-quak-height" in module
+        # The hover takes --light-silver over, so the borders that shared it are restored.
+        assert "--light-silver: var(--gf-quak-hover)" in module
+        assert "--gf-quak-border" in module
+        # The chart label's box is a hardcoded white, and its text the axis colour.
+        assert "--gf-quak-tooltip-background" in module
+        assert "--gf-quak-tooltip-color" in module
+        # An unhovered bar is faded by an attribute, matched by value.
+        assert 'rect[opacity="0.3"]' in module
+
+    def test_an_unrecognised_bundle_falls_back(self):
+        """Better an unthemed table than a module that does not load at all."""
+        quak = pytest.importorskip("quak")
+        namespace = TestDataframeTables.startup()
+
+        class Unrecognised:
+            class Widget:
+                _esm = "export default () => ({});"
+
+        assert namespace["_themed_widget"](Unrecognised) is Unrecognised.Widget
+
+
 class TestKernelLanguage:
     """That the kernel presents itself as SQL.
 
@@ -337,10 +442,19 @@ class TestKernelLanguage:
 
     def test_the_kernelspec_launches_that_kernel(self):
         """The spec is what Jupyter runs; a stock ipykernel_launcher there reports
-        Python again and the highlighting reverts."""
-        spec = json.loads(
-            (Path(__file__).resolve().parents[1] / "kernel" / "kernel.json").read_text()
-        )
+        Python again and the highlighting reverts.
+
+        Read through Jupyter's own lookup rather than from the checkout: in the image only
+        ``tests/`` is mounted, and the installed spec is the one that matters anyway --
+        the Dockerfile rewrites its interpreter path on the way in.
+        """
+        source = Path(__file__).resolve().parents[1] / "kernel" / "kernel.json"
+        if source.exists():
+            spec = json.loads(source.read_text())
+        else:
+            from jupyter_client.kernelspec import KernelSpecManager
+
+            spec = KernelSpecManager().get_kernel_spec("sqlmesh").to_dict()
         assert "sqlnotebook.ipkernel" in spec["argv"]
 
     def test_it_is_still_an_ipython_kernel(self):
