@@ -41,38 +41,6 @@ def _silence_seed_warnings() -> None:
         )
 
 
-def _render_dataframes_as_tables() -> None:
-    """Render every dataframe as a sortable, searchable table.
-
-    ``%fetchdf`` and ``%evaluate`` hand back a dataframe, and its plain repr truncates to a
-    few rows -- which is the wrong shape for looking at what a model produced. itables
-    replaces that repr with a DataTables grid, so no cell has to call anything.
-
-    ``init_notebook_mode`` displays the DataTables bundle as HTML, and offline that output
-    *is* the library: a table rendered later refers back to it. Displayed from here it goes
-    nowhere -- a startup file has no cell -- and every table then waits forever on a script
-    that was never delivered. So it runs on the first cell the person executes, whose output
-    the notebook keeps, and unregisters itself afterwards.
-
-    Left out when itables is not installed: it is an operator's entry in
-    ``JUPYTER_EXTENSIONS``, so an image built without it must still start a kernel.
-    """
-    try:
-        from itables import init_notebook_mode
-    except ImportError:
-        return
-
-    ipython = get_ipython()  # noqa: F821 -- IPython provides this in the namespace.
-
-    def load_bundle(*_) -> None:
-        ipython.events.unregister("pre_run_cell", load_bundle)
-        # connected=False bundles the JavaScript rather than fetching it from a CDN, which
-        # the target machine cannot reach.
-        init_notebook_mode(all_interactive=True, connected=False)
-
-    ipython.events.register("pre_run_cell", load_bundle)
-
-
 def _themed_widget(quak):
     """quak's widget, with the two rules its shipped stylesheet puts out of reach.
 
@@ -122,16 +90,16 @@ def _themed_widget(quak):
 def _explore_columns() -> None:
     """Render a dataframe as quak's column explorer: distributions above every column.
 
-    quak replaces IPython's display formatter, which runs before ``_repr_html_`` -- so
-    where both it and itables are installed, quak is what a result renders as and itables
-    only reaches what quak hands back untouched.
+    ``%fetchdf`` and ``%evaluate`` hand back a dataframe, whose plain repr truncates to a
+    few rows -- the wrong shape for looking at what a model produced. quak replaces
+    IPython's display formatter, so no cell has to call anything.
 
     Its widget loads the table into a DuckDB of its own to compute the summaries, so it is
     pointed at the previews and results a person reads, not at whatever a cell happens to
     return: anything that is not a dataframe goes through unchanged.
 
-    Left out when quak is not installed, like itables above: both are operator entries in
-    ``JUPYTER_EXTENSIONS``.
+    Left out when quak is not installed: it is an operator's entry in
+    ``JUPYTER_EXTENSIONS``, so an image built without it must still start a kernel.
     """
     try:
         import quak
@@ -143,8 +111,7 @@ def _explore_columns() -> None:
     def explorer(obj: object) -> object:
         """quak's own formatter, but only for what it can actually build a table from."""
         # A Series advertises the Arrow interface quak accepts and then fails to convert:
-        # it is one column, not a struct. Left alone here, it renders the way it did
-        # before -- as itables' grid where that is installed, otherwise as its own repr.
+        # it is one column, not a struct. Left alone here, it renders as its own repr.
         import pandas as pd
 
         if isinstance(obj, pd.Series):
@@ -191,7 +158,6 @@ def _project() -> Path | None:
 def _load() -> None:
     """Load the extensions and open the project."""
     _silence_seed_warnings()
-    _render_dataframes_as_tables()
     _explore_columns()
 
     from sqlmesh.magics import register_magics

@@ -250,12 +250,11 @@ class TestPythonModels:
             assert (root / rel).read_text() == before
 
 
-class TestDataframeTables:
-    """That the itables bundle reaches a cell whose output the notebook keeps.
+class TestColumnExplorer:
+    """That quak renders a result, and only what it can actually render.
 
-    Offline, the HTML ``init_notebook_mode`` displays *is* the DataTables library, and a
-    table rendered later refers back to it. Run from the startup file it is displayed with
-    no cell to land in, and every table then shows "Loading ITables..." forever.
+    It replaces IPython's display formatter outright, so whatever it declines falls back to
+    that object's own repr.
     """
 
     @staticmethod
@@ -276,60 +275,12 @@ class TestDataframeTables:
         exec(source.read_text().split('PROJECT =')[0], namespace)
         return namespace
 
-    def test_the_bundle_is_deferred_to_a_cell(self):
-        """Registered on pre_run_cell rather than called: a startup file has no output."""
-        pytest.importorskip("itables")
-        events = []
-
-        class Events:
-            def register(self, name, function):
-                events.append((name, function))
-
-            def unregister(self, name, function):
-                events.remove((name, function))
-
-        shell = type("Shell", (), {"events": Events()})()
-        namespace = self.startup()
-        namespace["get_ipython"] = lambda: shell
-        namespace["_render_dataframes_as_tables"]()
-
-        assert [name for name, _ in events] == ["pre_run_cell"]
-
-    def test_the_bundle_is_sent_once(self):
-        """A 971 KB bundle in every cell would bloat the notebook it is kept in."""
-        pytest.importorskip("itables")
-        events = []
-
-        class Events:
-            def register(self, name, function):
-                events.append((name, function))
-
-            def unregister(self, name, function):
-                events.remove((name, function))
-
-        shell = type("Shell", (), {"events": Events()})()
-        namespace = self.startup()
-        namespace["get_ipython"] = lambda: shell
-        namespace["_render_dataframes_as_tables"]()
-
-        events[0][1]()
-        assert events == []
-
-
-class TestColumnExplorer:
-    """That quak renders a result, and only what it can actually render.
-
-    It replaces IPython's display formatter outright, so whatever it declines falls back to
-    the rendering that was there before it -- which is the only reason itables still reaches
-    anything once both are installed.
-    """
-
     def test_a_dataframe_becomes_a_widget(self):
         """The point of the extension: a result carries its column distributions."""
         quak = pytest.importorskip("quak")
         pd = pytest.importorskip("pandas")
 
-        namespace = TestDataframeTables.startup()
+        namespace = self.startup()
         namespace["get_ipython"] = lambda: type(
             "Shell", (), {"run_line_magic": lambda *_: None}
         )()
@@ -343,7 +294,7 @@ class TestColumnExplorer:
         quak = pytest.importorskip("quak")
         pd = pytest.importorskip("pandas")
 
-        namespace = TestDataframeTables.startup()
+        namespace = self.startup()
         namespace["get_ipython"] = lambda: type(
             "Shell", (), {"run_line_magic": lambda *_: None}
         )()
@@ -365,7 +316,7 @@ class TestQuakTheme:
     def themed():
         """The Widget subclass startup.py builds, or a skip when quak is absent."""
         quak = pytest.importorskip("quak")
-        namespace = TestDataframeTables.startup()
+        namespace = TestColumnExplorer.startup()
         return namespace["_themed_widget"](quak), quak
 
     def test_the_wrapper_is_bound_to_quaks_factory(self):
@@ -402,7 +353,7 @@ class TestQuakTheme:
     def test_an_unrecognised_bundle_falls_back(self):
         """Better an unthemed table than a module that does not load at all."""
         quak = pytest.importorskip("quak")
-        namespace = TestDataframeTables.startup()
+        namespace = TestColumnExplorer.startup()
 
         class Unrecognised:
             class Widget:
