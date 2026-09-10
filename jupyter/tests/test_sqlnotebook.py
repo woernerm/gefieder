@@ -315,11 +315,25 @@ class TestKernelLanguage:
     ``--`` starts no comment and an apostrophe opens a string.
     """
 
-    def test_the_kernel_reports_sql(self):
+    @staticmethod
+    def reported(session, monkeypatch):
+        """What a kernel opened on this file reports as its language."""
         from sqlnotebook.ipkernel import SQLKernel
 
-        assert SQLKernel.language_info["mimetype"] == "text/x-sql"
-        assert SQLKernel.language_info["name"] == "sql"
+        monkeypatch.setenv("JPY_SESSION_NAME", session)
+        return SQLKernel.__new__(SQLKernel).language_info["mimetype"]
+
+    def test_a_model_reports_sql(self, monkeypatch):
+        assert self.reported("models/silver/issues.sql", monkeypatch) == "text/x-sql"
+
+    def test_a_python_model_stays_python(self, monkeypatch):
+        """One kernel serves whatever is opened, so the language follows the file: a
+        Python model highlighted as SQL is the same bug in reverse."""
+        assert self.reported("models/bronze/c/raw.py", monkeypatch) == "text/x-python"
+
+    def test_an_unknown_session_stays_python(self, monkeypatch):
+        """A console or a kernel started from the launcher names no notebook."""
+        assert self.reported("", monkeypatch) == "text/x-python"
 
     def test_the_kernelspec_launches_that_kernel(self):
         """The spec is what Jupyter runs; a stock ipykernel_launcher there reports
