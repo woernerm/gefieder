@@ -32,8 +32,8 @@ of role names beside them:
   it. The switch shows the account that exists rather than a stored intention, so a save
   that could not reach the database reports the failure and the next save retries.
 - A **database access** column and filter on the user list, beside staff status.
-- An **Access token** page in the sidebar, where a person creates the token their own
-  checkout authenticates with. Their own and nobody else's: an administrator grants the
+- An **Access token** page in the menu behind one's own name, at the foot of the sidebar,
+  where a person creates the token their own checkout authenticates with. Their own and nobody else's: an administrator grants the
   access, but the credential that mints passwords is the account holder's alone.
 
 The switch is disabled for someone holding no rank group, since there is no privilege set

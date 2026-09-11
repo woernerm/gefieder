@@ -340,13 +340,13 @@ class TestQuakTheme:
             pytest.skip("quak's bundle no longer ends in a default export")
 
         module = str(themed._esm)
-        assert "--gf-quak-height" in module
+        assert "--app-quak-height" in module
         # The hover takes --light-silver over, so the borders that shared it are restored.
-        assert "--light-silver: var(--gf-quak-hover)" in module
-        assert "--gf-quak-border" in module
+        assert "--light-silver: var(--app-quak-hover)" in module
+        assert "--app-quak-border" in module
         # The chart label's box is a hardcoded white, and its text the axis colour.
-        assert "--gf-quak-tooltip-background" in module
-        assert "--gf-quak-tooltip-color" in module
+        assert "--app-quak-tooltip-background" in module
+        assert "--app-quak-tooltip-color" in module
         # An unhovered bar is faded by an attribute, matched by value.
         assert 'rect[opacity="0.3"]' in module
 

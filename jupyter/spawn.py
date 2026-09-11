@@ -34,9 +34,11 @@ class WorkspaceSpawner(LocalProcessSpawner):
     SKELETON_FILES = (
         ".ipython/profile_default/ipython_kernel_config.py",
         ".jupyter/custom/custom.css",
+        ".jupyter/custom/palette.css",
     )
     """What every home holds, whichever release the account was created under. The first
-    loads SQLMesh into the kernel, the second themes quak's table."""
+    loads SQLMesh into the kernel; the other two are the system's colours and the
+    stylesheet that applies them to Lab, which imports the palette from beside itself."""
 
     def _clone(self, account) -> Path:
         """Make sure this person has a working tree, and return it.

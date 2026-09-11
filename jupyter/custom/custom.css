@@ -1,3 +1,145 @@
+/* The system's colours, applied to JupyterLab. palette.css beside this file holds the
+   values, shared with the admin panel; this maps JupyterLab's own variables onto them.
+
+   JupyterLab marks the active theme on <body> as data-jp-theme-light, so the mapping is
+   done twice, once per mode, and follows whichever theme a person switches to. The base
+   theme underneath stays: Material Darker for dark, JupyterLab Light for light. Each still
+   owns what the palette does not name, the syntax highlighting above all, so the two modes
+   keep an editor colour scheme designed for them rather than one stretched over both. */
+@import url("palette.css");
+
+body[data-jp-theme-light="false"] {
+    --jp-layout-color0: var(--app-dark-bg-0);
+    --jp-layout-color1: var(--app-dark-bg-1);
+    --jp-layout-color2: var(--app-dark-bg-2);
+    --jp-layout-color3: var(--app-dark-bg-3);
+    --jp-layout-color4: var(--app-dark-bg-3);
+    --jp-inverse-layout-color0: var(--app-dark-text-max);
+    --jp-inverse-layout-color1: var(--app-dark-text-0);
+    --jp-inverse-layout-color2: var(--app-dark-text-1);
+    --jp-inverse-layout-color3: var(--app-dark-text-2);
+    --jp-inverse-layout-color4: var(--app-dark-text-2);
+    --jp-border-color0: var(--app-dark-border-2);
+    --jp-border-color1: var(--app-dark-border-1);
+    --jp-border-color2: var(--app-dark-border-0);
+    --jp-border-color3: var(--app-dark-border-0);
+    --jp-ui-font-color0: var(--app-dark-text-max);
+    --jp-ui-font-color1: var(--app-dark-text-0);
+    --jp-ui-font-color2: var(--app-dark-text-1);
+    --jp-ui-font-color3: var(--app-dark-text-2);
+    --jp-ui-inverse-font-color0: var(--app-light-text-max);
+    --jp-ui-inverse-font-color1: var(--app-light-text-0);
+    --jp-ui-inverse-font-color2: var(--app-light-text-1);
+    --jp-ui-inverse-font-color3: var(--app-light-text-2);
+    --jp-content-font-color0: var(--app-dark-text-max);
+    --jp-content-font-color1: var(--app-dark-text-0);
+    --jp-content-font-color2: var(--app-dark-text-1);
+    --jp-content-font-color3: var(--app-dark-text-2);
+    --jp-content-link-color: var(--app-dark-accent-text);
+    --jp-brand-color0: var(--app-dark-accent-text);
+    --jp-brand-color1: var(--app-dark-accent);
+    --jp-brand-color2: var(--app-dark-accent);
+    --jp-brand-color3: var(--app-dark-bg-3);
+    --jp-accent-color0: var(--app-dark-success-text);
+    --jp-accent-color1: var(--app-dark-success);
+    --jp-warn-color0: var(--app-dark-warning-text);
+    --jp-warn-color1: var(--app-dark-warning);
+    --jp-error-color0: var(--app-dark-error-text);
+    --jp-error-color1: var(--app-dark-error);
+    --jp-success-color0: var(--app-dark-success-text);
+    --jp-success-color1: var(--app-dark-success);
+    --jp-info-color0: var(--app-dark-accent-text);
+    --jp-info-color1: var(--app-dark-accent);
+    --jp-cell-editor-background: var(--app-dark-bg-1);
+    --jp-cell-editor-active-background: var(--app-dark-bg-1);
+    --jp-cell-editor-border-color: var(--app-dark-border-0);
+    --jp-cell-editor-active-border-color: var(--app-dark-accent);
+    --jp-input-background: var(--app-dark-bg-2);
+    --jp-input-active-background: var(--app-dark-bg-2);
+    --jp-input-hover-background: var(--app-dark-bg-3);
+    --jp-input-border-color: var(--app-dark-border-1);
+    --jp-input-active-border-color: var(--app-dark-accent);
+    --jp-toolbar-background: var(--app-dark-bg-1);
+    --jp-toolbar-border-color: var(--app-dark-border-0);
+    --jp-dialog-background: rgba(0, 0, 0, 0.6);
+    --jp-notebook-select-background: var(--app-dark-bg-2);
+    --jp-editor-selected-background: var(--app-dark-selected);
+    --jp-editor-selected-focused-background: var(--app-dark-selected);
+    --jp-rendermime-table-row-background: var(--app-dark-bg-1);
+    --jp-rendermime-table-row-hover-background: var(--app-dark-hover);
+    --jp-scrollbar-background-color: var(--app-dark-bg-1);
+    --jp-scrollbar-thumb-color: var(--app-dark-border-2);
+}
+
+body[data-jp-theme-light="true"] {
+    --jp-layout-color0: var(--app-light-bg-0);
+    --jp-layout-color1: var(--app-light-bg-1);
+    --jp-layout-color2: var(--app-light-bg-2);
+    --jp-layout-color3: var(--app-light-bg-3);
+    --jp-layout-color4: var(--app-light-bg-3);
+    --jp-inverse-layout-color0: var(--app-light-text-max);
+    --jp-inverse-layout-color1: var(--app-light-text-0);
+    --jp-inverse-layout-color2: var(--app-light-text-1);
+    --jp-inverse-layout-color3: var(--app-light-text-2);
+    --jp-inverse-layout-color4: var(--app-light-text-2);
+    --jp-border-color0: var(--app-light-border-2);
+    --jp-border-color1: var(--app-light-border-1);
+    --jp-border-color2: var(--app-light-border-0);
+    --jp-border-color3: var(--app-light-border-0);
+    --jp-ui-font-color0: var(--app-light-text-max);
+    --jp-ui-font-color1: var(--app-light-text-0);
+    --jp-ui-font-color2: var(--app-light-text-1);
+    --jp-ui-font-color3: var(--app-light-text-2);
+    --jp-ui-inverse-font-color0: var(--app-dark-text-max);
+    --jp-ui-inverse-font-color1: var(--app-dark-text-0);
+    --jp-ui-inverse-font-color2: var(--app-dark-text-1);
+    --jp-ui-inverse-font-color3: var(--app-dark-text-2);
+    --jp-content-font-color0: var(--app-light-text-max);
+    --jp-content-font-color1: var(--app-light-text-0);
+    --jp-content-font-color2: var(--app-light-text-1);
+    --jp-content-font-color3: var(--app-light-text-2);
+    --jp-content-link-color: var(--app-light-accent-text);
+    --jp-brand-color0: var(--app-light-accent-text);
+    --jp-brand-color1: var(--app-light-accent);
+    --jp-brand-color2: var(--app-light-accent);
+    --jp-brand-color3: var(--app-light-bg-3);
+    --jp-accent-color0: var(--app-light-success-text);
+    --jp-accent-color1: var(--app-light-success);
+    --jp-warn-color0: var(--app-light-warning-text);
+    --jp-warn-color1: var(--app-light-warning);
+    --jp-error-color0: var(--app-light-error-text);
+    --jp-error-color1: var(--app-light-error);
+    --jp-success-color0: var(--app-light-success-text);
+    --jp-success-color1: var(--app-light-success);
+    --jp-info-color0: var(--app-light-accent-text);
+    --jp-info-color1: var(--app-light-accent);
+    --jp-cell-editor-background: var(--app-light-bg-2);
+    --jp-cell-editor-active-background: var(--app-light-bg-1);
+    --jp-cell-editor-border-color: var(--app-light-border-0);
+    --jp-cell-editor-active-border-color: var(--app-light-accent);
+    --jp-input-background: var(--app-light-bg-1);
+    --jp-input-active-background: var(--app-light-bg-1);
+    --jp-input-hover-background: var(--app-light-bg-2);
+    --jp-input-border-color: var(--app-light-border-1);
+    --jp-input-active-border-color: var(--app-light-accent);
+    --jp-toolbar-background: var(--app-light-bg-1);
+    --jp-toolbar-border-color: var(--app-light-border-0);
+    --jp-dialog-background: rgba(0, 0, 0, 0.25);
+    --jp-notebook-select-background: var(--app-light-bg-2);
+    --jp-editor-selected-background: var(--app-light-selected);
+    --jp-editor-selected-focused-background: var(--app-light-selected);
+    --jp-rendermime-table-row-background: var(--app-light-bg-1);
+    --jp-rendermime-table-row-hover-background: var(--app-light-hover);
+    --jp-scrollbar-background-color: var(--app-light-bg-1);
+    --jp-scrollbar-thumb-color: var(--app-light-border-2);
+}
+
+body {
+    --jp-ui-font-family: var(--app-font);
+    --jp-content-font-family: var(--app-font);
+    --jp-code-font-family: var(--app-font-mono);
+}
+
 /* quak draws its table inside a shadow root, entirely through CSS variables its own
    :host rule defines. Those definitions sit *on* the host element, so a variable set on
    an ancestor loses to them however specific the selector is -- inheritance only fills in
@@ -33,23 +175,23 @@
        cannot be reached from out here. The hover is what the file browser paints the row
        under the pointer with; the height is quak's own 11.5 rows, doubled. The border is
        what --light-silver held before the hover took it over. */
-    --gf-quak-hover: var(--jp-layout-color2);
-    --gf-quak-border: var(--jp-border-color2);
-    --gf-quak-height: 32rem;
+    --app-quak-hover: var(--jp-layout-color2);
+    --app-quak-border: var(--jp-border-color2);
+    --app-quak-height: 32rem;
 
     /* The label that follows the pointer along a chart's axis: quak fills its box with a
        hardcoded white and leaves the text the axis colour. Given the tooltip colours Lab
        uses for its own, so it reads like the rest of the interface. */
-    --gf-quak-tooltip-background: var(--jp-layout-color0);
-    --gf-quak-tooltip-color: var(--jp-ui-font-color1);
+    --app-quak-tooltip-background: var(--jp-layout-color0);
+    --app-quak-tooltip-color: var(--jp-ui-font-color1);
 
     /* What an unhovered bar fades to. quak uses 0.3, which against a dark background bar
        is nearly invisible; this keeps it legible while still receding. */
-    --gf-quak-dimmed: 0.55;
+    --app-quak-dimmed: 0.55;
 
     /* A categorical bar's label sits on the fill, where quak writes it white. This is what
        Lab puts on that same blue in the file browser's selected row. The separator between
        bars is white there too, which reads as a bright grid on a dark theme. */
-    --gf-quak-on-primary: var(--jp-ui-inverse-font-color1);
-    --gf-quak-separator: var(--jp-layout-color1);
+    --app-quak-on-primary: var(--jp-ui-inverse-font-color1);
+    --app-quak-separator: var(--jp-layout-color1);
 }

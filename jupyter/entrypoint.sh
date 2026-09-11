@@ -37,6 +37,23 @@ case "${REPO_MODELS}" in
     ;;
 esac
 
+# Which theme Lab opens in, from DEFAULT_THEME in runtime.env. Written at start rather
+# than baked in, because it is the operator's runtime setting, and into overrides.d/ so
+# the settings that are part of the release stay in overrides.json untouched. A person
+# who picks the other theme in Lab's menu keeps their choice: this is only the default.
+# JupyterLab Light rather than a light Material theme: none is installed, and the palette
+# in ~/.jupyter/custom/custom.css recolours whichever base theme is underneath anyway.
+case "${DEFAULT_THEME:-dark}" in
+  light) THEME_NAME="JupyterLab Light" ;;
+  *)     THEME_NAME="Material Darker" ;;
+esac
+OVERRIDES_D="${NOTEBOOK_VENV:-/opt/notebook}/share/jupyter/lab/settings/overrides.d"
+mkdir -p "$OVERRIDES_D"
+printf '{\n  "@jupyterlab/apputils-extension:themes": {\n    "theme": "%s"\n  }\n}\n' \
+  "$THEME_NAME" > "$OVERRIDES_D/theme.json"
+# Written as root, read by every person's own server.
+chmod a+rX "$OVERRIDES_D" "$OVERRIDES_D/theme.json"
+
 # The config imports the authenticator and the spawner from beside itself.
 PYTHONPATH=/etc/jupyterhub
 export PYTHONPATH

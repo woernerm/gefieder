@@ -18,6 +18,22 @@ c = get_config()  # noqa: F821 -- JupyterHub injects this into the file's namesp
 NOTEBOOK_VENV = os.environ.get("NOTEBOOK_VENV", "/opt/notebook")
 """The environment the notebook servers and their kernels run in, beside the hub's own."""
 
+# --- how it looks -----------------------------------------------------------------------
+# The hub's own pages in the system's colours. templates/page.html extends the stock one
+# and inlines the palette, the same file the notebooks and the admin panel use; it is read
+# here once rather than served, the hub having no static directory of its own to put it in.
+# DEFAULT_THEME comes from runtime.env, as it does for Grafana and the admin panel.
+# The stock directory stays on the list: the setting replaces the default rather than
+# adding to it, and every page that is not overridden is still served from there.
+c.JupyterHub.template_paths = [
+    "/etc/jupyterhub/templates",
+    f"{NOTEBOOK_VENV}/share/jupyterhub/templates",
+]
+c.JupyterHub.template_vars = {
+    "app_palette": open("/etc/jupyterhub/palette.css").read(),
+    "default_theme": "light" if os.environ.get("DEFAULT_THEME") == "light" else "dark",
+}
+
 # --- where it is reached ----------------------------------------------------------------
 # The proxy forwards /${NOTEBOOK_PATH}/ here with the path unchanged, as it does for the
 # admin panel and Grafana, so the hub serves from that prefix rather than the root. Carried

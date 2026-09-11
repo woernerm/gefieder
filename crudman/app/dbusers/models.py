@@ -72,17 +72,17 @@ class DatabaseUser(models.Model):
 
 
 class AccessToken(DatabaseUser):
-    """The token page, as a model so the admin lists it under Access.
+    """The token page, as a model so the admin serves it.
 
     A proxy of DatabaseUser rather than a table of its own: the token is a field on that
-    row, and this exists only to give the sidebar an entry. Its changelist is replaced by
-    the page a person creates their own token on.
+    row, and this exists only to give the page an address behind the admin's sign-in. Its
+    changelist is replaced by the page a person creates their own token on.
     """
 
     class Meta:
         proxy = True
-        # Beside the users and groups the section is about, rather than a heading of its
-        # own for a single page.
+        # From when the page was listed under Access. Only the address depends on it now,
+        # and moving a proxy to another label costs a migration.
         app_label = "auth"
         verbose_name = "access token"
         verbose_name_plural = "Access token"

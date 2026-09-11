@@ -26,6 +26,9 @@ RunInit=true
 # it stamps its own lines in UTC with a trailing "Z" and offers no setting for it, which is
 # unambiguous rather than wrong -- tests/test_logs.py records that exception.
 Timezone=local
+# DEFAULT_THEME comes from runtime.env, so a change needs a restart rather than a rebuild.
+# See crudman.container for why the path has no "-" prefix.
+EnvironmentFile=%h/.config/${APP_NAME}/runtime.env
 # Where the proxy serves it, so the hub's base_url matches the path the browser used.
 Environment=NOTEBOOK_PATH=${NOTEBOOK_PATH}
 # Whom to ask who a visitor is. The admin panel's own path, on the localhost the pod

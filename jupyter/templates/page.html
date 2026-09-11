@@ -1,0 +1,112 @@
+{#- The hub's pages -- login, home, the spawn progress screen -- in the system's colours.
+    Extends the hub's own page.html through the "templates/" prefix its loader reserves for
+    exactly this, and touches two blocks only: the stylesheet, and the scripts, where the
+    default theme is seeded before the hub's own dark-mode script reads it.
+
+    The colours are in palette.css, the same file the notebooks and the admin panel use,
+    inlined here rather than linked: the hub serves no static directory of its own to put
+    it in. Every page of the hub extends page.html, so this covers the spawn progress
+    screen too, whose bar and text are ordinary Bootstrap components. -#}
+{% extends "templates/page.html" %}
+
+{% block stylesheet %}
+  {{ super() }}
+  <style>
+    {{ app_palette | safe }}
+
+    /* Bootstrap 5.3 keeps one set of variables per colour mode, switched by the
+       data-bs-theme attribute the hub's darkmode.js sets on <html>. Mapped onto the
+       palette per mode, the same way Lab's variables are; the toggle keeps working. */
+    [data-bs-theme="dark"] {
+      --bs-body-bg: var(--app-dark-bg-0);
+      --bs-body-bg-rgb: 17, 18, 23;
+      --bs-body-color: var(--app-dark-text-0);
+      --bs-body-color-rgb: 204, 204, 220;
+      --bs-emphasis-color: var(--app-dark-text-max);
+      --bs-emphasis-color-rgb: 255, 255, 255;
+      --bs-secondary-color: var(--app-dark-text-1);
+      --bs-secondary-bg: var(--app-dark-bg-1);
+      --bs-secondary-bg-rgb: 24, 27, 31;
+      --bs-tertiary-color: var(--app-dark-text-2);
+      --bs-tertiary-bg: var(--app-dark-bg-2);
+      --bs-tertiary-bg-rgb: 34, 37, 43;
+      --bs-border-color: var(--app-dark-border-0);
+      --bs-border-color-translucent: var(--app-dark-border-0);
+      --bs-link-color: var(--app-dark-accent-text);
+      --bs-link-color-rgb: 110, 159, 255;
+      --bs-link-hover-color: var(--app-dark-text-max);
+      --bs-link-hover-color-rgb: 255, 255, 255;
+      --bs-primary: var(--app-dark-accent);
+      --bs-primary-rgb: 61, 113, 217;
+      --bs-primary-text-emphasis: var(--app-dark-accent-text);
+      --bs-success-text-emphasis: var(--app-dark-success-text);
+      --bs-warning-text-emphasis: var(--app-dark-warning-text);
+      --bs-danger-text-emphasis: var(--app-dark-error-text);
+      --bs-progress-bar-bg: var(--app-dark-accent);
+      --bs-progress-bg: var(--app-dark-bg-2);
+    }
+
+    [data-bs-theme="light"] {
+      --bs-body-bg: var(--app-light-bg-0);
+      --bs-body-bg-rgb: 251, 251, 251;
+      --bs-body-color: var(--app-light-text-0);
+      --bs-body-color-rgb: 36, 41, 46;
+      --bs-emphasis-color: var(--app-light-text-max);
+      --bs-emphasis-color-rgb: 0, 0, 0;
+      --bs-secondary-color: var(--app-light-text-1);
+      --bs-secondary-bg: var(--app-light-bg-2);
+      --bs-secondary-bg-rgb: 244, 245, 245;
+      --bs-tertiary-color: var(--app-light-text-2);
+      --bs-tertiary-bg: var(--app-light-bg-3);
+      --bs-tertiary-bg-rgb: 236, 236, 237;
+      --bs-border-color: var(--app-light-border-0);
+      --bs-border-color-translucent: var(--app-light-border-0);
+      --bs-link-color: var(--app-light-accent-text);
+      --bs-link-color-rgb: 31, 98, 224;
+      --bs-link-hover-color: var(--app-light-text-max);
+      --bs-link-hover-color-rgb: 0, 0, 0;
+      --bs-primary: var(--app-light-accent);
+      --bs-primary-rgb: 56, 113, 220;
+      --bs-primary-text-emphasis: var(--app-light-accent-text);
+      --bs-success-text-emphasis: var(--app-light-success-text);
+      --bs-warning-text-emphasis: var(--app-light-warning-text);
+      --bs-danger-text-emphasis: var(--app-light-error-text);
+      --bs-progress-bar-bg: var(--app-light-accent);
+      --bs-progress-bg: var(--app-light-bg-3);
+    }
+
+    body {
+      font-family: var(--app-font);
+    }
+
+    /* Bootstrap's buttons carry their colours as component variables set per class, not
+       through --bs-primary, so the one button the hub uses is repointed by hand. */
+    .btn-primary {
+      --bs-btn-bg: var(--bs-primary);
+      --bs-btn-border-color: var(--bs-primary);
+      --bs-btn-hover-bg: var(--bs-link-color);
+      --bs-btn-hover-border-color: var(--bs-link-color);
+      --bs-btn-active-bg: var(--bs-link-color);
+      --bs-btn-active-border-color: var(--bs-link-color);
+    }
+
+    .navbar {
+      background-color: var(--bs-secondary-bg);
+      border-bottom: 1px solid var(--bs-border-color);
+    }
+  </style>
+{% endblock stylesheet %}
+
+{% block scripts %}
+  {#- darkmode.js reads a stored preference and otherwise follows the operating system.
+      Seeding the storage with DEFAULT_THEME before it runs makes that the starting point
+      instead, while a person's own toggle still overwrites it and wins from then on. -#}
+  <script>
+    try {
+      if (localStorage.getItem("jupyterhub-bs-theme") === null) {
+        localStorage.setItem("jupyterhub-bs-theme", "{{ default_theme }}");
+      }
+    } catch (error) {}
+  </script>
+  {{ super() }}
+{% endblock scripts %}

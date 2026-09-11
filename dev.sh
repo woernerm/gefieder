@@ -194,6 +194,7 @@ run_quadlet postgresql
 run_quadlet crudman \
   -e "SERVER_NAME=${SERVER_NAME}" \
   -e DEBUG=true \
+  -e "DEFAULT_THEME=${DEFAULT_THEME}" \
   -e "CSRF_TRUSTED_ORIGINS=http://${HOST_ADDR}:${HTTP_PORT}" \
   -e "SFTP_PORT=${SFTP_PORT}" -e "FLIGHT_PORT=${FLIGHT_PORT}" \
   -e "PG_PORT=${PG_PORT}"
@@ -210,15 +211,17 @@ run_quadlet sqlmesh
 # same line the README gives custom ports.
 run_quadlet grafana \
   -e "SERVER_NAME=${SERVER_NAME}" \
+  -e "DEFAULT_THEME=${DEFAULT_THEME}" \
   -e "GF_SERVER_ROOT_URL=http://${HOST_ADDR}:${HTTP_PORT}/${GRAFANA_PATH}/"
 
 # Nothing to override: it reaches Grafana on localhost inside the pod, and its callers'
 # credentials arrive with each request rather than from the environment.
 run_quadlet grafana_mcp
 
-# Likewise: it authenticates against crudman on the pod's localhost, and the database it
-# hands each notebook is the in-pod one whatever port the stack publishes.
-run_quadlet jupyter
+# It authenticates against crudman on the pod's localhost, and the database it hands each
+# notebook is the in-pod one whatever port the stack publishes; only the theme is its own
+# runtime setting.
+run_quadlet jupyter -e "DEFAULT_THEME=${DEFAULT_THEME}"
 
 # DEBUG=true picks the plain-HTTP template, so the certificate directory the quadlet
 # mounts is only created for the mount to resolve.

@@ -58,6 +58,10 @@ COPY crudman/app/ /crudman/app/
 # reaches it through {% static %}, the storage backend hashing the name.
 COPY --from=assets /echarts.min.js /crudman/app/docs/static/docs/echarts.min.js
 
+# The system's colours, the same way: Unfold's STYLES setting links it into every page,
+# and its COLORS point into it. Grafana's palette, kept beside Grafana to say so.
+COPY grafana/palette.css /crudman/app/system/static/css/palette.css
+
 # What a models repository starts life as, used only when REPO_MODELS names a path that
 # does not exist yet. Shipping the examples as the first commit is what keeps them worth
 # having: the same tree a fresh installation runs is the one a developer clones, so the

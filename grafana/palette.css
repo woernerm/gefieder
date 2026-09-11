@@ -1,0 +1,97 @@
+/* The colours every application in this system is themed with, so the three of them --
+   Grafana, the admin panel and the notebooks -- read as one. Grafana's own dark and light
+   themes, transcribed: Grafana's chrome cannot be recoloured without an Enterprise licence,
+   so it is the fixed point the other two follow. It lives here to say where the values
+   came from; Grafana itself never reads it -- the admin and notebook images copy it in.
+
+   Values matched to Grafana 13.2.1 (packages/grafana-data, createColors). Written from
+   observation of the rendered theme, not copied from its source, and unlikely to move
+   between minor releases; check against the version in grafana/Dockerfile after a major
+   upgrade.
+
+   Both modes are spelled out with a mode in the name rather than switched by a selector:
+   each application signals light and dark its own way (a class on <html>, a Bootstrap
+   attribute, a JupyterLab body attribute), so the switch belongs in each one's adapter,
+   which maps its framework's variables onto these under its own selectors. */
+:root {
+    /* Dark: the greys Grafana calls gray05 through gray25, and its "whiteBase" text. */
+    --app-dark-bg-0: #111217;             /* the page canvas */
+    --app-dark-bg-1: #181b1f;             /* panels, cards, the primary surface */
+    --app-dark-bg-2: #22252b;             /* a raised surface: menus, hover, inputs */
+    --app-dark-bg-3: #2c2f35;             /* a pressed or selected surface */
+    --app-dark-border-0: rgba(204, 204, 220, 0.12);   /* weak */
+    --app-dark-border-1: rgba(204, 204, 220, 0.20);   /* medium */
+    --app-dark-border-2: rgba(204, 204, 220, 0.30);   /* strong */
+    --app-dark-text-0: rgb(204, 204, 220);            /* primary */
+    --app-dark-text-1: rgba(204, 204, 220, 0.65);     /* secondary */
+    --app-dark-text-2: rgba(204, 204, 220, 0.61);     /* disabled */
+    --app-dark-text-max: #ffffff;                     /* maximum contrast */
+    --app-dark-accent: #3d71d9;           /* the primary action: buttons, selection */
+    --app-dark-accent-text: #6e9fff;      /* the same accent as text: links */
+    --app-dark-on-accent: #ffffff;        /* text on the accent */
+    --app-dark-hover: rgba(204, 204, 220, 0.16);
+    --app-dark-selected: rgba(204, 204, 220, 0.12);
+    --app-dark-success: #1a7f4b;
+    --app-dark-success-text: #6ccf8e;
+    --app-dark-warning: #ff9900;
+    --app-dark-warning-text: #fbad37;
+    --app-dark-error: #d10e5c;
+    --app-dark-error-text: #ff5286;
+
+    /* Light: gray100 down to gray85, and its "blackBase" text. */
+    --app-light-bg-0: #fbfbfb;
+    --app-light-bg-1: #ffffff;
+    --app-light-bg-2: #f4f5f5;
+    --app-light-bg-3: #ececed;
+    --app-light-border-0: rgba(36, 41, 46, 0.12);
+    --app-light-border-1: rgba(36, 41, 46, 0.30);
+    --app-light-border-2: rgba(36, 41, 46, 0.40);
+    --app-light-text-0: rgb(36, 41, 46);
+    --app-light-text-1: rgba(36, 41, 46, 0.75);
+    --app-light-text-2: rgba(36, 41, 46, 0.65);
+    --app-light-text-max: #000000;
+    --app-light-accent: #3871dc;
+    --app-light-accent-text: #1f62e0;
+    --app-light-on-accent: #ffffff;
+    --app-light-hover: rgba(36, 41, 46, 0.12);
+    --app-light-selected: rgba(36, 41, 46, 0.08);
+    --app-light-success: #1b855e;
+    --app-light-success-text: #0a764e;
+    --app-light-warning: #ff9900;
+    --app-light-warning-text: #b04e0c;
+    --app-light-error: #e0226e;
+    --app-light-error-text: #cf0e5b;
+
+    /* The greys themselves, the ramp the two sets above are picked from: Grafana's
+       gray05 to gray100, opaque and evenly stepped. For a framework that wants a
+       lightness scale rather than named roles -- Tailwind's base-50 to base-950 in the
+       admin panel -- because a role like "secondary text" is translucent and mode-bound,
+       and a scale step is read as a border in one mode and as text in the other. */
+    --app-gray-05: #111217;
+    --app-gray-10: #181b1f;
+    --app-gray-15: #22252b;
+    --app-gray-20: #2c2f35;
+    --app-gray-25: #383b42;
+    --app-gray-30: #44474e;
+    --app-gray-35: #51555b;
+    --app-gray-40: #5f6268;
+    --app-gray-45: #6e7177;
+    --app-gray-50: #7d8085;
+    --app-gray-55: #8c8f94;
+    --app-gray-60: #9c9fa3;
+    --app-gray-65: #ababaf;
+    --app-gray-70: #babcbe;
+    --app-gray-75: #c8cacc;
+    --app-gray-80: #d6d7d9;
+    --app-gray-85: #e1e2e3;
+    --app-gray-90: #ececed;
+    --app-gray-95: #f4f5f5;
+    --app-gray-100: #fbfbfb;
+
+    /* The one typeface, so a heading in one application is a heading in the next. Inter
+       is what Grafana and Unfold both ship; the notebooks fall through to the system UI
+       font, which is what JupyterLab does on its own. */
+    --app-font: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+        Arial, sans-serif;
+    --app-font-mono: "Roboto Mono", Menlo, Monaco, Consolas, "Courier New", monospace;
+}

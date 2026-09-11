@@ -195,6 +195,7 @@ on a reinstall, so your edits survive an upgrade.
 | `HTTP_PORT`, `HTTPS_PORT` | the ports the two web interfaces are reached on; `80` and `443` (see [Using custom ports](#using-custom-ports)) |
 | `PG_PORT` | the port PostgreSQL is reached on; `5432` |
 | `MODELS_POLL_INTERVAL` | how often, in seconds, the system looks for a new commit of the analytics models; `20`, and `0` switches the automatic deployment off |
+| `DEFAULT_THEME` | whether the dashboards, the admin panel and the notebooks open in `dark` or `light` colours; `dark`. Everyone can still pick the other one for themselves |
 | `SFTP_PORT`, `FLIGHT_PORT` | the ports the two dropzone upload endpoints are reached on; `2222` and `8815` |
 | `OIDC_ENABLED` | whether people sign in with their company account (see [Single sign-on](#single-sign-on)); `false` by default |
 | `OIDC_ISSUER` | the address of your identity provider |
@@ -560,8 +561,9 @@ database account an administrator switches on under **Database access** on your 
 administrator for a database account; they switch it on in the admin panel under a
 person's **Database access**.
 
-Then create an access token for yourself: sign in to the admin panel and follow
-**Access token** in the sidebar. It is shown to you once.
+Then create an access token for yourself: sign in to the admin panel, open the menu
+behind your name at the bottom of the sidebar and follow **Access token**. It is shown to
+you once.
 
 ```bash
 git clone <the address on the Model versions page> models

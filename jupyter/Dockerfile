@@ -109,10 +109,10 @@ COPY jupyter/quaktheme/ ${NOTEBOOK_VENV}/etc/quaktheme/
 RUN mkdir -p /etc/skel/.ipython/profile_default
 COPY jupyter/ipython_kernel_config.py /etc/skel/.ipython/profile_default/ipython_kernel_config.py
 
-# Repoints quak's own CSS variables at the theme's, so its table and column histograms
-# follow whichever theme Lab is on rather than staying light. Read only when custom_css is
-# enabled, which jupyter_server_config.py does.
-COPY jupyter/custom/custom.css /etc/skel/.jupyter/custom/custom.css
+# The system's colours, and the stylesheet that applies them to Lab. Read only when
+# custom_css is enabled, which jupyter_server_config.py does. The palette is Grafana's,
+# kept beside Grafana to say so; every image that themes itself copies it from there.
+COPY grafana/palette.css jupyter/custom/custom.css /etc/skel/.jupyter/custom/
 
 # What a person's working tree must never carry into a commit. Their own global ignore
 # file, so the models repository's .gitignore stays the one this system ships.
@@ -138,8 +138,10 @@ COPY jupyter/jupyter_server_config.py /usr/local/etc/jupyter/jupyter_server_conf
 COPY jupyter/overrides/overrides.json \
      ${NOTEBOOK_VENV}/share/jupyter/lab/settings/overrides.json
 
-# The hub's own configuration and the two modules it imports.
-COPY jupyter/jupyterhub_config.py jupyter/crudman.py jupyter/spawn.py /etc/jupyterhub/
+# The hub's own configuration and the two modules it imports, its page template, and the
+# palette that template inlines.
+COPY jupyter/jupyterhub_config.py jupyter/crudman.py jupyter/spawn.py grafana/palette.css /etc/jupyterhub/
+COPY jupyter/templates/ /etc/jupyterhub/templates/
 COPY jupyter/entrypoint.sh /jupyter/entrypoint.sh
 
 # So the hub finds the single-user server, which lives in the notebook environment.

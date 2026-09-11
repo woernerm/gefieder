@@ -23,27 +23,27 @@
 // becomes the hover colour here and the borders are given back their own.
 const STYLES = `
   .table-container {
-    max-height: var(--gf-quak-height, 32rem) !important;
+    max-height: var(--app-quak-height, 32rem) !important;
     resize: vertical;
   }
 
   :host {
-    --light-silver: var(--gf-quak-hover);
+    --light-silver: var(--app-quak-hover);
   }
 
   .quak,
   td {
-    border-color: var(--gf-quak-border);
+    border-color: var(--app-quak-border);
   }
 
   th {
-    border-bottom-color: var(--gf-quak-border);
-    border-left-color: var(--gf-quak-border);
+    border-bottom-color: var(--app-quak-border);
+    border-left-color: var(--app-quak-border);
   }
 
   td:nth-last-child(2),
   th:nth-last-child(2) {
-    border-right-color: var(--gf-quak-border);
+    border-right-color: var(--app-quak-border);
   }
 
   /* The label that follows the pointer along a chart's axis. Its box is a rect quak fills
@@ -51,11 +51,11 @@ const STYLES = `
      theme it is white on white. Both are named here, the text explicitly because it would
      otherwise keep inheriting the axis colour. */
   .tick rect {
-    fill: var(--gf-quak-tooltip-background) !important;
+    fill: var(--app-quak-tooltip-background) !important;
   }
 
   .tick text {
-    fill: var(--gf-quak-tooltip-color);
+    fill: var(--app-quak-tooltip-color);
     font-family: var(--sans-serif);
   }
 
@@ -63,7 +63,7 @@ const STYLES = `
      leaves it barely distinguishable from the background bar behind it. Raised so the
      unhovered bars stay readable as bars. */
   rect[opacity="0.3"] {
-    opacity: var(--gf-quak-dimmed) !important;
+    opacity: var(--app-quak-dimmed) !important;
   }
 
   /* A categorical column's bars are divs, and quak writes their label colour and their
@@ -71,11 +71,11 @@ const STYLES = `
      brand blue -- the file browser's selected row -- so the label follows that, and the
      separator becomes the table's own background rather than a bright line. */
   .quak div[title] > span {
-    color: var(--gf-quak-on-primary) !important;
+    color: var(--app-quak-on-primary) !important;
   }
 
   .quak div[title] {
-    border-color: var(--gf-quak-separator) !important;
+    border-color: var(--app-quak-separator) !important;
   }
 `;
 
@@ -83,11 +83,11 @@ const STYLES = `
 function applyStyles(el) {
     const host = el.querySelector("div");
     const root = host?.shadowRoot;
-    if (!root || root.querySelector("style[data-gefieder]")) {
+    if (!root || root.querySelector("style[data-app-theme]")) {
         return Boolean(root);
     }
     const style = document.createElement("style");
-    style.dataset.gefieder = "";
+    style.dataset.appTheme = "";
     style.textContent = STYLES;
     root.appendChild(style);
     return true;

@@ -490,7 +490,7 @@ class PasswordEndpointTests(TestCase):
 
 
 class AccessTokenPageTests(TestCase):
-    """The page under Access where a person creates their own token."""
+    """The page behind the user menu where a person creates their own token."""
 
     def setUp(self):
         self.url = reverse("admin:auth_accesstoken_changelist")
@@ -505,13 +505,19 @@ class AccessTokenPageTests(TestCase):
         )
         self.client.force_login(self.user)
 
-    def test_the_page_is_listed_under_access(self):
-        """The ranks hold no auth permissions, so the default module check would hide the
-        entry from exactly the people the page is for."""
-        page = self.client.get(reverse("admin:index")).content.decode()
+    def test_the_page_is_reached_from_the_user_menu_and_not_the_app_list(self):
+        """Every page draws the menu, so the index page does; the app list does not name
+        it, since a link there would take a section's worth of room for one page."""
+        response = self.client.get(reverse("admin:index"))
+        page = response.content.decode()
 
-        self.assertIn("Access token", page)
         self.assertIn(self.url, page)
+        listed = [
+            model["name"]
+            for app in response.context["available_apps"]
+            for model in app["models"]
+        ]
+        self.assertNotIn("Access token", listed)
 
     def test_the_page_offers_a_button_before_any_token_exists(self):
         page = self.client.get(self.url).content.decode()

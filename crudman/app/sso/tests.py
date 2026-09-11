@@ -437,10 +437,10 @@ class AdminMenuTests(TestCase):
         for heading in ("Authentication and Authorization", "Accounts", "Social Accounts"):
             self.assertNotIn(heading, self.sections)
 
-    def test_the_heading_holds_who_may_sign_in_and_how_they_reach_the_database(self):
-        """Access token is the page a person creates their own token on: how they reach
-        the warehouse from their own machine, which is what this section is about."""
-        self.assertEqual(self.sections["Access"], ["Access token", "Groups", "Users"])
+    def test_the_heading_holds_who_may_sign_in(self):
+        """The access token page is not among them: a credential of one's own, reached
+        from the user menu rather than listed as if it were a table to administer."""
+        self.assertEqual(self.sections["Access"], ["Groups", "Users"])
 
     def test_database_access_has_no_section_of_its_own(self):
         """A switch on the user, so a heading would be a second place for one fact."""

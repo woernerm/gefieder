@@ -168,6 +168,7 @@ TEMPLATES = [
                 # Whether to draw the sidebar's link to the notebooks, which the
                 # overridden unfold/helpers/navigation.html reads.
                 'notebooks.context_processors.notebooks',
+                'system.context_processors.default_theme',
             ],
         },
     },
@@ -282,6 +283,22 @@ def _site_url(request):
         return None
 
 
+def _palette_url(request):
+    """The stylesheet holding the system's colours, for Unfold's STYLES.
+
+    Args:
+        request: The request Unfold is rendering for, unused.
+
+    Returns:
+        The URL of css/palette.css under the static root.
+    """
+    # Imported here: the static tag needs the app registry, which is not ready while this
+    # module is being loaded.
+    from django.templatetags.static import static
+
+    return static("css/palette.css")
+
+
 # Single sign-on
 # https://docs.allauth.org/en/latest/socialaccount/providers/openid_connect.html
 
@@ -377,4 +394,60 @@ UNFOLD = {
 
     # The "Return to site" link, hidden until there is a site root to return to.
     "SITE_URL": _site_url,
+
+    # The menu behind one's own name at the foot of the sidebar. A dotted path since the
+    # function lives in an app, which cannot be imported while settings are read.
+    "ACCOUNT": {"navigation": "dbusers.admin.account_links"},
+
+    # The system's colours, shared with Grafana and the notebooks. Unfold renders these as
+    # --color-* variables into every page, so the values are var() references into the
+    # palette the stylesheet below defines; the palette itself is grafana/palette.css,
+    # copied into this image, and STYLES is how it gets onto the page.
+    #
+    # "base" is a lightness scale, not a set of roles: Unfold reads base-300 as a light-mode
+    # border and as dark-mode text, base-800 as a dark-mode card and as its border. So it
+    # gets the palette's grey ramp, each step the Grafana grey nearest the lightness
+    # Unfold's own step has -- which keeps the contrast between steps its design relies
+    # on, and lands the dark end on Grafana's canvas, panel and raised surface.
+    "STYLES": [_palette_url],
+    "COLORS": {
+        "base": {
+            "50": "var(--app-gray-100)",
+            "100": "var(--app-gray-95)",
+            "200": "var(--app-gray-90)",
+            "300": "var(--app-gray-80)",
+            "400": "var(--app-gray-60)",
+            "500": "var(--app-gray-45)",
+            "600": "var(--app-gray-35)",
+            "700": "var(--app-gray-25)",
+            "800": "var(--app-gray-15)",
+            "900": "var(--app-gray-10)",
+            "950": "var(--app-gray-05)",
+        },
+        # The accent, the same way: 600 is the light-mode button, 500 the dark-mode one,
+        # 400 a link on a dark ground, and the low steps a tint of it for a selected row's
+        # background. The tints are mixed from the accent rather than listed in the
+        # palette, which names no pale blue because Grafana draws none.
+        "primary": {
+            "50": "color-mix(in srgb, var(--app-light-accent) 6%, white)",
+            "100": "color-mix(in srgb, var(--app-light-accent) 12%, white)",
+            "200": "color-mix(in srgb, var(--app-light-accent) 24%, white)",
+            "300": "color-mix(in srgb, var(--app-light-accent) 45%, white)",
+            "400": "var(--app-dark-accent-text)",
+            "500": "var(--app-dark-accent)",
+            "600": "var(--app-light-accent)",
+            "700": "var(--app-light-accent-text)",
+            "800": "color-mix(in srgb, var(--app-light-accent-text) 80%, black)",
+            "900": "color-mix(in srgb, var(--app-light-accent-text) 65%, black)",
+            "950": "color-mix(in srgb, var(--app-light-accent-text) 50%, black)",
+        },
+        "font": {
+            "subtle-light": "var(--app-light-text-2)",
+            "subtle-dark": "var(--app-dark-text-2)",
+            "default-light": "var(--app-light-text-0)",
+            "default-dark": "var(--app-dark-text-0)",
+            "important-light": "var(--app-light-text-max)",
+            "important-dark": "var(--app-dark-text-max)",
+        },
+    },
 }
