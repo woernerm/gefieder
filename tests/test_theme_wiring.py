@@ -28,6 +28,9 @@ ADAPTERS = [
 # Every quadlet whose container reads DEFAULT_THEME.
 THEMED_CONTAINERS = ["grafana", "crudman", "jupyter"]
 
+# The bar below every page, whose switch carries a choice into each app's own store.
+SHELL = REPO / "crudman/app/shell/templates/shell/shell.html"
+
 
 def palette_variables():
     """The names the palette defines."""
@@ -74,3 +77,16 @@ def test_dev_stack_passes_default_theme_to_every_themed_container():
         # The call and every line it continues onto with a trailing backslash.
         block = re.search(rf"run_quadlet {name}\b(?:[^\n]*\\\n)*[^\n]*", text)
         assert block and "DEFAULT_THEME" in block.group(0), f"dev.sh's {name} lacks DEFAULT_THEME"
+
+
+def test_the_bars_switch_names_what_the_apps_read():
+    """The bar writes the choice where each app keeps its own: the storage key the hub's
+    pages read before their dark-mode script runs, and the Lab themes by the names the
+    entrypoint sets as the default. A rename in one place is a switch that no longer
+    reaches that app."""
+    shell = SHELL.read_text()
+    hub = (REPO / "jupyter/templates/page.html").read_text()
+    key = re.search(r'localStorage\.setItem\("([^"]+)"', hub).group(1)
+    assert key in shell
+    names = re.findall(r'THEME_NAME="([^"]+)"', (REPO / "jupyter/entrypoint.sh").read_text())
+    assert names and all(name in shell for name in names)

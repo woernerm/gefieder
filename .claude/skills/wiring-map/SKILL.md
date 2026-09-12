@@ -102,6 +102,13 @@ know they are framed, and each has to allow being framed from its own origin.
 | `crudman/app/templates/unfold/helpers/navigation.html`, `docs/templates/docs/navigation.html` | draw the sidebar's user menu only outside a frame, the bar carrying it inside one. Copies of Unfold's template; an Unfold upgrade that changes it needs them re-based |
 | `tests/test_shell.py`, `tests/test_proxy_config.py` | the chain end to end, and the proxy's classification on its own |
 
+The bar's theme switch is the only one: it writes the choice into each app's own store and
+reloads the frames. Grafana through its preferences API, the hub's pages through the
+storage key `jupyter/templates/page.html` seeds, a notebook server through Lab's settings
+API under the theme names `jupyter/entrypoint.sh` sets as the default, the admin panel
+through Unfold's own storage key it shares. `tests/test_theme_wiring.py` guards the names;
+the hub's own toggle is left out in `page.html`, the admin's is drawn only outside a frame.
+
 `uninstall.sh` derives its unit list from the quadlet directory, so it needs nothing.
 
 ## Models repository

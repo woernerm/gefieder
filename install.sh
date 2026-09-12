@@ -549,10 +549,7 @@ cat > "$HELP" <<EOF
 ${APP_NAME} Cheat sheet
 ============================
 
-  Admin panel:  ${BASE_URL}/${CRUDMAN_PATH}/
-  Model docs:   ${BASE_URL}/${CRUDMAN_PATH}/docs/
-  Model versions: ${BASE_URL}/${CRUDMAN_PATH}/system/deployment/
-  Grafana:      ${BASE_URL}/${GRAFANA_PATH}/
+  Open:         ${BASE_URL}/
   PostgreSQL:   host=${SERVER_NAME} port=${PG_PORT} dbname=${PG_DATABASE}
                 Connect as your own database user, which an administrator switches on
                 under Database access; the password is shown at your next sign-in.

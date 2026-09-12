@@ -16,7 +16,7 @@ from conftest import (
 PAGE = {"Sec-Fetch-Dest": "document"}
 FRAMED = {"Sec-Fetch-Dest": "iframe"}
 
-SHELL_MARK = 'id="frame"'
+SHELL_MARK = 'id="frames"'
 
 
 @pytest.fixture(scope="module")
@@ -57,7 +57,7 @@ class TestAPageOfItsOwn:
         resp = admin_session.get(path, headers=PAGE)
 
         assert resp.status_code == 200
-        assert f'name="frame" src="{path}"' in resp.text
+        assert f'<iframe src="{path}"' in resp.text
 
     def test_shall_send_an_anonymous_visitor_to_the_sign_in(self, http):
         """A notebook address in particular: the hub would do it for its frame, but the

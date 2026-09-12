@@ -37,7 +37,7 @@ class PageRequestTests(TestCase):
     def test_a_page_of_its_own_is_the_shell_around_that_address(self):
         response = self.client.get(self.url + "?q=x", **PAGE)
 
-        self.assertContains(response, f'name="frame" src="{self.url}?q=x"')
+        self.assertContains(response, f'<iframe src="{self.url}?q=x"')
 
     def test_the_frames_request_reaches_the_app(self):
         response = self.client.get(self.url, **FRAMED)
@@ -104,7 +104,7 @@ class StageTests(TestCase):
         """Where each stage the bar offers sends this person, by label."""
         self.client.force_login(user)
         page = self.client.get(reverse("admin:index"), **PAGE).content.decode()
-        links = re.findall(r'href="([^"]*)" target="frame" data-prefixes="[^"]*"[^>]*>\s*<span[^>]*>\w+</span>\s*(\w+)', page)
+        links = re.findall(r'href="([^"]*)" data-prefixes="[^"]*"[^>]*>\s*<span[^>]*>\w+</span>\s*(\w+)', page)
         return {label: url for url, label in links}
 
     def stages(self, user):
@@ -136,6 +136,16 @@ class StageTests(TestCase):
 
     def test_the_dashboards_open_in_kiosk_mode(self):
         self.assertEqual(self.landing(make_user("viewer", "viewer"))["Dashboards"], f"/{settings.GRAFANA_PATH}/?kiosk")
+
+    def test_the_stages_are_served_afresh_for_the_bar(self):
+        """What the bar fetches after every page load, so a right granted meanwhile shows."""
+        user = make_user("editor", "editor")
+        self.client.force_login(user)
+        self.assertNotContains(self.client.get(reverse("stages")), "Model")
+
+        enrolled(user)
+
+        self.assertContains(self.client.get(reverse("stages")), "Model")
 
     def test_a_stage_lands_on_the_first_list_the_person_may_open(self):
         """An editor holds no right on users; the system stage is still theirs, for the

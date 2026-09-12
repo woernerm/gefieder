@@ -16,7 +16,7 @@ from django.urls import reverse
 from notebooks.views import FORWARDED
 
 from .models import lately, seen
-from .stages import STAGES
+from .stages import HOME, stages_for
 
 
 def is_page(request):
@@ -45,7 +45,9 @@ def shell(get_response):
         if user.is_authenticated:
             return render(request, "shell/shell.html", {
                 **admin.site.each_context(request),
-                "stages": [(stage, url) for stage in STAGES if (url := stage.link(request))],
+                "home": HOME.url,
+                "grafana": f"/{settings.GRAFANA_PATH}/",
+                "stages": stages_for(request),
                 "online": len(lately()["online"]),
             })
         # The admin panel's own pages sign a visitor in themselves; another service's

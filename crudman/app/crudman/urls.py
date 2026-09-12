@@ -38,8 +38,9 @@ urlpatterns = [
     # Serves the profile picture fetched from the provider. Registered whether or not
     # single sign-on is on: a session without a picture simply has none.
     path(f"{CRUDMAN_PATH}/avatar/", sso_views.avatar, name="avatar"),
-    # The list behind the bar's count of who is online.
+    # The bar's own parts: the list behind its count of who is online, and its stages.
     path(f"{CRUDMAN_PATH}/presence/", admin.site.admin_view(shell_views.presence), name="presence"),
+    path(f"{CRUDMAN_PATH}/stages/", admin.site.admin_view(shell_views.stages), name="stages"),
 ]
 
 # allauth's own views, including the callback the provider redirects back to, so the

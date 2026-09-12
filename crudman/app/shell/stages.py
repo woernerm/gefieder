@@ -70,10 +70,13 @@ class Stage:
         return self.url or f"/{settings.CRUDMAN_PATH}/{self.apps[0]}/"
 
 
+# Everyone: a dashboard is what a viewer is for. Kiosk mode, since the bar is the
+# navigation now and Grafana's own chrome would sit inside it a second time. The home
+# stage as well, the one the bar's own name leads to.
+HOME = Stage("Dashboards", "monitoring", f"/{settings.GRAFANA_PATH}/?kiosk", admits=lambda user: True)
+
 STAGES = (
-    # Everyone: a dashboard is what a viewer is for. Kiosk mode, since the bar is the
-    # navigation now and Grafana's own chrome would sit inside it a second time.
-    Stage("Dashboards", "monitoring", f"/{settings.GRAFANA_PATH}/?kiosk", admits=lambda user: True),
+    HOME,
     Stage("Load", "upload", apps=("dropzones",), landing=(Dropzone,)),
     Stage("Model", "science", f"/{settings.NOTEBOOK_PATH}/", admits=may_use_notebooks),
     # Users and groups are django.contrib.auth's, under the app label "auth" whatever
@@ -92,3 +95,8 @@ def stage_of(path):
         (stage for stage in STAGES if any(path.startswith(p) for p in stage.prefixes)),
         None,
     )
+
+
+def stages_for(request):
+    """The stages the bar offers this person, each with where it sends them."""
+    return [(stage, url) for stage in STAGES if (url := stage.link(request))]

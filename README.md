@@ -55,9 +55,7 @@ creates the credentials it needs and prints the addresses and the login:
 
 It always runs in development mode, so it serves plain HTTP and needs no certificate:
 
-- Administration panel: <http://127.0.0.1:8080/crudman/>
-- Model documentation: <http://127.0.0.1:8080/crudman/docs/>
-- Grafana dashboards: <http://127.0.0.1:8080/grafana/>
+- <http://127.0.0.1:8080/> -- the dashboards, with the bar below leading everywhere else
 
 Log in as the superuser with the password `dev.sh` prints. To run the test suite instead,
 use `./run-tests.sh`, which builds a stack of its own on isolated ports and removes it

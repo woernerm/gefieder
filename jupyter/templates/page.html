@@ -1,7 +1,8 @@
 {#- The hub's pages -- login, home, the spawn progress screen -- in the system's colours.
     Extends the hub's own page.html through the "templates/" prefix its loader reserves for
-    exactly this, and touches two blocks only: the stylesheet, and the scripts, where the
-    default theme is seeded before the hub's own dark-mode script reads it.
+    exactly this, and touches three blocks only: the stylesheet, the theme toggle, and the
+    scripts, where the default theme is seeded before the hub's own dark-mode script reads
+    it.
 
     The colours are in palette.css, the same file the notebooks and the admin panel use,
     inlined here rather than linked: the hub serves no static directory of its own to put
@@ -96,6 +97,10 @@
     }
   </style>
 {% endblock stylesheet %}
+
+{#- No toggle of the hub's own: the bar below every page switches the theme, and writes
+    the choice where darkmode.js reads it. -#}
+{% block theme_toggle %}{% endblock theme_toggle %}
 
 {% block scripts %}
   {#- darkmode.js reads a stored preference and otherwise follows the operating system.
