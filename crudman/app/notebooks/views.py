@@ -1,18 +1,29 @@
-"""The endpoint JupyterHub authenticates its visitors against.
+"""The endpoints the other services authenticate their visitors against.
 
-The hub has no directory of its own. It asks here, carrying the visitor's own crudman
-session cookie, and gets back who they are and what rank they hold -- so there is one set
-of accounts, one sign-in, and single sign-on reaches the notebooks without being configured
-a second time.
+Neither JupyterHub nor Grafana keeps a directory of its own. Both ask here, carrying the
+visitor's own crudman session cookie, and get back who they are and what rank they hold --
+so there is one set of accounts, one sign-in, and single sign-on reaches both without
+being configured a second time.
 
-It lives under ``/<CRUDMAN_PATH>/``, which the proxy forwards, so a browser could otherwise
-reach it as well. It answers only requests that did not come through the proxy.
+The hub asks ``whoami`` itself; for Grafana it is the proxy that asks, ``grafana`` being
+the subrequest behind nginx's auth_request on every Grafana page, and Grafana then trusts
+the identity the proxy passes on in a header.
+
+Both live under ``/<CRUDMAN_PATH>/``, which the proxy forwards, so a browser could
+otherwise reach them as well. They answer only requests that did not come through the
+proxy.
 """
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
+from dbusers.utils import db_role_for_user
+from sso.roles import GROUP_FOR_RANK
+
 from .utils import issue_notebook_credential, may_use_notebooks, refusal
+
+GRAFANA_ROLE = {GROUP_FOR_RANK[rank]: rank.capitalize() for rank in GROUP_FOR_RANK}
+"""Grafana's organisation role for each rank's group: Viewer, Editor, Admin."""
 
 FORWARDED = "HTTP_X_FORWARDED_FOR"
 """What tells a browser's request from the hub's.
@@ -72,3 +83,42 @@ def whoami(request):
 
     # No-store: the credential must not survive in any cache between here and the hub.
     return JsonResponse(identity, headers={"Cache-Control": "no-store"})
+
+
+@require_http_methods(["GET"])
+def grafana(request):
+    """Identify the caller for Grafana, in the headers its auth proxy reads.
+
+    nginx asks here with the visitor's cookies before forwarding a Grafana request, and
+    copies the answer's headers into that request; Grafana trusts them because only the
+    proxy can reach it. The body is discarded, so the identity travels in headers alone.
+
+    Every rank may see Grafana, the viewer's included -- unlike a notebook, a dashboard
+    is what a viewer is for. Someone with no rank at all is a 403: signed in, but with
+    nothing to be let in as.
+
+    Args:
+        request: The HTTP request, carrying the visitor's crudman session cookie.
+
+    Returns:
+        401 when the cookie names nobody, 403 when they hold no rank, otherwise 200 with
+        the identity in X-WEBAUTH-* headers.
+    """
+    if FORWARDED in request.META:
+        return HttpResponse(status=404)
+
+    user = request.user
+    if not user.is_authenticated:
+        return HttpResponse(status=401)
+
+    role = GRAFANA_ROLE.get(db_role_for_user(user))
+    if role is None:
+        return HttpResponse(status=403)
+
+    return HttpResponse(headers={
+        "X-WEBAUTH-USER": user.username,
+        "X-WEBAUTH-NAME": user.get_full_name() or user.username,
+        "X-WEBAUTH-EMAIL": user.email,
+        "X-WEBAUTH-ROLE": role,
+        "Cache-Control": "no-store",
+    })

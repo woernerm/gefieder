@@ -14,7 +14,8 @@ LOCAL_LOGIN_PARAM = "local"
 """Query parameter that reaches the local login form while single sign-on is on.
 
 The way back in for the superuser when the provider is unreachable, so it is named in the
-README. Grafana's equivalent is /login?disableAutoLogin.
+README. It is the way back into Grafana and the notebooks as well, which take the
+signed-in person from here.
 """
 
 

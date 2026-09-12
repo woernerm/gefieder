@@ -256,9 +256,13 @@ commands below then use your name instead.
 
 ## Single sign-on
 People can sign in with their company account instead of a separate password here. Once it
-is on, opening the admin panel or Grafana sends them to your identity provider and straight
+is on, opening any part of the system sends them to your identity provider and straight
 back — someone who is already signed in elsewhere never sees a login page at all. It works
 with Entra ID, Keycloak, Authentik, Okta and Google, and is off until you configure it.
+
+There is one sign-in for the whole system, whether or not single sign-on is on: the admin
+panel's. Grafana and the notebooks recognise whoever is signed in there and never ask
+again.
 
 Their access is decided by three roles, which you assign to people at the provider:
 
@@ -274,12 +278,11 @@ under **Access → Users** in the admin panel, which is the place to look when t
 what they can do disagree.
 
 **Set it up at your provider.** Register one application for the whole system and give it
-these two sign-in redirect addresses (with your own host name, and your own paths if you
-changed `CRUDMAN_PATH` or `GRAFANA_PATH`):
+this sign-in redirect address (with your own host name, and your own path if you changed
+`CRUDMAN_PATH`):
 
 ```
 https://SERVER_NAME/crudman/accounts/oidc/sso/login/callback/
-https://SERVER_NAME/grafana/login/generic_oauth
 ```
 
 Then define `Viewer`, `Editor` and `Admin` as the application's roles, assign your people to
@@ -325,12 +328,12 @@ story. Anything you grant someone by hand — extra groups in the admin panel, p
 a particular Grafana folder — stays with them. Signing in only ever updates their role, so
 your additions are not overwritten.
 
-**If you get locked out.** Both applications keep their own login for the admin account, in
-case the provider is unreachable or misconfigured:
+**If you get locked out.** The admin panel keeps its own login for the admin account, in
+case the provider is unreachable or misconfigured — and signing in there signs you in to
+Grafana and the notebooks as well:
 
 ```
 https://SERVER_NAME/crudman/login/?local
-https://SERVER_NAME/grafana/login?disableAutoLogin
 ```
 
 Client secrets expire — Entra ID allows two years at most. When one does, every sign-in

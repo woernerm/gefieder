@@ -58,16 +58,22 @@ The three build loops — `SERVICES=` in `build-lib.sh` (used by `build.sh`, `de
 ships an image of its own.
 `sftp` and `flight` run the crudman image in a different role and appear in none of them.
 
-## Notebooks
+## Notebooks and Grafana sign-in
 
-The `jupyter` container has no accounts of its own: it asks crudman who a visitor is
-(`crudman/app/notebooks/`) and crudman rotates the database login its servers connect with.
-So the two move together.
+Neither the `jupyter` container nor Grafana has accounts of its own: both ask crudman who
+a visitor is (`crudman/app/notebooks/`). The hub asks `whoami` itself and crudman rotates
+the database login its servers connect with; for Grafana the proxy asks `grafana` as an
+nginx `auth_request` before every Grafana request and passes the answer on in
+`X-WEBAUTH-*` headers, which Grafana's `[auth.proxy]` trusts from the loopback. So the
+three move together.
 
 | Also touch | Because |
 |---|---|
-| `crudman/app/notebooks/views.py` | the hub reads exactly these fields out of the answer, so a renamed key is a spawn that fails with a KeyError |
-| `jupyter/crudman.py` | the other half of that contract, and the only place the session cookie is presented back |
+| `crudman/app/notebooks/views.py` | the hub reads exactly these fields out of `whoami`'s answer, so a renamed key is a spawn that fails with a KeyError; Grafana reads exactly these headers out of `grafana`'s |
+| `jupyter/crudman.py` | the other half of the hub's contract, and the only place the session cookie is presented back |
+| `proxy/locations.conf.template` | the other half of Grafana's: the `auth_request` location, the `auth_request_set`/`proxy_set_header` pairs that carry each header, and the `X-WEBAUTH-USER ""` on the MCP location, which forwards a caller's headers to Grafana from the same loopback Grafana trusts |
+| `grafana/custom.ini` `[auth.proxy]` | `header_name` and `headers` name the same headers; `whitelist` is why only the proxy may set them; `enable_login_token` stays on, and the proxy's sign-in redirect leads through `/login` because that route alone issues the token Grafana's frontend then rotates on every page -- without it the page reloads forever |
+| `tests/test_grafana_auth.py` | asserts the chain end to end, the forgery guards included |
 | `postgresql/initdb/gf_0003_*.sql` | `issue_db_user_password` is what a spawn calls: it puts an expiring password on the person's *own* role, so a notebook session simply is them. `crudman/app/dbusers/views.py` calls it too, for a developer's checkout |
 | `jupyter/spawn.py` | the Unix account is named as `dbusers.utils.role_name_for` names the database role — that is what lets `sqlmesh/config.py` derive the connection unchanged. A change to either derivation is a change to both |
 | `jupyter/requirements.txt` | what the workflow itself depends on; `JUPYTER_EXTENSIONS` in `buildtime.env` is the operator's list and a **build-time setting**, so that table applies |

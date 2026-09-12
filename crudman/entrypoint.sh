@@ -62,6 +62,11 @@ uv run --project /crudman python manage.py collectstatic --noinput
 
 # Not "manage.py createsuperuser", which fails once the user exists, i.e. on every
 # restart. Updating instead also makes rotating the secret rotate the password.
+#
+# The password is set only when the secret differs from it: Django ties a session to
+# the password hash, so setting it -- even to the same value, which salts anew -- signs
+# the admin out of every browser, and of Grafana and the notebooks with it, on every
+# restart.
 uv run --project /crudman python manage.py shell -c "
 import os
 from pathlib import Path
@@ -70,10 +75,12 @@ from django.contrib.auth import get_user_model
 user, _ = get_user_model().objects.get_or_create(username=os.environ.get('SUPERUSER_NAME', 'admin'))
 user.is_staff = user.is_superuser = True
 user.email = os.environ.get('SUPERUSER_EMAIL', '')
-user.set_password(
+password = (
     Path('/run/secrets', os.environ.get('SECRET_SUPERUSER_PASSWORD', 'superuser_password'))
     .read_text().strip()
 )
+if not user.check_password(password):
+    user.set_password(password)
 user.save()
 "
 

@@ -272,3 +272,72 @@ class WhoamiTests(TestCase):
             response = self.client.post(self.url)
 
         self.assertEqual(response.headers["Cache-Control"], "no-store")
+
+
+class GrafanaTests(TestCase):
+    """The endpoint the proxy asks before every Grafana request.
+
+    Its answer travels in headers, the body being what auth_request discards; and every
+    rank is let in, a dashboard being what a viewer is for.
+    """
+
+    def setUp(self):
+        self.url = reverse("notebooks:grafana")
+
+    def test_a_request_through_the_proxy_is_not_answered(self):
+        """The subrequest sets no forwarding header; a browser's request carries one."""
+        make_user("viewer", GROUP_FOR_RANK["viewer"])
+        self.client.login(username="viewer", password="x")
+
+        response = self.client.get(self.url, headers={"x-forwarded-for": "203.0.113.7"})
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_anonymous_is_refused(self):
+        self.assertEqual(self.client.get(self.url).status_code, 401)
+
+    def test_rankless_is_refused(self):
+        """Signed in, but with nothing to be let in as."""
+        make_user("nobody")
+        self.client.login(username="nobody", password="x")
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_a_viewer_is_let_in_as_viewer(self):
+        make_user("viewer", GROUP_FOR_RANK["viewer"])
+        self.client.login(username="viewer", password="x")
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["X-WEBAUTH-USER"], "viewer")
+        self.assertEqual(response["X-WEBAUTH-ROLE"], "Viewer")
+
+    def test_the_rank_becomes_the_role(self):
+        for rank, role in (("editor", "Editor"), ("admin", "Admin")):
+            with self.subTest(rank=rank):
+                make_user(rank, GROUP_FOR_RANK[rank])
+                self.client.login(username=rank, password="x")
+                self.assertEqual(self.client.get(self.url)["X-WEBAUTH-ROLE"], role)
+
+    def test_a_superuser_is_admin_without_a_group(self):
+        """With single sign-on off nothing grants a group; the superuser is the admin."""
+        make_user("root", is_superuser=True)
+        self.client.login(username="root", password="x")
+        self.assertEqual(self.client.get(self.url)["X-WEBAUTH-ROLE"], "Admin")
+
+    def test_name_and_email_travel_too(self):
+        user = make_user("editor", GROUP_FOR_RANK["editor"])
+        user.first_name, user.last_name, user.email = "Jean", "Dupont", "jean@example.com"
+        user.save()
+        self.client.login(username="editor", password="x")
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response["X-WEBAUTH-NAME"], "Jean Dupont")
+        self.assertEqual(response["X-WEBAUTH-EMAIL"], "jean@example.com")
+
+    def test_the_answer_is_not_cached(self):
+        """A stale answer would keep someone signed in after they signed out."""
+        make_user("viewer", GROUP_FOR_RANK["viewer"])
+        self.client.login(username="viewer", password="x")
+        self.assertEqual(self.client.get(self.url)["Cache-Control"], "no-store")

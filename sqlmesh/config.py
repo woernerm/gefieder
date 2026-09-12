@@ -25,6 +25,30 @@ from sqlmesh.core.config import (
 )
 from sqlmesh.core.config.connection import DuckDBAttachOptions
 from sqlmesh.core.config.linter import LinterConfig
+from sqlmesh.core.engine_adapter import DuckDBEngineAdapter
+
+
+class PostgresBackedDuckDBAdapter(DuckDBEngineAdapter):
+    """DuckDB's adapter, told that its tables live in PostgreSQL.
+
+    The DuckDB gateway below attaches this database as its only catalog, so every table
+    a model on it writes is a PostgreSQL table. DuckDB's adapter assumes DuckDB's own
+    storage, where CREATE OR REPLACE TABLE is how a FULL model is refreshed; through the
+    postgres extension that becomes DROP TABLE and CREATE, and PostgreSQL refuses to
+    drop a table a view still reads -- which every silver union is. Declaring the
+    statement unsupported makes the adapter refresh in place, as the PostgreSQL adapter
+    does for the same reason.
+    """
+
+    SUPPORTS_REPLACE_TABLE = False
+
+
+class PostgresBackedDuckDBConnectionConfig(DuckDBConnectionConfig):
+    """The connection config that hands out that adapter."""
+
+    @property
+    def _engine_adapter(self):
+        return PostgresBackedDuckDBAdapter
 
 SECRET_PATH = Path(
     "/run/secrets", os.environ.get("SECRET_SQLMESH_PASSWORD", "sqlmesh_password")
@@ -230,7 +254,7 @@ config = Config(
         # grammar makes simpler or faster, not a default. Worked example:
         # models/silver/project_b/issue_risk_history.sql.
         "duckdb": GatewayConfig(
-            connection=DuckDBConnectionConfig(
+            connection=PostgresBackedDuckDBConnectionConfig(
                 catalogs={
                     database: DuckDBAttachOptions(
                         type="postgres",

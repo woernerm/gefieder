@@ -54,13 +54,14 @@ class McpClient:
     server returns; every later call carries it back.
     """
 
-    def __init__(self, token=None, cookies=None):
+    def __init__(self, token=None, cookies=None, headers=None):
         self.token = token
         self.cookies = cookies or {}
+        self.extra_headers = headers or {}
         self.session_id = None
 
     def _headers(self):
-        headers = {"Content-Type": "application/json", "Accept": ACCEPT}
+        headers = {"Content-Type": "application/json", "Accept": ACCEPT, **self.extra_headers}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         if self.session_id:
@@ -255,6 +256,20 @@ class TestPermissionsFollowTheCaller:
         assert is_error, (
             f"an unauthenticated call reached Grafana anyway: {text[:300]} -- the server "
             "has a credential of its own, which would give every caller its rights"
+        )
+        assert "401" in text, f"expected Grafana's 401, got: {text[:300]}"
+
+    def test_a_forged_identity_header_shall_be_refused_too(self):
+        """Grafana signs browsers in from an X-WEBAUTH-USER header it trusts from the
+        loopback -- which is where this server calls it from, forwarding a caller's
+        headers. The proxy strips this one before it gets here; were it forwarded, a
+        call carrying no token at all would arrive as whoever it named."""
+        client = McpClient(headers={"X-WEBAUTH-USER": SUPERUSER_NAME})
+        client.initialize()
+        text, is_error = client.call("user_info")
+        assert is_error, (
+            f"a forged identity header was honoured: {text[:300]} -- the proxy must strip "
+            "X-WEBAUTH-USER on the MCP location"
         )
         assert "401" in text, f"expected Grafana's 401, got: {text[:300]}"
 

@@ -40,16 +40,15 @@ class TestStaticFiles:
         assert resp.status_code == 200
         assert "text/css" in resp.headers["content-type"]
 
-    def test_grafana_static_files_shall_be_served(self, http_follow):
-        # Grafana references assets relative to its <base href="/GRAFANA_PATH/">, and the
-        # bundle names change between releases, so match any of them: what is under test
-        # is the proxy serving the asset.
-        html = http_follow.get(GRAFANA_LOGIN).text
-        match = re.search(r"public/build/grafana\.[^\"']+\.css", html)
-        assert match, "no grafana static asset referenced on the login page"
-        resp = http_follow.get(f"/{GRAFANA_PATH}/" + match.group(0))
+    def test_grafana_static_files_shall_be_served(self, http):
+        # Grafana's assets are served to anyone, signed in or not: the proxy exempts
+        # /public/ from the identity check so a page load is not one subrequest per
+        # script. The bundle names change between releases, so this asks for one file
+        # Grafana always ships; what is under test is the proxy serving it without a
+        # session.
+        resp = http.get(f"/{GRAFANA_PATH}/public/img/grafana_icon.svg")
         assert resp.status_code == 200
-        assert "text/css" in resp.headers["content-type"]
+        assert "svg" in resp.headers["content-type"]
 
 
 class TestTransportSecurity:

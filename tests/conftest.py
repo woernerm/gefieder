@@ -121,6 +121,10 @@ COLLECTOR = os.environ.get("TEST_COLLECTOR", "")
 # The URL paths the apps are served under, derived from the configured base paths.
 CRUDMAN_LOGIN = f"/{CRUDMAN_PATH}/login/"
 GRAFANA_LOGIN = f"/{GRAFANA_PATH}/login"
+# An address that reaches Grafana without a session: its own pages send an anonymous
+# visitor to the admin panel's login, which would report the admin panel ready, not
+# Grafana. Assets are served to anyone.
+GRAFANA_PROBE = f"/{GRAFANA_PATH}/public/img/grafana_icon.svg"
 
 # The stand-in identity provider run-tests.sh starts inside the pod, and the directory
 # holding the runtime.env the services read their settings from.
@@ -184,27 +188,38 @@ DB_PASSWORDS = {
 }
 
 
+def sign_in(username=SUPERUSER_NAME, password=SUPERUSER_PASSWORD):
+    """A browser signed in to the admin panel, as a client that follows redirects.
+
+    The form is served by the admin itself; sso/views.login hands a POST to it, so the
+    local credentials work whether or not single sign-on is configured. The caller closes
+    the client.
+    """
+    client = httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS, trust_env=False,
+                          follow_redirects=True, timeout=10)
+    login = f"/{CRUDMAN_PATH}/login/"
+    client.get(login)
+    client.post(login, data={
+        "csrfmiddlewaretoken": client.cookies["csrftoken"],
+        "username": username,
+        "password": password,
+        "next": f"/{CRUDMAN_PATH}/",
+    }, headers={"Referer": f"{BASE_URL}{login}"})
+    return client
+
+
 @pytest.fixture(scope="session")
 def admin_session():
-    """A browser session signed in to the admin panel as the superuser.
+    """One browser session signed in as the superuser, for the whole run.
 
     The pages that are not the admin's own -- the documentation and the model versions --
     are still behind its login, so a test that reads one needs a signed-in client rather
-    than the anonymous ones above.
+    than the anonymous ones above. Shared across modules, so a module that signs out or
+    restarts the admin panel takes a client of its own from sign_in() instead.
     """
-    with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS, trust_env=False,
-                      follow_redirects=True, timeout=10) as client:
-        # The form is served by the admin itself; sso/views.login hands a POST to it, so
-        # the local credentials work whether or not single sign-on is configured.
-        login = f"/{CRUDMAN_PATH}/login/"
-        client.get(login)
-        client.post(login, data={
-            "csrfmiddlewaretoken": client.cookies["csrftoken"],
-            "username": SUPERUSER_NAME,
-            "password": SUPERUSER_PASSWORD,
-            "next": f"/{CRUDMAN_PATH}/",
-        }, headers={"Referer": f"{BASE_URL}{login}"})
-        yield client
+    client = sign_in()
+    yield client
+    client.close()
 
 
 def _connect(user):
@@ -321,7 +336,7 @@ def wait_for_stack():
     database init, so the schema and access-control tests would otherwise race it.
     """
     deadline = time.time() + STARTUP_TIMEOUT
-    targets = [CRUDMAN_LOGIN, GRAFANA_LOGIN]
+    targets = [CRUDMAN_LOGIN, GRAFANA_PROBE]
     with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS, trust_env=False,
                       follow_redirects=True, timeout=5) as client:
         for target in targets:
