@@ -117,22 +117,22 @@ class StageTests(TestCase):
         user = make_user("editor", "editor")
         enrolled(user)
 
-        self.assertEqual(self.stages(user), ["Dashboards", "Load", "Model", "System"])
+        self.assertEqual(self.stages(user), ["Dashboards", "Sources", "Model", "System"])
 
     def test_the_notebooks_need_the_database_account(self):
-        self.assertEqual(self.stages(make_user("editor", "editor")), ["Dashboards", "Load", "System"])
+        self.assertEqual(self.stages(make_user("editor", "editor")), ["Dashboards", "Sources", "System"])
 
     def test_a_superuser_gets_every_stage_without_a_rank(self):
         user = make_user("root", is_superuser=True)
         enrolled(user)
 
-        self.assertEqual(self.stages(user), ["Dashboards", "Load", "Model", "System"])
+        self.assertEqual(self.stages(user), ["Dashboards", "Sources", "Model", "System"])
 
     def test_a_right_granted_by_hand_opens_the_stage(self):
         user = make_user("viewer", "viewer")
         user.user_permissions.add(Permission.objects.get(codename="add_upload"))
 
-        self.assertEqual(self.stages(user), ["Dashboards", "Load"])
+        self.assertEqual(self.stages(user), ["Dashboards", "Sources"])
 
     def test_the_dashboards_open_in_kiosk_mode(self):
         self.assertEqual(self.landing(make_user("viewer", "viewer"))["Dashboards"], f"/{settings.GRAFANA_PATH}/?kiosk")

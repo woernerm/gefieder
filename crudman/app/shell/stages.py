@@ -1,9 +1,9 @@
 """The stages of the workflow the bar offers, and which of them a person may enter.
 
-Stages rather than apps: a person sets out to look at dashboards or to load data, not to
-open the admin panel. Two of the four lead into the admin panel, each to a different part
-of it, and the sidebar there shows only that part (templatetags/shell.py) -- so the panel
-is not one entry in the bar but two small tools sharing a sign-in.
+Stages rather than apps: a person sets out to look at dashboards or to bring data in, not
+to open the admin panel. Two of the four lead into the admin panel, each to a different
+part of it, and the sidebar there shows only that part (templatetags/shell.py) -- so the
+panel is not one entry in the bar but two small tools sharing a sign-in.
 """
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -77,7 +77,7 @@ HOME = Stage("Dashboards", "monitoring", f"/{settings.GRAFANA_PATH}/?kiosk", adm
 
 STAGES = (
     HOME,
-    Stage("Load", "upload", apps=("dropzones",), landing=(Dropzone,)),
+    Stage("Sources", "input", apps=("dropzones",), landing=(Dropzone,)),
     Stage("Model", "science", f"/{settings.NOTEBOOK_PATH}/", admits=may_use_notebooks),
     # Users and groups are django.contrib.auth's, under the app label "auth" whatever
     # sso/apps.py calls the heading.

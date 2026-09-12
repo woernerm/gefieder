@@ -13,7 +13,7 @@ interfaces:
 - **notebooks** (JupyterLab) for writing and trying out the analytics models in the browser
 
 All three sit above one bar at the foot of the window, which is the same everywhere: the
-stages of the workflow in the middle -- *Dashboards*, *Load*, *Model*, *System*, each shown
+stages of the workflow in the middle -- *Dashboards*, *Sources*, *Model*, *System*, each shown
 only to those who may use it -- and on the right who is online and your own menu (theme,
 access token, password, sign-out). Any address you bookmark or share opens inside it.
 
