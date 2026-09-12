@@ -225,7 +225,7 @@ def sign_in(username=SUPERUSER_NAME, password=SUPERUSER_PASSWORD):
 def admin_session():
     """One browser session signed in as the superuser, for the whole run.
 
-    The pages that are not the admin's own -- the documentation and the model versions --
+    The pages that are not the admin's own -- the documentation and the model versions page --
     are still behind its login, so a test that reads one needs a signed-in client rather
     than the anonymous ones above. Shared across modules, so a module that signs out or
     restarts the admin panel takes a client of its own from sign_in() instead.

@@ -62,7 +62,7 @@ class DeploymentAdmin(ModelAdmin):
         current = Deployment.objects.first()
         context = {
             **self.admin_site.each_context(request),
-            "title": "Model versions",
+            "title": "Versions",
             "commits": repo.log(),
             "current": current,
             "current_sha": current.sha if current else None,

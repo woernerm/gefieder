@@ -311,7 +311,7 @@ class TestWhoMayReadAndDeploy:
         # It used to sit in the documentation sidebar, which is open from the viewer rank
         # up. Reading a metric must not come with the ability to change what produces it.
         page = admin_session.get(f"/{CRUDMAN_PATH}/docs/").text
-        assert "Model versions" not in page
+        assert "system/deployment/" not in page
 
     def test_no_clone_address_is_offered_that_nobody_can_reach(self, admin_session):
         # The default repository lives on this volume alone, reachable from inside the

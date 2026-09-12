@@ -52,8 +52,8 @@ class Migration(migrations.Migration):
                 ('requested_by', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL)),
             ],
             options={
-                'verbose_name': 'model version',
-                'verbose_name_plural': 'model versions',
+                'verbose_name': 'version',
+                'verbose_name_plural': 'versions',
                 'ordering': ('-created_on',),
                 'get_latest_by': 'created_on',
             },

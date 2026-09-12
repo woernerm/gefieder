@@ -73,9 +73,9 @@ class Deployment(models.Model):
     applied_on = models.DateTimeField(null=True, blank=True, editable=False)
 
     class Meta:
-        # Named for what the admin shows: the versions of the models this system runs.
-        verbose_name = "model version"
-        verbose_name_plural = "model versions"
+        # Named for what the admin shows under its "Models" heading: the versions.
+        verbose_name = "version"
+        verbose_name_plural = "versions"
         ordering = ("-created_on",)
         get_latest_by = "created_on"
 

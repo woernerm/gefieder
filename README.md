@@ -547,7 +547,7 @@ Where that repository lives is `REPO_MODELS` in `buildtime.env`. Out of the box 
 repository the system creates on its own volume the first time it starts, filled with the
 models shown here, so a fresh installation computes something immediately. Point it at your
 own git host — GitHub, GitLab, anything `git clone` accepts — and that becomes the origin.
-**System → Model versions** in the admin panel shows the address to clone and every
+**System → Models → Versions** in the admin panel shows the address to clone and every
 commit on `main`. It takes the editor rank, choosing what production computes being a
 change rather than a reading.
 
@@ -572,7 +572,7 @@ behind your name at the bottom of the sidebar and follow **Access token**. It is
 you once.
 
 ```bash
-git clone <the address on the Model versions page> models
+git clone <the address on the Versions page> models
 cd models/sqlmesh
 uv sync                                       # creates .venv
 echo "SQLMESH_TOKEN=<your token>" > .env
@@ -685,7 +685,7 @@ Push to `main`. That is the whole deployment: the server notices within
 built and nothing restarts, because promoting a plan in SQLMesh swaps views rather than
 moving data. No release of the system is involved, and nobody has to log in to the server.
 
-**System → Model versions** then shows your commit as live, or tells you why it is not.
+**System → Models → Versions** then shows your commit as live, or tells you why it is not.
 Every earlier commit has a **Use this version** button beside it, so putting one back is a
 click and takes the same few seconds. That choice stands until somebody pushes again, and
 the push wins.
@@ -695,7 +695,7 @@ Dependencies are installed when the images are built, so such a commit is refuse
 explanation rather than being checked out into an engine that cannot run it.
 
 ### 8. If something is wrong
-The engine reports what happened on the **Model versions** page, including the plan's own
+The engine reports what happened on the **Versions** page, including the plan's own
 output when it fails. A bad model is undone the same way it arrived — push a revert, or
 press **Use this version** on the commit before it.
 
