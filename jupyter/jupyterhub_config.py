@@ -56,6 +56,13 @@ c.ConfigurableHTTPProxy.api_url = "http://127.0.0.1:8082"
 # the same way only by luck.
 c.JupyterHub.hub_connect_url = "http://127.0.0.1:8081"
 
+# The hub's own pages -- the one shown while a server starts, among them -- are seen inside
+# the shell's frame (crudman/app/shell/), which the hub's default of refusing every frame
+# would leave blank. Its own origin only, as a spawned server allows by default already.
+c.JupyterHub.tornado_settings = {
+    "headers": {"Content-Security-Policy": f"frame-ancestors 'self'; report-uri {BASE_URL}hub/security/csp-report"},
+}
+
 # --- who gets in ------------------------------------------------------------------------
 c.JupyterHub.authenticator_class = CrudmanAuthenticator
 

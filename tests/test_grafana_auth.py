@@ -74,6 +74,33 @@ class TestSignedIn:
         assert resp.status_code == 302
         assert "grafana_session" in resp.headers.get_list("set-cookie")[0]
 
+    def test_a_stale_token_shall_be_replaced_rather_than_refused(self, own_browser):
+        """A token that expired, or was issued by a Grafana since recreated, while the
+        admin panel's session is still good: Grafana serves every page on the proxy's
+        headers but refuses to rotate it, and its frontend reloads on the refusal --
+        without end, since the reload brings the same token back. The proxy sends the
+        rotation through the login route instead, the one place a token is issued."""
+        stale = "0123456789abcdef0123456789abcdef"
+        # Sent by hand, as a browser would keep sending them: the jar would drop the
+        # stale pair the moment the login route answers with the new one.
+        cookies = (
+            f"sessionid={own_browser.cookies['sessionid']}; "
+            f"grafana_session={stale}; grafana_session_expiry=1"
+        )
+
+        resp = own_browser.post(
+            f"/{GRAFANA_PATH}/api/user/auth-tokens/rotate", headers={"Cookie": cookies}
+        )
+
+        assert resp.status_code == 200
+        issued = [
+            cookie
+            for hop in resp.history
+            for cookie in hop.headers.get_list("set-cookie")
+            if cookie.startswith("grafana_session=")
+        ]
+        assert issued and stale not in issued[0], [str(hop.url) for hop in resp.history]
+
     def test_the_frontends_token_rotation_shall_succeed(self, signed_in):
         """The call whose 401 is the reload loop."""
         signed_in.get(f"/{GRAFANA_PATH}/login")

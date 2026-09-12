@@ -9,8 +9,6 @@ import os
 import secrets
 from pathlib import Path
 
-from django.urls import Resolver404, resolve
-
 from sso.scopes import scopes_for
 
 APP_NAME = os.environ.get("APP_NAME", "app").capitalize()
@@ -48,6 +46,11 @@ SERVER_NAME = os.environ.get("SERVER_NAME", "localhost")
 
 # Must match CRUDMAN_PATH of the proxy service and the URL configuration in urls.py.
 CRUDMAN_PATH = os.environ.get("CRUDMAN_PATH", "crudman")
+
+# Where the proxy serves Grafana and the notebooks, from buildtime.env. Neither is served
+# here; the bar below every page links to them (shell/stages.py).
+GRAFANA_PATH = os.environ.get("GRAFANA_PATH", "grafana")
+NOTEBOOK_PATH = os.environ.get("NOTEBOOK_PATH", "jupyter")
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", SERVER_NAME]
 
@@ -137,6 +140,8 @@ INSTALLED_APPS = [
     'docs.apps.DocsConfig',
     # What JupyterHub asks who a visitor is; it registers no admin page of its own.
     'notebooks.apps.NotebooksConfig',
+    # The bar below every page, and the frame it puts the apps in.
+    'shell.apps.ShellConfig',
 ]
 
 MIDDLEWARE = [
@@ -149,6 +154,11 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+# The admin panel is shown inside the shell's frame (see shell/middleware.py), which
+# Django's default of DENY would leave blank. Same origin only: the frame is served from
+# the same host as the page in it.
+X_FRAME_OPTIONS = 'SAMEORIGIN'
 
 ROOT_URLCONF = 'crudman.urls'
 
@@ -165,9 +175,6 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
-                # Whether to draw the sidebar's link to the notebooks, which the
-                # overridden unfold/helpers/navigation.html reads.
-                'notebooks.context_processors.notebooks',
                 'system.context_processors.default_theme',
             ],
         },
@@ -266,22 +273,6 @@ STORAGES = {
 }
 
 
-def _site_url(request):
-    """Target for Unfold's "Return to site" link, evaluated per request.
-
-    Args:
-        request: The request Unfold is rendering for, unused.
-
-    Returns:
-        "/" once a root route exists, otherwise None to hide the link. Nothing serves a
-        site root today, so the default "/" would lead to a broken page.
-    """
-    try:
-        resolve("/")
-        return "/"
-    except Resolver404:
-        return None
-
 
 def _palette_url(request):
     """The stylesheet holding the system's colours, for Unfold's STYLES.
@@ -367,9 +358,9 @@ if OIDC_ENABLED:
         },
     }
 
-    # Where a sign-in that named no destination ends up; allauth's default
-    # /accounts/profile/ is not served here.
-    LOGIN_REDIRECT_URL = f'/{CRUDMAN_PATH}/'
+    # Where a sign-in that named no destination ends up: the home page, which the proxy
+    # sends on to the dashboards. allauth's default /accounts/profile/ is not served here.
+    LOGIN_REDIRECT_URL = '/'
 
     # Roles are applied on every login, in the adapter.
     SOCIALACCOUNT_ADAPTER = 'sso.adapters.SSOAccountAdapter'
@@ -384,6 +375,10 @@ if OIDC_ENABLED:
     # Nothing calls the provider's API on the user's behalf, so the tokens are unused.
     SOCIALACCOUNT_STORE_TOKENS = False
 
+# Last: it answers a page request with the shell, drawn from what the middlewares before
+# it attached to the request -- the user, and their picture.
+MIDDLEWARE += ['shell.middleware.shell']
+
 
 UNFOLD = {
     # Browser tab title
@@ -392,8 +387,8 @@ UNFOLD = {
     # Header text in the admin
     "SITE_HEADER": APP_NAME,
 
-    # The "Return to site" link, hidden until there is a site root to return to.
-    "SITE_URL": _site_url,
+    # No "Return to site" link: the bar's home link, drawn beside this menu, is that.
+    "SITE_URL": None,
 
     # The menu behind one's own name at the foot of the sidebar. A dotted path since the
     # function lives in an app, which cannot be imported while settings are read.

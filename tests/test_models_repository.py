@@ -13,7 +13,7 @@ import time
 
 import pytest
 
-from conftest import CRUDMAN_PATH, podman
+from conftest import CRUDMAN_PATH, crudman, django
 
 MODELS_DIR = "/var/lib/app/models"
 PROJECT = "sqlmesh"
@@ -29,11 +29,6 @@ has not been asked anything yet. crudman/app/system/repo.py holds the list this 
 of, and test_there_is_a_history_to_move_through_on_the_first_day is what fails when the two
 stop agreeing: every commit's subject names the project it added.
 """
-
-
-def crudman(script):
-    """Run a shell script inside the crudman container and return its output."""
-    return podman("exec", "crudman", "sh", "-c", script)
 
 
 def deployed_sha():
@@ -118,10 +113,7 @@ def wait_for(conn, sha, status):
 
 def pin(sha):
     """Deploy one commit the way the versions page's button does."""
-    crudman(
-        "cd /crudman/app && uv run --project /crudman python manage.py shell -c "
-        f"\"from system import repo; repo.deploy('{sha}', pinned=True)\""
-    )
+    django(f"from system import repo; repo.deploy('{sha}', pinned=True)")
 
 
 @pytest.fixture(scope="module")

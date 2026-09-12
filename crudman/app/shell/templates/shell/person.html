@@ -1,0 +1,7 @@
+{# One person in the list: picture, name, and how long ago when they are not here now. #}
+{% load i18n %}
+<div class="flex gap-2 items-center px-3 py-1">
+    {% include "unfold/helpers/avatar.html" with user=row.user size="xs" circle=1 %}
+    <span class="truncate">{{ row.user.get_full_name|default:row.user.get_username }}</span>
+    {% if ago %}<span class="ml-auto pl-3 text-subtle whitespace-nowrap">{{ ago|timesince }} {% translate "ago" %}</span>{% endif %}
+</div>

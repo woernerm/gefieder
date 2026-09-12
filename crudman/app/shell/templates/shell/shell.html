@@ -1,0 +1,108 @@
+{# The shell: the app in a frame, and below it the bar that is the same on every page. #}
+{# Unfold's skeleton, so the bar is drawn with the admin panel's theme, fonts, icons and #}
+{# colours, and its user menu is the admin panel's own, included rather than rebuilt. #}
+{# The bar is one grid row; collapsing it later is a class on #bar and nothing else. #}
+{% extends "unfold/layouts/skeleton.html" %}
+{% load i18n unfold %}
+
+{% block title %}{{ site_header }}{% endblock %}
+
+{% block extrastyle %}
+    <style>
+        html, body { height: 100%; }
+        body { display: grid; grid-template-rows: minmax(0, 1fr) auto; }
+        #frame { border: 0; display: block; height: 100%; width: 100%; }
+        #bar { height: 2rem; }
+        #bar [data-prefixes] { color: var(--color-font-subtle-light); }
+        #bar [data-prefixes]:hover { color: var(--color-font-default-light); }
+        #bar [aria-current] { color: var(--color-primary-600); }
+        .dark #bar [data-prefixes] { color: var(--color-font-subtle-dark); }
+        .dark #bar [data-prefixes]:hover { color: var(--color-font-default-dark); }
+        .dark #bar [aria-current] { color: var(--color-primary-500); }
+        /* The menus open upwards, the bar being at the foot of the window. */
+        #bar .menu { bottom: calc(100% + .375rem); min-width: 18rem; }
+    </style>
+{% endblock %}
+
+{% block base %}
+    <iframe id="frame" name="frame" src="{{ request.get_full_path }}" title="{{ site_header }}"></iframe>
+
+    {# The links open in the frame: the bar stays as it is, and the address follows. #}
+    <nav id="bar" class="bg-base-50 border-base-200 border-t flex gap-1 px-2 text-xs dark:bg-base-900 dark:border-base-800">
+        <a href="/" target="frame" class="flex font-semibold items-center px-2 text-important">{{ site_header }}</a>
+
+        <div class="flex grow justify-center">
+            {% for stage, url in stages %}
+                <a href="{{ url }}" target="frame" data-prefixes="{{ stage.prefixes|join:' ' }}" class="flex gap-1 items-center px-3">
+                    <span class="material-symbols-outlined md-18">{{ stage.icon }}</span>
+                    {{ stage.label }}
+                </a>
+            {% endfor %}
+        </div>
+
+        {# Who is here. The count is rendered with the bar; the list is fetched when it is #}
+        {# opened, and brings the count up to date with it (the span swapped out of band). #}
+        <div class="flex items-center relative" x-data="{ open: false }">
+            <div class="menu absolute bg-white border border-base-200 py-2 right-0 rounded-default shadow-lg z-50 dark:bg-base-800 dark:border-base-700"
+                 id="presence" x-cloak x-show="open" x-transition x-on:click.outside="open = false"></div>
+
+            <button type="button" class="cursor-pointer flex gap-1 items-center px-2 rounded-default text-important hover:bg-base-100 dark:hover:bg-base-800"
+                    title="{% translate 'Who is online' %}" hx-get="{% url 'presence' %}" hx-target="#presence"
+                    x-on:click="open = !open">
+                <span class="material-symbols-outlined md-18">group</span>
+                <span id="online">{{ online }}</span>
+            </button>
+        </div>
+
+        {# The user menu of the admin panel's sidebar, behind the picture alone. #}
+        <div class="flex items-center relative" x-data="{ openUserLinks: false }">
+            <nav class="menu absolute bg-white border border-base-200 flex flex-col leading-none py-1 right-0 rounded-default shadow-lg z-50 dark:bg-base-800 dark:border-base-700"
+                 x-cloak x-show="openUserLinks" x-transition x-on:click.outside="openUserLinks = false">
+                <div class="border-b border-base-200 mb-1 px-3 py-2 dark:border-base-700">
+                    <div class="font-semibold text-important truncate">{{ request.user.get_full_name|default:request.user.get_username }}</div>
+                    {% if request.user.email %}<div class="text-subtle truncate">{{ request.user.email }}</div>{% endif %}
+                </div>
+
+                {% include "unfold/helpers/theme_switch.html" %}
+
+                {% include "unfold/helpers/language_switch.html" %}
+
+                {% include "unfold/helpers/account_links.html" %}
+            </nav>
+
+            <button type="button" class="cursor-pointer px-1" title="{{ request.user.get_full_name|default:request.user.get_username }}"
+                    x-on:click="openUserLinks = !openUserLinks">
+                {% include "unfold/helpers/avatar.html" with user=request.user size="xs" circle=1 %}
+            </button>
+        </div>
+    </nav>
+
+    <script>
+        // The address bar, the tab title and the lit stage follow the frame. Polled: the
+        // apps are single-page applications that change their address without loading.
+        const frame = document.getElementById("frame");
+        const stages = document.querySelectorAll("#bar [data-prefixes]");
+
+        function follow() {
+            let here;
+            try {
+                here = frame.contentWindow.location;
+                here.pathname;
+            } catch {
+                return;  // another origin's page, whose address is not ours to read
+            }
+            const path = here.pathname + here.search;
+            if (path !== location.pathname + location.search) {
+                history.replaceState(null, "", path);
+            }
+            document.title = frame.contentDocument.title || document.title;
+            for (const stage of stages) {
+                const lit = stage.dataset.prefixes.split(" ").some((p) => here.pathname.startsWith(p));
+                lit ? stage.setAttribute("aria-current", "page") : stage.removeAttribute("aria-current");
+            }
+        }
+
+        frame.addEventListener("load", follow);
+        setInterval(follow, 1000);
+    </script>
+{% endblock %}

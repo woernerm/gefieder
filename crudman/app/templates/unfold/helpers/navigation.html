@@ -1,11 +1,13 @@
-{# The admin's sidebar, with one entry added: the notebooks, which the admin links to but #}
-{# does not serve. Unfold's own navigation.html, plus the block at the end. #}
+{# The admin's sidebar, showing the stage the page belongs to: on a dropzones page the #}
+{# apps of the Load stage, on a user page those of System (shell/stages.py). The index, #}
+{# outside every stage, lists them all. Unfold's own navigation.html with the app list #}
+{# filtered, and the user menu drawn only when there is no bar carrying it below -- a #}
+{# page in the shell's frame has one, a page opened on its own does not. #}
 {# #}
-{# An override rather than UNFOLD's "navigation" setting, which replaces the app list with #}
-{# whatever it is given and would hide every registered model; and rather than #}
-{# "SITE_DROPDOWN", which renders a panel that only appears once somebody clicks the site #}
-{# name -- a link nobody finds. #}
-{% load i18n unfold %}
+{# An override rather than UNFOLD's "navigation" setting, which replaces the app list #}
+{# with whatever it is given. An Unfold upgrade that changes this template needs this #}
+{# copy re-based. #}
+{% load i18n shell unfold %}
 
 <nav id="nav-sidebar-inner" class="bg-base-50 flex flex-col min-h-screen dark:text-font-default-dark dark:bg-base-950/20 {% element_classes 'navigation_inner' %}">
     {% include "unfold/helpers/navigation_header.html" %}
@@ -15,23 +17,10 @@
     {% if sidebar_navigation|length > 0 %}
         {% include "unfold/helpers/app_list.html" with app_list=available_apps %}
     {% else %}
-        {% include "admin/app_list.html" with app_list=available_apps show_changelinks=False %}
+        {% include "admin/app_list.html" with app_list=available_apps|for_stage:request.path show_changelinks=False %}
     {% endif %}
 
-    {# The one entry this override exists for: the notebooks, which the admin links to #}
-    {# but does not serve. notebooks_url is set by a context processor only for someone #}
-    {# the hub would actually admit, so a viewer is never offered a page answering 403. #}
-    {# mt-auto puts it at the bottom, above the user menu; the styling is the app list's #}
-    {# own heading, so it reads as another section rather than an afterthought. #}
-    {% if notebooks_url %}
-        <div class="mt-auto px-3 pb-3">
-            <a href="{{ notebooks_url }}"
-               class="bg-base-100 flex flex-row font-semibold gap-2 h-[38px] items-center px-3 rounded-default text-important dark:bg-white/[.02] hover:bg-base-200 dark:hover:bg-white/[.06]">
-                <span class="material-symbols-outlined md-18">science</span>
-                {% translate "Notebooks" %}
-            </a>
-        </div>
-    {% endif %}
-
-    {% include "unfold/helpers/navigation_user.html" %}
+    <template x-if="window.top === window.self">
+        {% include "unfold/helpers/navigation_user.html" %}
+    </template>
 </nav>

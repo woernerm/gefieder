@@ -71,18 +71,36 @@ three move together.
 |---|---|
 | `crudman/app/notebooks/views.py` | the hub reads exactly these fields out of `whoami`'s answer, so a renamed key is a spawn that fails with a KeyError; Grafana reads exactly these headers out of `grafana`'s |
 | `jupyter/crudman.py` | the other half of the hub's contract, and the only place the session cookie is presented back |
-| `proxy/locations.conf.template` | the other half of Grafana's: the `auth_request` location, the `auth_request_set`/`proxy_set_header` pairs that carry each header, and the `X-WEBAUTH-USER ""` on the MCP location, which forwards a caller's headers to Grafana from the same loopback Grafana trusts |
+| `proxy/locations.conf.template` | the other half of Grafana's: the `auth_request` location, the `auth_request_set`/`proxy_set_header` pairs that carry each header, the nested `auth-tokens/rotate` location that sends a rotation Grafana refuses (a stale token beside a good admin session) through `/login` rather than letting the frontend reload forever, and the `X-WEBAUTH-USER ""` on the MCP location, which forwards a caller's headers to Grafana from the same loopback Grafana trusts |
 | `grafana/custom.ini` `[auth.proxy]` | `header_name` and `headers` name the same headers; `whitelist` is why only the proxy may set them; `enable_login_token` stays on, and the proxy's sign-in redirect leads through `/login` because that route alone issues the token Grafana's frontend then rotates on every page -- without it the page reloads forever |
 | `tests/test_grafana_auth.py` | asserts the chain end to end, the forgery guards included |
 | `postgresql/initdb/gf_0003_*.sql` | `issue_db_user_password` is what a spawn calls: it puts an expiring password on the person's *own* role, so a notebook session simply is them. `crudman/app/dbusers/views.py` calls it too, for a developer's checkout |
 | `jupyter/spawn.py` | the Unix account is named as `dbusers.utils.role_name_for` names the database role — that is what lets `sqlmesh/config.py` derive the connection unchanged. A change to either derivation is a change to both |
 | `jupyter/requirements.txt` | what the workflow itself depends on; `JUPYTER_EXTENSIONS` in `buildtime.env` is the operator's list and a **build-time setting**, so that table applies |
 | `jupyter/tests/` | run inside the image by `run-tests.sh`, against `sqlmesh/models/` — the round trip that keeps opening a model from rewriting it |
-| `crudman/app/templates/unfold/helpers/navigation.html` | the sidebar link, as a copy of Unfold's own template plus one entry. It lives in `TEMPLATES["DIRS"]` rather than in the app: `INSTALLED_APPS` lists `unfold` first, so an app-level copy loses to it. An Unfold upgrade that changes that template needs this one re-based |
 
 `NOTEBOOK_PATH` is a **build-time setting** and reaches three places: the proxy (template,
 `entrypoint.sh` envsubst list, `proxy.container`), the hub's `base_url`, and
-`crudman.container`, which passes it to Django only so the admin can link to it.
+`crudman.container`, which passes it to Django only so the bar can link to it.
+`GRAFANA_PATH` reaches `crudman.container` for the same reason alone.
+
+## The shell
+
+Every page a browser asks for by address is crudman's to answer, whichever app the path
+names: the proxy tells that request (`Sec-Fetch-Dest: document`) from the one the shell's
+frame then makes for the same path (`iframe`) and sends it to port 8000, where
+`crudman/app/shell/middleware.py` answers with the bar and the frame. So the apps never
+know they are framed, and each has to allow being framed from its own origin.
+
+| Also touch | Because |
+|---|---|
+| `proxy/maps.conf.template` | the `$grafana_port` and `$notebook_port` maps; a new app behind the bar needs one, and its location a `proxy_pass` through it |
+| `crudman/app/shell/middleware.py` | `is_page` is the other half of that classification; it also refuses a request without `X-Forwarded-For`, which is how the proxy's Grafana identity subrequest (headers copied from the browser's) keeps answering with the identity rather than a page |
+| `crudman/app/shell/stages.py` | the stages, where each leads, who may enter it, and which admin apps belong to it -- the sidebar (`templates/unfold/helpers/navigation.html`, via `templatetags/shell.py`) shows the apps of the stage the page is under. A new admin app a rank should reach is named here as well as in `MANAGED_APPS` |
+| `X_FRAME_OPTIONS` in `settings.py`, `allow_embedding` in `grafana/custom.ini`, `tornado_settings` in both `jupyter/jupyterhub_config.py` and `jupyter/jupyter_server_config.py` | Django's, Grafana's, the hub's and (under the hub) a notebook server's defaults all refuse every frame |
+| `sso/views.py` `login` | asked for inside the frame, hands itself to the window: the provider refuses to be framed |
+| `crudman/app/templates/unfold/helpers/navigation.html`, `docs/templates/docs/navigation.html` | draw the sidebar's user menu only outside a frame, the bar carrying it inside one. Copies of Unfold's template; an Unfold upgrade that changes it needs them re-based |
+| `tests/test_shell.py`, `tests/test_proxy_config.py` | the chain end to end, and the proxy's classification on its own |
 
 `uninstall.sh` derives its unit list from the quadlet directory, so it needs nothing.
 

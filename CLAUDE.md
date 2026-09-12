@@ -23,7 +23,7 @@
 ## Where things are
 
 - `crudman/` — Django admin (Unfold); apps in `app/`: system, dropzones, sso, dbusers,
-  docs, example.
+  docs, notebooks, shell (the bar below every page, framing all three apps), example.
 - `sqlmesh/` — SQLMesh project: `config.py`, `macros/`, `models/{bronze,silver,gold}`.
   Not baked into the image: it is the *seed* of the models repository crudman keeps on the
   `models_data` volume, and the engine runs whatever commit is checked out there.

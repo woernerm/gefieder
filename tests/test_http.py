@@ -18,12 +18,12 @@ class TestRouting:
     def test_all_apps_shall_be_reachable_through_the_proxy(self, http_follow, path):
         assert http_follow.get(path).status_code == 200
 
-    def test_root_shall_redirect_to_the_admin_panel(self, http):
+    def test_root_shall_redirect_to_the_dashboards(self, http):
         resp = http.get("/")
         assert resp.status_code in (301, 302)
         # The Location has to be the bare path: nginx builds an absolute URL from the
         # port it listens on inside the pod, not the one the request came in on.
-        assert resp.headers["location"] == f"/{CRUDMAN_PATH}/", (
+        assert resp.headers["location"] == f"/{GRAFANA_PATH}/?kiosk", (
             "the redirect is absolute; it drops the port the client is talking to"
         )
 

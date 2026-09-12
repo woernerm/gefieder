@@ -51,7 +51,8 @@
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
-        proxy_pass http://127.0.0.1:3000;
+        # Grafana, or crudman for a page of its own: see the map in maps.conf.template.
+        proxy_pass http://127.0.0.1:$grafana_port;
         # $http_host, as above.
         proxy_set_header Host $http_host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -60,6 +61,24 @@
         proxy_set_header X-WEBAUTH-NAME  $webauth_name;
         proxy_set_header X-WEBAUTH-EMAIL $webauth_email;
         proxy_set_header X-WEBAUTH-ROLE  $webauth_role;
+
+        # A rotation Grafana refuses: the browser's token has expired, or belongs to a
+        # Grafana that no longer exists, while the admin panel's session is still good.
+        # Grafana still serves every page on the proxy's headers, but answers this call
+        # 401, which its frontend takes for "signed out" and reloads on -- without end,
+        # the reload bringing the same token back. Sent through the login route instead,
+        # the one place a token is issued: fetch follows the redirect, the new cookies
+        # arrive on the way, and what the frontend sees is the home page's 200. Nested,
+        # so the identity check and the headers above apply here unchanged.
+        location = /${GRAFANA_PATH}/api/user/auth-tokens/rotate {
+            proxy_intercept_errors on;
+            error_page 401 = @grafana_reissue;
+            proxy_pass http://127.0.0.1:3000;
+        }
+    }
+
+    location @grafana_reissue {
+        return 302 /${GRAFANA_PATH}/login;
     }
 
     # Grafana's static assets, which need no identity and are the bulk of a page load:
@@ -142,14 +161,15 @@
         proxy_read_timeout 24h;
         # A notebook is uploaded and downloaded whole, and a seed file may be large.
         client_max_body_size 512m;
-        proxy_pass http://127.0.0.1:8888;
+        # The hub, or crudman for a page of its own: see the map in maps.conf.template.
+        proxy_pass http://127.0.0.1:$notebook_port;
         # $http_host, as above.
         proxy_set_header Host $http_host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # Convenience redirect to the administration panel.
+    # The home page: the dashboards, in kiosk mode, inside the shell.
     location = / {
-        return 302 /${CRUDMAN_PATH}/;
+        return 302 /${GRAFANA_PATH}/?kiosk;
     }

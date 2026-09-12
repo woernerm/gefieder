@@ -1,0 +1,17 @@
+{# The list behind the bar's count. The first span replaces the count itself, out of band. #}
+{% load i18n %}
+<span id="online" hx-swap-oob="true">{{ online|length }}</span>
+
+<p class="font-semibold px-3 text-font-subtle-light text-xs uppercase dark:text-font-subtle-dark">{% translate "Online" %}</p>
+{% for row in online %}
+    {% include "shell/person.html" %}
+{% empty %}
+    <p class="px-3 py-1 text-subtle">{% translate "Nobody" %}</p>
+{% endfor %}
+
+<p class="font-semibold mt-2 px-3 text-font-subtle-light text-xs uppercase dark:text-font-subtle-dark">{% translate "Past 7 days" %}</p>
+{% for row in recent %}
+    {% include "shell/person.html" with ago=row.last_seen %}
+{% empty %}
+    <p class="px-3 py-1 text-subtle">{% translate "Nobody else" %}</p>
+{% endfor %}

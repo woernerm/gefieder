@@ -594,13 +594,26 @@ class TestRoutingToUpstreams:
             f"{path} did not reach its upstream:\n{result.stdout}\n{result.stderr}"
         )
 
-    def test_the_root_shall_redirect_to_the_admin_panel(self, fixtures):
+    @pytest.mark.parametrize("destination,expected", [
+        ("document", CRUDMAN_BODY),
+        ("iframe", GRAFANA_BODY),
+    ])
+    def test_a_page_of_its_own_shall_reach_the_admin_panel_instead(
+        self, destination, expected, fixtures
+    ):
+        """The shell: what goes in the address bar is the admin panel's to answer
+        whichever app the path names, what goes in the shell's frame is the app's."""
+        args = f"--header 'Sec-Fetch-Dest: {destination}'"
+        result = _run_proxy(_fetch(f"/{GRAFANA_PATH}/", args=args), "true", fixtures)
+        assert expected in result.stdout, result.stdout + result.stderr
+
+    def test_the_root_shall_redirect_to_the_dashboards(self, fixtures):
         # --spider does not follow the redirect (busybox wget has no --max-redirect).
         result = _run_proxy(_fetch("/", args="--spider"), "true", fixtures)
         assert "302" in result.stdout, result.stdout + result.stderr
         # A bare path: nginx would build a URL from the port it listens on inside the pod,
         # sending a client that arrived on any other port where nothing listens.
-        assert f"Location: /{CRUDMAN_PATH}/" in result.stdout, (
+        assert f"Location: /{GRAFANA_PATH}/?kiosk" in result.stdout, (
             "the redirect is absolute; it drops the port the client is talking to:\n"
             + result.stdout + result.stderr
         )

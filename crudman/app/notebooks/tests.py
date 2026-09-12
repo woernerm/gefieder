@@ -12,7 +12,6 @@ from django.test import TestCase
 from django.urls import reverse
 from sso.roles import GROUP_FOR_RANK
 
-from .context_processors import NOTEBOOK_PATH
 from .utils import (
     CREDENTIAL_LIFETIME,
     issue_notebook_credential,
@@ -149,48 +148,6 @@ class CredentialTests(TestCase):
         user = make_user("editor", GROUP_FOR_RANK["editor"])
         with self.assertRaises(ValueError):
             issue_notebook_credential(user)
-
-
-class SidebarLinkTests(TestCase):
-    """The admin's link to the notebooks.
-
-    Unfold offers two settings for this and neither works here: SIDEBAR["navigation"]
-    replaces the app list with what it is given, hiding every registered model, and
-    SITE_DROPDOWN renders a panel that opens only when somebody clicks the site name. So
-    the navigation template is overridden, and these check the entry actually renders --
-    a link that silently is not there looks exactly like one nobody clicked.
-    """
-
-    def setUp(self):
-        self.url = reverse("admin:index")
-
-    def test_an_editor_is_offered_the_link(self):
-        user = make_user("editor", GROUP_FOR_RANK["editor"], is_staff=True)
-        enrolled(user)
-        self.client.force_login(user)
-
-        page = self.client.get(self.url).content.decode()
-
-        self.assertIn("Notebooks", page)
-        self.assertIn(f'href="/{NOTEBOOK_PATH}/"', page)
-
-    def test_a_viewer_is_not(self):
-        user = make_user("viewer", GROUP_FOR_RANK["viewer"], is_staff=True)
-        enrolled(user)
-        self.client.force_login(user)
-
-        self.assertNotIn(f'href="/{NOTEBOOK_PATH}/"', self.client.get(self.url).content.decode())
-
-    def test_the_admin_sections_are_still_listed(self):
-        """The whole reason for the template override: the app list has to survive it."""
-        user = make_user("editor", GROUP_FOR_RANK["editor"], is_staff=True, is_superuser=True)
-        enrolled(user)
-        self.client.force_login(user)
-
-        page = self.client.get(self.url).content.decode()
-
-        self.assertIn("Notebooks", page)
-        self.assertIn("Dropzones", page)
 
 
 class WhoamiTests(TestCase):

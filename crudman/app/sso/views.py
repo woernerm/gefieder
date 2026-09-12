@@ -25,6 +25,10 @@ def login(request):
     A visitor who still has a session with the provider is signed in without seeing a
     page at all, which is the point of doing this instead of offering a button.
 
+    Signing in is a top-level affair. Asked for inside the shell's frame -- a session
+    that ran out while the bar was up -- the page hands itself to the window instead:
+    the provider refuses to be framed, and the bar has to be drawn for the new session.
+
     Args:
         request: The HTTP request. The local form posts back here without the query
             string, so a POST counts as local or the escape hatch would be unusable.
@@ -32,6 +36,9 @@ def login(request):
     Returns:
         The admin's login page, or a redirect to the provider.
     """
+    if request.headers.get("Sec-Fetch-Dest") == "iframe":
+        return HttpResponse("<script>top.location.replace(location.href)</script>")
+
     local = request.method == "POST" or LOCAL_LOGIN_PARAM in request.GET
     if not settings.OIDC_ENABLED or local:
         return admin.site.login(request)

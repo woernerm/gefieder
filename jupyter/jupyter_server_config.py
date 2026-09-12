@@ -20,3 +20,10 @@ c.KernelSpecManager.allowed_kernelspecs = ["sqlmesh"]
 # which repoints quak's CSS variables at the theme's so its table reads as part of Lab
 # rather than a light panel inside a dark one.
 c.LabApp.custom_css = True
+
+# The server is seen inside the shell's frame (crudman/app/shell/). Under the hub it
+# refuses every frame unless told otherwise here, the hub's mixin keeping whatever policy
+# this file sets. Its own origin only, jupyter_server's own default.
+c.ServerApp.tornado_settings = {
+    "headers": {"Content-Security-Policy": "frame-ancestors 'self'"},
+}

@@ -21,6 +21,19 @@ def podman(*args):
     ).stdout
 
 
+def crudman(script):
+    """Run a shell script inside the crudman container and return its output."""
+    return podman("exec", "crudman", "sh", "-c", script)
+
+
+def django(python):
+    """Run a line of Python against the admin panel's Django, inside its container."""
+    return crudman(
+        "cd /crudman/app && uv run --project /crudman python manage.py shell -c "
+        f'"{python}"'
+    )
+
+
 def inspect_container(name):
     """Return the `podman inspect` object for a container, or None if it does not exist.
 

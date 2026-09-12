@@ -16,6 +16,10 @@ non-admin, non-technical users.
 - `app/notebooks/` — what JupyterHub authenticates its visitors against. The credential a
    server connects with is an expiring password on the person's own role, issued by
    `dbusers`. No admin page of its own.
+- `app/shell/` — the bar below every page and the frame it puts the apps in: a page a
+   browser asks for by address is answered with the shell whichever app the path names,
+   and the frame asks for the same path again (`middleware.py`). `stages.py` names the
+   workflow stages, who may enter each, and which admin apps the sidebar shows for it.
 - `app/example/` — an empty scaffold; Perfect to quickly spin up forms for non-technical 
    users to input their data.
 

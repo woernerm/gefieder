@@ -12,6 +12,11 @@ interfaces:
 - **Grafana dashboards** with the database already wired up as a read-only data source
 - **notebooks** (JupyterLab) for writing and trying out the analytics models in the browser
 
+All three sit above one bar at the foot of the window, which is the same everywhere: the
+stages of the workflow in the middle -- *Dashboards*, *Load*, *Model*, *System*, each shown
+only to those who may use it -- and on the right who is online and your own menu (theme,
+access token, password, sign-out). Any address you bookmark or share opens inside it.
+
 This README walks you from nothing to a running system: first locally on your own
 machine, then deployed on a server, followed by reference sections for the settings,
 scripts and commands.
