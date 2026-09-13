@@ -5,7 +5,7 @@ loads SQLMesh's magics and this system's cell routing, opens the project the not
 in, and says which account and environment the session is working as -- so a new notebook is
 immediately useful and nobody has to remember an incantation to make ``%evaluate`` work.
 
-Failures here are printed rather than raised: a kernel that starts is one a person can fix
+Failures here are reported rather than raised: a kernel that starts is one a person can fix
 things from, and the most likely cause is a database that is still coming up.
 """
 import os
@@ -125,34 +125,23 @@ def _explore_columns() -> None:
     ipython.run_line_magic("load_ext", "quak")
 
 
-PROJECT = "sqlmesh"
-"""The SQLMesh project inside the models repository; jupyter/spawn.py spells it too."""
+def _report(message: str) -> None:
+    """Print a line under the first cell that runs.
 
+    Nothing printed before the first execute request reaches the notebook: there is no cell
+    to attach it to, so Lab files it in the Log Console, which nobody has open. What the
+    startup has to say -- which project, or why none -- waits for the first cell instead.
 
-def _project() -> Path | None:
-    """The SQLMesh project this kernel belongs to.
-
-    Searched from the working directory upwards, then from the server's root -- the
-    workspace the spawner opened Lab on. That is what makes ``%evaluate`` work in a
-    notebook created anywhere, which is most of them.
-
-    Returns:
-        The directory holding config.py, or None when there is no project to be found.
+    Args:
+        message: The line to print.
     """
-    root = os.environ.get("JUPYTERHUB_ROOT_DIR") or ""
-    for start in (Path.cwd(), Path(root) if root else None):
-        if start is None:
-            continue
-        for directory in [start, *start.parents]:
-            if (directory / "config.py").exists():
-                return directory
-        # The server is rooted at the repository so the git panel can see .git, and the
-        # project is one level in -- so a kernel started from the launcher, whose working
-        # directory is the person's home, finds it here rather than by walking upwards.
-        candidate = start / PROJECT
-        if (candidate / "config.py").exists():
-            return candidate
-    return None
+    ipython = get_ipython()  # noqa: F821 -- IPython provides this in the namespace.
+
+    def once(info) -> None:
+        ipython.events.unregister("pre_run_cell", once)
+        print(message)
+
+    ipython.events.register("pre_run_cell", once)
 
 
 def _load() -> None:
@@ -161,6 +150,7 @@ def _load() -> None:
     _explore_columns()
 
     from sqlmesh.magics import register_magics
+    from sqlnotebook.project import find_project
 
     ipython = get_ipython()  # noqa: F821 -- IPython provides this in the namespace.
     # Called rather than loaded as an extension: SQLMesh registers no IPython extension
@@ -169,7 +159,7 @@ def _load() -> None:
     register_magics()
     ipython.run_line_magic("load_ext", "sqlnotebook.kernel")
 
-    project = _project()
+    project = find_project()
     if project is None:
         return
 
@@ -180,7 +170,7 @@ def _load() -> None:
 
     # Which account and which environment, because both are answers a person otherwise has
     # to go and look up, and getting the second one wrong means planning over production.
-    print(
+    _report(
         f"SQLMesh project {project.name} as {os.environ.get('SQLMESH_USER', 'unknown')}, "
         f"target environment {context.config.default_target_environment}."
     )
@@ -189,4 +179,4 @@ def _load() -> None:
 try:
     _load()
 except Exception as error:  # noqa: BLE001 -- a kernel that starts can be debugged in.
-    print(f"SQLMesh could not be loaded: {error}")
+    _report(f"SQLMesh could not be loaded: {error}")

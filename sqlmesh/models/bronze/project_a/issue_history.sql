@@ -20,6 +20,10 @@ MODEL (
     story_points INTEGER,
     component_key TEXT
   ),
+  column_descriptions (
+    changed_at = 'The day this row took effect; it holds until the next row of the issue.',
+    component_key = 'The component the issue was filed against at that time.'
+  ),
   grain (issue_key, changed_at),
   audits (unique_combination_of_columns(columns := (issue_key, changed_at)))
 );

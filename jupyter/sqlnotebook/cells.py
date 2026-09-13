@@ -99,6 +99,10 @@ def from_notebook(notebook: nbformat.NotebookNode) -> str:
         The text to write to the .sql file.
     """
     cells = [cell for cell in notebook.cells if cell.source.strip()]
+    if not cells:
+        # Zero bytes, not a newline: SQLMesh skips an empty model file and parses anything
+        # longer, and a lone newline is "no MODEL block" for every kernel in the workspace.
+        return ""
     if len(cells) == 1 and cells[0].cell_type == "code":
         return cells[0].source.rstrip("\n") + "\n"
 

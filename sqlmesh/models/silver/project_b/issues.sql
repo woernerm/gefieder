@@ -14,16 +14,16 @@ MODEL (
 
 SELECT
   'project_b'                                AS tenant_id,
-  id::TEXT                                   AS issue_id,
+  id::TEXT                                   AS issue_id,   -- The issue number as text, so every project's key is one type.
   title                                      AS title,
   CASE
     WHEN state IN ('closed', 'merged') THEN 'closed'
     ELSE 'open'
-  END                                        AS state,
+  END                                        AS state,      -- GitHub's closed and merged are closed; open stays open.
   opened                                     AS created_on,
   CASE priority
     WHEN 'high' THEN 8
     WHEN 'medium' THEN 5
     ELSE 2
-  END                                        AS effort
+  END                                        AS effort      -- Project B sizes nothing: the priority label stands in, high 8, medium 5, else 2.
 FROM bronze_project_b.issues

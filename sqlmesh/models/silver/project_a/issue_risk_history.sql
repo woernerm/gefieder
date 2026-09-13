@@ -31,15 +31,15 @@ MODEL (
 SELECT
   'project_a'         AS tenant_id,
   tck.issue_key       AS issue_id,
-  tck.changed_at      AS valid_from,
+  tck.changed_at      AS valid_from,   -- The first day this combination of state, effort and classification held.
   CASE lhs.status
     WHEN 'Done'        THEN 'closed'
     WHEN 'In Progress' THEN 'in_progress'
     ELSE 'todo'
-  END                 AS state,
+  END                 AS state,        -- todo, in_progress or closed: Jira's statuses folded onto three.
   lhs.story_points    AS effort,
   lhs.component_key   AS component_id,
-  rhs.safety_class    AS safety_class,
+  rhs.safety_class    AS safety_class, -- The component's classification in effect that day, not today's.
   rhs.owner_team      AS owner
 FROM @temporal_join(
   lhs_ts := bronze_project_a.issue_history.changed_at,

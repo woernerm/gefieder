@@ -12,13 +12,13 @@ MODEL (
 );
 
 SELECT
-  'project_a'                                AS tenant_id,
+  'project_a'                                AS tenant_id,  -- Fixed: every row of a staging model is its project's.
   issue_key                                  AS issue_id,
   summary                                    AS title,
   CASE
     WHEN status = 'Done' THEN 'closed'
     ELSE 'open'
-  END                                        AS state,
+  END                                        AS state,      -- Jira's Done is closed; every other status is open.
   created_at                                 AS created_on,
-  story_points                               AS effort
+  story_points                               AS effort      -- Story points, the unit this team sizes in.
 FROM bronze_project_a.issues

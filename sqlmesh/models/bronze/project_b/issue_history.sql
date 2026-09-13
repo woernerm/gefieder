@@ -17,6 +17,10 @@ MODEL (
     priority TEXT,
     area TEXT
   ),
+  column_descriptions (
+    updated = 'The day this row took effect; it holds until the next row of the issue.',
+    area = 'The area label, which is what stands in for a component here.'
+  ),
   grain (id, updated),
   audits (unique_combination_of_columns(columns := (id, updated)))
 );

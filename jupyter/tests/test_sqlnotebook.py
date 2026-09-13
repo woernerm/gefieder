@@ -12,7 +12,9 @@ from pathlib import Path
 import nbformat
 import pytest
 from sqlnotebook.cells import from_notebook, to_notebook
+from sqlnotebook.help import describe, token_at
 from sqlnotebook.kernel import route
+from sqlnotebook.project import find_project
 
 MODELS_DIR = Path(os.environ.get("TEST_MODELS_DIR", Path(__file__).resolve().parents[2] / "sqlmesh" / "models"))
 """The models to round-trip. From the environment because these tests run inside the
@@ -97,6 +99,42 @@ def test_empty_cells_are_dropped():
     assert from_notebook(cells("SELECT 1", "", "   ")) == "SELECT 1\n"
 
 
+def test_a_blank_notebook_saves_as_an_empty_file():
+    """The launcher creates a model with nothing in it. SQLMesh skips a zero-byte file and
+    parses anything longer, so a lone newline would break the project for every kernel."""
+    assert from_notebook(cells("", "   ")) == ""
+
+
+class TestProjectLookup:
+    """Which project a kernel loads, from where it was started."""
+
+    @staticmethod
+    def workspace(tmp_path):
+        (tmp_path / "sqlmesh" / "models").mkdir(parents=True)
+        (tmp_path / "sqlmesh" / "config.py").write_text("")
+        return tmp_path / "sqlmesh"
+
+    def test_from_a_model_directory(self, tmp_path, monkeypatch):
+        project = self.workspace(tmp_path)
+        monkeypatch.chdir(project / "models")
+        monkeypatch.delenv("JUPYTERHUB_ROOT_DIR", raising=False)
+        assert find_project() == project
+
+    def test_from_the_launcher(self, tmp_path, monkeypatch):
+        """A kernel started from the launcher works in the person's home, outside the
+        workspace; the server's root is the repository and the project one level in."""
+        project = self.workspace(tmp_path)
+        (tmp_path / "home").mkdir()
+        monkeypatch.chdir(tmp_path / "home")
+        monkeypatch.setenv("JUPYTERHUB_ROOT_DIR", str(tmp_path))
+        assert find_project() == project
+
+    def test_none_outside_a_workspace(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("JUPYTERHUB_ROOT_DIR", raising=False)
+        assert find_project() is None
+
+
 class TestCellRouting:
     """Which magic a cell is executed with, decided from its first words."""
 
@@ -136,6 +174,94 @@ class TestCellRouting:
         rewrote it would rewrite what gets committed."""
         source = "MODEL (\n  name a.b\n);\nSELECT 1\n"
         assert "".join(route(source.splitlines(keepends=True))[1:]) == source
+
+
+class TestContextualHelp:
+    """What the Contextual Help panel gets for the token under the cursor."""
+
+    @pytest.fixture(scope="class")
+    def context(self, tmp_path_factory):
+        """A two-model project on DuckDB: the shipped one needs a database and a token."""
+        from sqlmesh import Context
+        from sqlmesh.core.config import Config, DuckDBConnectionConfig, GatewayConfig, ModelDefaultsConfig
+
+        project = tmp_path_factory.mktemp("project")
+        (project / "models").mkdir()
+        (project / "macros").mkdir()
+        (project / "models" / "issues.sql").write_text(
+            "-- Every issue, one row each.\n"
+            "MODEL (name silver.issues, kind VIEW, description 'Every issue, one row each.',\n"
+            "  column_descriptions (effort = 'Estimated hours.'));\n"
+            "SELECT 1 AS issue_id, 2 AS effort\n"
+        )
+        (project / "models" / "metrics.sql").write_text(
+            "MODEL (name gold.metrics, kind FULL);\n"
+            "SELECT SUM(effort) AS total FROM silver.issues\n"
+        )
+        (project / "macros" / "__init__.py").write_text(
+            "from sqlmesh import macro\n\n\n"
+            "@macro()\n"
+            "def twice(evaluator, value):\n"
+            '    """The value, doubled."""\n'
+            "    return value * 2\n"
+        )
+        config = Config(
+            gateways={"duckdb": GatewayConfig(connection=DuckDBConnectionConfig())},
+            model_defaults=ModelDefaultsConfig(dialect="duckdb"),
+        )
+        return Context(paths=str(project), config=config)
+
+    @pytest.mark.parametrize("code, word, expected", [
+        ("FROM silver.issues\n", "issues", "silver.issues"),
+        ("FROM silver.issues\n", "silver", "silver.issues"),
+        ("FROM @twice(effort)", "twice", "@twice"),
+        # Typed up to the dot: what stands before it is what the person means.
+        ("FROM silver.", "silver.", "silver"),
+        ("SELECT  1", "SELECT ", ""),
+    ])
+    def test_the_token_under_the_cursor(self, code, word, expected):
+        assert token_at(code, code.index(word) + len(word)) == expected
+
+    @staticmethod
+    def at(context, code, word):
+        """The help for the cursor right behind ``word`` in ``code``."""
+        return describe(context, code, code.index(word) + len(word))
+
+    def test_a_model_gets_its_description_and_columns(self, context):
+        text = self.at(context, "FROM silver.issues", "issues")
+        assert text.startswith("**silver.issues** (VIEW)")
+        assert "Every issue, one row each." in text
+        assert "| effort | INT | Estimated hours. |" in text
+
+    def test_a_column_reference_falls_back_to_its_model(self, context):
+        """A macro argument names ``schema.table.column``, which is no model name."""
+        assert self.at(context, "@twice(silver.issues.effort)", "effort").startswith("**silver.issues**")
+
+    def test_a_macro_gets_its_docstring(self, context):
+        assert self.at(context, "FROM @twice(1)", "twice") == "**@twice**\n\nThe value, doubled."
+
+    @pytest.mark.parametrize("word", ["effort", "i.effort"])
+    def test_a_column_gets_its_type_in_every_model_the_cell_names(self, context, word):
+        """The type even where nobody wrote a description, which is most columns."""
+        code = f"MODEL (name gold.metrics);\nSELECT SUM({word}) AS total FROM silver.issues AS i"
+        text = self.at(context, code, word)
+        assert text.startswith("**effort**")
+        assert "| silver.issues | INT | Estimated hours. |" in text
+        assert "gold.metrics" not in text
+
+    def test_a_column_of_the_cell_itself_is_typed_once_saved(self, context):
+        text = self.at(context, "MODEL (name gold.metrics);\nSELECT total FROM x", "total")
+        assert "| gold.metrics | BIGINT |  |" in text
+
+    @pytest.mark.parametrize("code, word", [
+        ("SELECT * FROM silver.issues", "SELECT"),
+        ("SELECT nothing FROM silver.issues", "nothing"),
+        ("SELECT effort FROM silver.unknown", "effort"),
+        ("@no_such_macro()", "no_such_macro"),
+        ("SELECT  1", "SELECT "),
+    ])
+    def test_anything_else_is_left_to_ipython(self, context, code, word):
+        assert self.at(context, code, word) is None
 
 
 class TestDefaultViewer:
@@ -272,7 +398,7 @@ class TestColumnExplorer:
         else:
             pytest.skip("startup.py is not readable from here")
         namespace = {}
-        exec(source.read_text().split('PROJECT =')[0], namespace)
+        exec(source.read_text().split("\ntry:\n")[0], namespace)
         return namespace
 
     def test_a_dataframe_becomes_a_widget(self):

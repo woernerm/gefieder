@@ -75,6 +75,13 @@ A cell is executed by what it starts with: a `MODEL` definition is validated, re
 previewed; a bare query is fetched into a dataframe; anything else is Python. So the SQLMesh
 magics are there for whoever wants them, and nobody has to type one to work.
 
+Lab's Contextual Help panel (Ctrl+I) is answered by the kernel, and IPython knows Python
+names alone -- so over SQL it stays empty. The kernel looks the token up in the project
+first: a model name shows that model's description and columns, a `@macro` its docstring,
+and a column its type -- inferred by SQLMesh, so it is there whether or not anyone wrote a
+description -- in every model the cell names. What an upstream file says about itself is
+read where it is used, without opening it.
+
 ## What it deliberately does not do
 
 **It does not keep a second copy of a model.** Notebooks beside the models would mean

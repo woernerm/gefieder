@@ -12,6 +12,8 @@ when it has not.
 from IPython.core.magic import Magics, cell_magic, magics_class
 from IPython.display import display
 
+from .project import find_project
+
 PREVIEW_LIMIT = 20
 """Rows shown under a model cell. Enough to see the shape of the result; ``%evaluate`` in a
 cell of its own is there when more is wanted."""
@@ -23,7 +25,12 @@ class ModelMagics(Magics):
 
     @staticmethod
     def _context(shell):
-        """The SQLMesh context the startup file put in the namespace.
+        """The SQLMesh context the startup file put in the namespace, or loaded now.
+
+        Loaded here when the startup could not: one model that does not parse blocks the
+        whole project, and by the time a cell runs the person may have fixed it. Either
+        way the cell sees SQLMesh's own error, which names the file, rather than a report
+        that nothing is loaded.
 
         Args:
             shell: The InteractiveShell holding the user namespace.
@@ -32,14 +39,19 @@ class ModelMagics(Magics):
             The Context.
 
         Raises:
-            RuntimeError: There is none, which means the kernel started outside a project.
+            RuntimeError: There is no project to load, which means the kernel started
+                outside a workspace.
         """
         context = shell.user_ns.get("context")
         if context is None:
-            raise RuntimeError(
-                "No SQLMesh project is loaded. Open this notebook from inside the models "
-                "workspace, or run %context <path> first."
-            )
+            project = find_project()
+            if project is None:
+                raise RuntimeError(
+                    "No SQLMesh project is loaded. Open this notebook from inside the "
+                    "models workspace, or run %context <path> first."
+                )
+            shell.run_line_magic("context", str(project))
+            context = shell.user_ns["context"]
         return context
 
     @cell_magic

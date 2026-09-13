@@ -20,5 +20,10 @@ MODEL (
     opened DATE,
     priority TEXT
   ),
+  column_descriptions (
+    id = 'The GitHub issue number.',
+    state = 'The state as GitHub records it: open, closed or merged.',
+    priority = 'The priority label; Project B sizes nothing, so silver derives effort from it.'
+  ),
   grain id
 );

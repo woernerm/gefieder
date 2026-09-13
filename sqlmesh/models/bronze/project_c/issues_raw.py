@@ -26,6 +26,10 @@ from sqlmesh import ExecutionContext, model
         "created_on": "DATE",
         "effort": "INT",
     },
+    column_descriptions={
+        "issue_id": "The ticket number, TKT-<n>, as Project C's tracker issues it.",
+        "effort": "The tracker's weight field, which this project uses for its estimate.",
+    },
     grain=("tenant_id", "issue_id"),
     audits=["assert_known_tenant"],
 )

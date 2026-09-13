@@ -12,9 +12,9 @@ MODEL (
 
 SELECT
   tenant_id,
-  COUNT(*)                                        AS total_issues,
+  COUNT(*)                                        AS total_issues,  -- Every issue the project ever opened.
   COUNT(*) FILTER (WHERE state = 'open')          AS open_issues,
   COUNT(*) FILTER (WHERE state = 'closed')        AS closed_issues,
-  SUM(effort)                                     AS total_effort
+  SUM(effort)                                     AS total_effort   -- In each project's own unit, so comparable within a project only.
 FROM silver.issues
 GROUP BY tenant_id

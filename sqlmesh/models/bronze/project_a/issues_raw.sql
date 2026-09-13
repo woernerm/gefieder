@@ -20,5 +20,10 @@ MODEL (
     created_at DATE,
     story_points INTEGER
   ),
+  column_descriptions (
+    issue_key = 'The Jira issue key, PA-<n>.',
+    status = 'The Jira workflow status, spelled as the project configured it.',
+    story_points = 'The effort estimate, in the points this team sizes in.'
+  ),
   grain issue_key
 );
