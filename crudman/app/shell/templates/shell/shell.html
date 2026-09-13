@@ -140,7 +140,10 @@
 
         // A stage opens in its app's frame, which is only sent elsewhere when what it
         // shows is not the stage's already: a dashboard or a notebook stays as it was.
-        // Home always leads home. A modified click keeps its meaning, a new window.
+        // What the stage asks of that page -- kiosk mode -- is asked again even so:
+        // Grafana drops the parameter on Escape, and a reload after a link was followed
+        // brings its chrome back. Home always leads home. A modified click keeps its
+        // meaning, a new window.
         bar.addEventListener("click", (event) => {
             const link = event.target.closest("a[data-prefixes], a[data-home]");
             if (!link || event.ctrlKey || event.metaKey || event.shiftKey) return;
@@ -150,7 +153,10 @@
             const frame = frames.querySelector(`iframe[name="${key}"]`);
             const here = frame && where(frame);
             const stays = here && link.dataset.prefixes?.split(" ").some((p) => here.pathname.startsWith(p));
-            show(key, stays ? null : url.pathname + url.search);
+            if (!stays) return show(key, url.pathname + url.search);
+            const params = new URLSearchParams(here.search);
+            const missing = url.search.slice(1).split("&").filter((p) => p && !params.has(p.split("=")[0]));
+            show(key, missing.length ? here.pathname + (here.search ? `${here.search}&` : "?") + missing.join("&") : null);
         });
 
         const first = frames.firstElementChild;

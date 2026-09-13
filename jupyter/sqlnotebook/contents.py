@@ -53,6 +53,7 @@ class ModelContentsManager(
             # so Jupyter would ask on every open, the .py having nowhere to keep one.
             if type == "notebook" and content and path.endswith(".py"):
                 model["content"].setdefault("metadata", {}).update(KERNELSPEC)
+                self.notary.mark_cells(model["content"], True)
             return model
 
         model = super().get(path, content=content, type="file", format="text")
@@ -60,6 +61,11 @@ class ModelContentsManager(
         model["format"] = "json" if content else None
         if content:
             model["content"] = to_notebook(model["content"])
+            # Trust guards the outputs a notebook file stores, and a model file stores
+            # none, so there is nothing to distrust. Unmarked, Lab counts every cell as
+            # untrusted and flags the notebook; a signature could never vouch for it, the
+            # cells being built afresh, with new ids, on every open.
+            self.notary.mark_cells(model["content"], True)
             self.validate_notebook_model(model)
         return model
 
