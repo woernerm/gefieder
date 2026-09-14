@@ -3,6 +3,8 @@
     "@jupyterlab/workspaces-extension": true,
     "@jupyterlab/console-extension:foreign": true,
     "@jupyterlab/console-extension:kernel-status": true,
+    "@jupyterlab/apputils-extension:kernel-status": true,
+    "@jupyterlab/notebook-extension:kernel-status": true,
     "@jupyterlab/console-extension:cursor-position": true,
     "@jupyterlab/notebook-extension:code-console": true,
     "@jupyterlab/debugger-extension:consoles": true,

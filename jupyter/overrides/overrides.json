@@ -55,6 +55,10 @@
   },
   "@jupyterlab/application-extension:context-menu": {
     "contextMenu": [
+      {"command": "notebook:toggle-output-scrolling", "selector": ".jp-Notebook", "args": {"isMenu": true}, "disabled": true},
+      {"command": "notebook:delete-cell", "selector": ".jp-Notebook .jp-Cell", "disabled": true},
+      {"command": "notebook:undo-cell-action", "selector": ".jp-Notebook", "disabled": true},
+      {"command": "notebook:redo-cell-action", "selector": ".jp-Notebook", "disabled": true},
       {"command": "filemenu:create-console", "selector": "[data-type=\"document-title\"].jp-mod-current", "disabled": true},
       {"command": "fileeditor:create-console", "selector": ".jp-FileEditor", "disabled": true},
       {"command": "notebook:create-console", "selector": ".jp-Notebook", "disabled": true},

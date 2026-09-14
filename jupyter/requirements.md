@@ -116,6 +116,10 @@ the image, so a change is a rebuild, never an edit on the target machine.
 - **Kernel picker** -- `kernelName` under `notebook-extension:panel` in overrides. The
   toolbar's "SQLMesh" button, which opened a Select Kernel dialog with one entry. The
   status circle beside it stays.
+- **Status bar items** -- the kernel name, which opened the same Select Kernel dialog:
+  `apputils-extension:kernel-status` and `notebook-extension:kernel-status` in
+  page_config. The language servers: `jupyterlab-lsp` is no longer in `JUPYTER_EXTENSIONS`
+  (`buildtime.env`), no server being registered for it to show.
 - **Property Inspector** -- `application-extension:property-inspector` with the
   `notebook-extension:tools`, `active-cell-tool`, `metadata-editor`, `celltags-extension`
   and `metadataform-extension` plugins in page_config. The right sidebar's cell tags and
@@ -137,8 +141,11 @@ the image, so a change is a rebuild, never an edit on the target machine.
   - *Language*: also `translation-extension:plugin` in page_config. English, and "Install
     more languages…", which needs a package index the target machine does not have.
 - **Edit menu entries** -- commands under `jp-mainmenu-edit` in overrides. Move Cell Up,
-  Move Cell Down, Delete Cell: the same three buttons sit on every cell's own toolbar, and
-  Delete Cell stays in the cell's context menu.
+  Move Cell Down, Delete Cell: the same three buttons sit on every cell's own toolbar.
+- **Cell context menu** -- commands under `application-extension:context-menu` in
+  overrides. Enable Scrolling for Outputs (the column explorer scrolls by itself), Delete
+  Cell (the cell's own toolbar), Undo and Redo Cell Operation (Edit keeps both, and Z in
+  command mode).
 - **File menu entries** -- commands under `jp-mainmenu-file` in overrides. Close Tab,
   Close All Tabs, Close and Shut Down Notebook, Print: a tab closes from its cross or
   context menu, a kernel stops in the Running panel, the browser prints. *Jupytext*, which
