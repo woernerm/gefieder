@@ -125,6 +125,10 @@ the image, so a change is a rebuild, never an edit on the target machine.
   and `metadataform-extension` plugins in page_config. The right sidebar's cell tags and
   metadata forms, View ▸ Property Inspector. A `.sql` or `.py` model has nowhere to keep
   what is typed there; it vanished on save.
+- **View menu entries** -- commands under `jp-mainmenu-view` in overrides. Collapse and
+  Expand Selected or All Code and Outputs (eight entries): the collapser bar on every
+  cell's left edge does the same. Render Side-by-Side: outputs beside the code, a
+  presentation layout.
 - **Text Editor Syntax Highlighting** -- submenu `jp-mainmenu-view-codemirror-language` in
   overrides. View ▸ a list of 150 languages. Highlighting follows the file extension.
 - **Extension Manager** -- `@jupyterlab/extensionmanager-extension` in page_config. Its

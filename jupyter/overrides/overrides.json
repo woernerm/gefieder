@@ -43,7 +43,16 @@
         {"command": "notebook:run-in-console", "disabled": true}
       ]},
       {"id": "jp-mainmenu-view", "items": [
-        {"type": "submenu", "submenu": {"id": "jp-mainmenu-view-codemirror-language"}, "disabled": true}
+        {"type": "submenu", "submenu": {"id": "jp-mainmenu-view-codemirror-language"}, "disabled": true},
+        {"command": "notebook:hide-cell-code", "disabled": true},
+        {"command": "notebook:hide-cell-outputs", "disabled": true},
+        {"command": "notebook:hide-all-cell-code", "disabled": true},
+        {"command": "notebook:hide-all-cell-outputs", "disabled": true},
+        {"command": "notebook:show-cell-code", "disabled": true},
+        {"command": "notebook:show-cell-outputs", "disabled": true},
+        {"command": "notebook:show-all-cell-code", "disabled": true},
+        {"command": "notebook:show-all-cell-outputs", "disabled": true},
+        {"command": "notebook:toggle-render-side-by-side-current", "disabled": true}
       ]},
       {"id": "jp-mainmenu-settings", "items": [
         {"type": "submenu", "submenu": {"id": "jp-mainmenu-settings-consoleexecute"}, "disabled": true},
