@@ -136,6 +136,9 @@ the image, so a change is a rebuild, never an edit on the target machine.
   - *Terminal Theme*: added by code, so hidden by `custom/custom.css` instead.
   - *Language*: also `translation-extension:plugin` in page_config. English, and "Install
     more languages…", which needs a package index the target machine does not have.
+- **Edit menu entries** -- commands under `jp-mainmenu-edit` in overrides. Move Cell Up,
+  Move Cell Down, Delete Cell: the same three buttons sit on every cell's own toolbar, and
+  Delete Cell stays in the cell's context menu.
 - **File menu entries** -- commands under `jp-mainmenu-file` in overrides. Close Tab,
   Close All Tabs, Close and Shut Down Notebook, Print: a tab closes from its cross or
   context menu, a kernel stops in the Running panel, the browser prints. *Jupytext*, which

@@ -24,6 +24,11 @@
       {"id": "jp-mainmenu-git", "disabled": true},
       {"id": "jp-mainmenu-tabs", "disabled": true},
       {"id": "jp-mainmenu-kernel", "disabled": true},
+      {"id": "jp-mainmenu-edit", "items": [
+        {"command": "notebook:move-cell-up", "disabled": true},
+        {"command": "notebook:move-cell-down", "disabled": true},
+        {"command": "notebook:delete-cell", "disabled": true}
+      ]},
       {"id": "jp-mainmenu-file", "items": [
         {"command": "filemenu:create-console", "disabled": true},
         {"command": "application:close", "disabled": true},
