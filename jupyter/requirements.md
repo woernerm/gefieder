@@ -82,6 +82,59 @@ and a column its type -- inferred by SQLMesh, so it is there whether or not anyo
 description -- in every model the cell names. What an upstream file says about itself is
 read where it is used, without opening it.
 
+## What was taken out of JupyterLab
+
+Each entry names its lever; undoing the lever brings it back. Plugins are switched off in
+`labconfig/page_config.json` (delete the line), menu entries in `overrides/overrides.json`
+(delete the item), export formats in `jupyter_server_config.py`. All three are baked into
+the image, so a change is a rebuild, never an edit on the target machine.
+
+- **Git menu** -- `jp-mainmenu-git` in overrides. Init, Clone, Merge, Push and Pull
+  including *Force*, Reset to Remote, Manage Remotes, Open in Terminal, Simple staging,
+  Open .gitignore, Help. The panel keeps commit, branch, push, pull, history and diff; the
+  menu held what a basic workflow must not do. Simple staging: Settings Editor, Git.
+- **Workspaces** -- `@jupyterlab/workspaces-extension` in page_config. File ▸ Workspaces
+  (open, create, clone, rename, save, import, export, reset, delete), the running panel's
+  Workspaces section, View ▸ Appearance ▸ Show Workspace Indicator. Layout snapshots for
+  people juggling projects; here there is one. The layout is still restored between visits.
+- **Export formats** -- `*Exporter.enabled` in jupyter_server_config.py. File ▸ Save and
+  Export Notebook As keeps HTML, Markdown, PDF and Executable Script. AsciiDoc, LaTeX,
+  reStructuredText, Reveal.js Slides, Qtpdf, Qtpng and Webpdf need pandoc, TeX or a
+  browser the image lacks. PDF needs TeX too; the entry waits for it.
+- **Console** -- `@jupyterlab/console-extension` and the `consoles`, `code-console` and
+  `debug-console` plugins in page_config; the stragglers in overrides. File ▸ New ▸
+  Console, the launcher card, New Console for Notebook or Editor, New Subshell Console,
+  Run Selected Text in Console, Settings ▸ Console Run Keystroke. A bare query cell is the
+  REPL already.
+- **Tabs menu** -- `jp-mainmenu-tabs` in overrides. Activate Next, Previous and
+  Previously Used Tab, the tab bars, the list of open tabs. The tab bar shows the same and
+  the shortcuts still work.
+- **Kernel menu** -- `jp-mainmenu-kernel` in overrides. Interrupt, Restart, Restart and
+  Clear, Restart and Run up to Selected or All, Restart and Debug, Reconnect, Shut Down,
+  Shut Down All, Change Kernel. The toolbar interrupts and restarts, Edit clears outputs,
+  File ▸ Close and Shut Down stops, the Running panel stops all, reloading reconnects.
+- **Property Inspector** -- `application-extension:property-inspector` with the
+  `notebook-extension:tools`, `active-cell-tool`, `metadata-editor`, `celltags-extension`
+  and `metadataform-extension` plugins in page_config. The right sidebar's cell tags and
+  metadata forms, View ▸ Property Inspector. A `.sql` or `.py` model has nowhere to keep
+  what is typed there; it vanished on save.
+- **Text Editor Syntax Highlighting** -- submenu `jp-mainmenu-view-codemirror-language` in
+  overrides. View ▸ a list of 150 languages. Highlighting follows the file extension.
+- **Extension Manager** -- `@jupyterlab/extensionmanager-extension` in page_config. Its
+  sidebar tab, View ▸ Extension Manager, Settings ▸ Enable Extension Manager. Extensions
+  are `JUPYTER_EXTENSIONS` in `buildtime.env`, installed at build; the environment is
+  read-only for a person, so an install from the panel could only fail.
+- **Language** -- `translation-extension:plugin` in page_config. Settings ▸ Language:
+  English, and "Install more languages…", which needs a package index the target machine
+  does not have.
+- **Hub menu** -- `hub-extension:menu` in page_config. File ▸ Hub Control Panel and Log
+  Out. Log Out left the hub only and the admin session signed the person straight back
+  in; sign-out is the shell bar's account menu. Stop My Server is still at
+  `/<NOTEBOOK_PATH>/hub/home`.
+
+Kept on purpose: the terminal, which is how the `sqlmesh` CLI is run, and the debugger,
+for Python models.
+
 ## What it deliberately does not do
 
 **It does not keep a second copy of a model.** Notebooks beside the models would mean

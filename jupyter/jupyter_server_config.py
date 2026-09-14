@@ -1,7 +1,9 @@
 """The configuration of each person's own JupyterLab server.
 
 One thing it settles: that a .sql model opens as a notebook. The rest of JupyterLab is
-left at its defaults, which is the point -- a person who knows Jupyter knows this.
+left at its defaults, which is the point -- a person who knows Jupyter knows this --
+except for the menus requirements.md lists under "What was taken out of JupyterLab",
+which are switched off in overrides/ and labconfig/ beside this file.
 """
 c = get_config()  # noqa: F821 -- Jupyter injects this into the file's namespace.
 
@@ -15,6 +17,14 @@ c.ServerApp.contents_manager_class = "sqlnotebook.contents.ModelContentsManager"
 # synthesizes it back unless ensure_native_kernel says otherwise.
 c.KernelSpecManager.ensure_native_kernel = False
 c.KernelSpecManager.allowed_kernelspecs = ["sqlmesh"]
+
+# What "Save and Export Notebook As" offers: the four formats an analysis notebook may be
+# wanted in. The rest need pandoc, TeX or a browser the image does not carry, or serve
+# publishing workflows this system has none of. PDF inherits LatexExporter's switch, so it
+# is turned back on by name -- it fails until TeX is installed, but the entry stays.
+for exporter in ("ASCIIDoc", "Latex", "QtPDF", "QtPNG", "RST", "Slides", "WebPDF"):
+    c[f"{exporter}Exporter"].enabled = False
+c.PDFExporter.enabled = True
 
 # Serves ~/.jupyter/custom/custom.css, off by default. The image ships one file there,
 # which repoints quak's CSS variables at the theme's so its table reads as part of Lab

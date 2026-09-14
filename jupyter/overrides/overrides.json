@@ -8,5 +8,29 @@
   "@jupyterlab/apputils-extension:notification": {
     "fetchNews": "false",
     "checkForUpdates": false
+  },
+  "@jupyterlab/mainmenu-extension:plugin": {
+    "menus": [
+      {"id": "jp-mainmenu-git", "disabled": true},
+      {"id": "jp-mainmenu-tabs", "disabled": true},
+      {"id": "jp-mainmenu-kernel", "disabled": true},
+      {"id": "jp-mainmenu-file", "items": [
+        {"command": "filemenu:create-console", "disabled": true}
+      ]},
+      {"id": "jp-mainmenu-run", "items": [
+        {"command": "notebook:run-in-console", "disabled": true}
+      ]},
+      {"id": "jp-mainmenu-view", "items": [
+        {"type": "submenu", "submenu": {"id": "jp-mainmenu-view-codemirror-language"}, "disabled": true}
+      ]}
+    ]
+  },
+  "@jupyterlab/application-extension:context-menu": {
+    "contextMenu": [
+      {"command": "filemenu:create-console", "selector": "[data-type=\"document-title\"].jp-mod-current", "disabled": true},
+      {"command": "fileeditor:create-console", "selector": ".jp-FileEditor", "disabled": true},
+      {"command": "notebook:create-console", "selector": ".jp-Notebook", "disabled": true},
+      {"command": "notebook:create-subshell-console", "selector": ".jp-Notebook", "disabled": true}
+    ]
   }
 }

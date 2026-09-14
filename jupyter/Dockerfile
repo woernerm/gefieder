@@ -132,6 +132,10 @@ RUN git config --system core.excludesFile "~/.gitignore" \
 # is configuration of this system, not a library anyone imports.
 COPY jupyter/sqlnotebook/ ${NOTEBOOK_VENV}/lib/python3.13/site-packages/sqlnotebook/
 COPY jupyter/jupyter_server_config.py /usr/local/etc/jupyter/jupyter_server_config.py
+# Which Lab plugins never load: the menus requirements.md lists as taken out. labconfig/
+# under a config directory is where Lab looks; a list instead of the object here makes
+# every page a 500.
+COPY jupyter/labconfig/page_config.json /usr/local/etc/jupyter/labconfig/page_config.json
 # Into the venv, which is JupyterLab's application directory here: overrides are read
 # from there alone, so the same file under /usr/local is silently ignored and a model
 # opens in the text editor instead.

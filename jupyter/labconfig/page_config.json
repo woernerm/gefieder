@@ -1,0 +1,20 @@
+{
+  "disabledExtensions": {
+    "@jupyterlab/workspaces-extension": true,
+    "@jupyterlab/console-extension": true,
+    "@jupyterlab/notebook-extension:code-console": true,
+    "@jupyterlab/debugger-extension:consoles": true,
+    "@jupyterlab/debugger-extension:debug-console": true,
+    "@jupyterlab/inspector-extension:consoles": true,
+    "@jupyterlab/tooltip-extension:consoles": true,
+    "@jupyterlab/application-extension:property-inspector": true,
+    "@jupyterlab/notebook-extension:tools": true,
+    "@jupyterlab/notebook-extension:active-cell-tool": true,
+    "@jupyterlab/notebook-extension:metadata-editor": true,
+    "@jupyterlab/celltags-extension": true,
+    "@jupyterlab/metadataform-extension": true,
+    "@jupyterlab/extensionmanager-extension": true,
+    "@jupyterlab/translation-extension:plugin": true,
+    "@jupyterlab/hub-extension:menu": true
+  }
+}

@@ -542,3 +542,31 @@ class TestKernelLanguage:
         from sqlnotebook.ipkernel import SQLKernel
 
         assert issubclass(SQLKernel, IPythonKernel)
+
+
+class TestTrimmedMenus:
+    """That the menus requirements.md lists as taken out are actually off.
+
+    Each lever fails silently when misplaced -- a page_config.json outside a labconfig/
+    directory is ignored, one written as a list makes every page a 500, and an exporter
+    switch reaches the export menu only through the server's own config. So each is
+    checked the way Lab reads it rather than as a file.
+    """
+
+    def test_the_page_config_disables_the_plugins(self):
+        from jupyterlab.commands import get_app_dir
+        from jupyterlab_server.config import get_page_config
+
+        settings = str(Path(get_app_dir(), "settings"))
+        disabled = get_page_config([], settings)["disabledExtensions"]
+        assert "@jupyterlab/console-extension" in disabled
+        assert "@jupyterlab/workspaces-extension" in disabled
+
+    def test_the_export_menu_keeps_four_formats(self):
+        from nbconvert.exporters.base import get_export_names
+        from traitlets.config import PyFileConfigLoader
+
+        config = PyFileConfigLoader("/usr/local/etc/jupyter/jupyter_server_config.py").load_config()
+        names = set(get_export_names(config=config))
+        assert {"html", "markdown", "pdf", "script"} <= names
+        assert not names & {"asciidoc", "latex", "rst", "slides", "webpdf", "qtpdf", "qtpng"}
