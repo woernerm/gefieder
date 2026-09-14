@@ -113,6 +113,9 @@ the image, so a change is a rebuild, never an edit on the target machine.
   Clear, Restart and Run up to Selected or All, Restart and Debug, Reconnect, Shut Down,
   Shut Down All, Change Kernel. The toolbar interrupts and restarts, Edit clears outputs,
   File ▸ Close and Shut Down stops, the Running panel stops all, reloading reconnects.
+- **Kernel picker** -- `kernelName` under `notebook-extension:panel` in overrides. The
+  toolbar's "SQLMesh" button, which opened a Select Kernel dialog with one entry. The
+  status circle beside it stays.
 - **Property Inspector** -- `application-extension:property-inspector` with the
   `notebook-extension:tools`, `active-cell-tool`, `metadata-editor`, `celltags-extension`
   and `metadataform-extension` plugins in page_config. The right sidebar's cell tags and
@@ -124,9 +127,22 @@ the image, so a change is a rebuild, never an edit on the target machine.
   sidebar tab, View ▸ Extension Manager, Settings ▸ Enable Extension Manager. Extensions
   are `JUPYTER_EXTENSIONS` in `buildtime.env`, installed at build; the environment is
   read-only for a person, so an install from the panel could only fail.
-- **Language** -- `translation-extension:plugin` in page_config. Settings ▸ Language:
-  English, and "Install more languages…", which needs a package index the target machine
-  does not have.
+- **Settings menu entries** -- submenus by id under `jp-mainmenu-settings` in overrides,
+  except where noted.
+  - *Theme*: the theme list, Synchronize with System Settings, Theme Scrollbars, the font
+    sizes. The theme is `DEFAULT_THEME` in `runtime.env`; a person changes theirs in the
+    Settings Editor. Font size: the browser's zoom.
+  - *Text Editor Theme*: two CodeMirror schemes, both recoloured by the palette anyway.
+  - *Terminal Theme*: added by code, so hidden by `custom/custom.css` instead.
+  - *Language*: also `translation-extension:plugin` in page_config. English, and "Install
+    more languages…", which needs a package index the target machine does not have.
+- **File menu entries** -- commands under `jp-mainmenu-file` in overrides. Close Tab,
+  Close All Tabs, Close and Shut Down Notebook, Print: a tab closes from its cross or
+  context menu, a kernel stops in the Running panel, the browser prints. *Jupytext*, which
+  pairs a notebook with a second file, is hidden by `custom/custom.css`.
+- **Git Clone button** -- `gitClone` under `filebrowser-extension:widget` in overrides.
+  The file browser's toolbar button beside refresh and upload. The workspace is the clone,
+  made at spawn; a second repository beside it would be shipped nowhere.
 - **Hub menu** -- `hub-extension:menu` in page_config. File ▸ Hub Control Panel and Log
   Out. Log Out left the hub only and the admin session signed the person straight back
   in; sign-out is the shell bar's account menu. Stop My Server is still at

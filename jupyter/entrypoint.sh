@@ -40,7 +40,7 @@ esac
 # Which theme Lab opens in, from DEFAULT_THEME in runtime.env. Written at start rather
 # than baked in, because it is the operator's runtime setting, and into overrides.d/ so
 # the settings that are part of the release stay in overrides.json untouched. A person
-# who picks the other theme in Lab's menu keeps their choice: this is only the default.
+# who picks the other theme in Lab's Settings Editor keeps it: this is only the default.
 # JupyterLab Light rather than a light Material theme: none is installed, and the palette
 # in ~/.jupyter/custom/custom.css recolours whichever base theme is underneath anyway.
 case "${DEFAULT_THEME:-dark}" in

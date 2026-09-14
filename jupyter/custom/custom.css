@@ -195,3 +195,13 @@ body {
     --app-quak-on-primary: var(--jp-ui-inverse-font-color1);
     --app-quak-separator: var(--jp-layout-color1);
 }
+
+/* Two menu rows requirements.md lists as taken out that no setting reaches, both added
+   by code rather than declared in a schema: the terminal's theme submenu, and jupytext's
+   pairing submenu (its plugin must stay -- it is what opens a .sql as a notebook). Neither
+   row carries a name, so each is found by the neighbour that does. If an upgrade reorders
+   the group the rule stops matching and the row shows again; nothing breaks. */
+.lm-Menu-item[data-command="terminal:decrease-font"] + .lm-Menu-item[data-type="submenu"],
+.lm-Menu-item[data-type="submenu"]:has(+ .lm-Menu-item[data-command="launcher:create"]) {
+    display: none;
+}
