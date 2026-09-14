@@ -30,6 +30,9 @@
         {"command": "notebook:delete-cell", "disabled": true}
       ]},
       {"id": "jp-mainmenu-file", "items": [
+        {"type": "submenu", "submenu": {"id": "jp-mainmenu-file-new", "items": [
+          {"command": "console:create", "disabled": true}
+        ]}},
         {"command": "filemenu:create-console", "disabled": true},
         {"command": "application:close", "disabled": true},
         {"command": "filemenu:close-and-cleanup", "disabled": true},
@@ -43,6 +46,7 @@
         {"type": "submenu", "submenu": {"id": "jp-mainmenu-view-codemirror-language"}, "disabled": true}
       ]},
       {"id": "jp-mainmenu-settings", "items": [
+        {"type": "submenu", "submenu": {"id": "jp-mainmenu-settings-consoleexecute"}, "disabled": true},
         {"type": "submenu", "submenu": {"id": "jp-mainmenu-settings-apputilstheme"}, "disabled": true},
         {"type": "submenu", "submenu": {"id": "jp-mainmenu-settings-language"}, "disabled": true},
         {"type": "submenu", "submenu": {"id": "jp-mainmenu-settings-codemirror-theme"}, "disabled": true}

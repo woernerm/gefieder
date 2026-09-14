@@ -559,8 +559,12 @@ class TestTrimmedMenus:
 
         settings = str(Path(get_app_dir(), "settings"))
         disabled = get_page_config([], settings)["disabledExtensions"]
-        assert "@jupyterlab/console-extension" in disabled
         assert "@jupyterlab/workspaces-extension" in disabled
+        assert "@jupyterlab/notebook-extension:code-console" in disabled
+        # The debugger requires the console tracker; without it the right sidebar is
+        # never touched and Lab leaves it open and empty on a first visit.
+        assert "@jupyterlab/console-extension:tracker" not in disabled
+        assert "@jupyterlab/console-extension" not in disabled
 
     def test_the_export_menu_keeps_four_formats(self):
         from nbconvert.exporters.base import get_export_names

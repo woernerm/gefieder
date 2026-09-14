@@ -101,11 +101,11 @@ the image, so a change is a rebuild, never an edit on the target machine.
   Export Notebook As keeps HTML, Markdown, PDF and Executable Script. AsciiDoc, LaTeX,
   reStructuredText, Reveal.js Slides, Qtpdf, Qtpng and Webpdf need pandoc, TeX or a
   browser the image lacks. PDF needs TeX too; the entry waits for it.
-- **Console** -- `@jupyterlab/console-extension` and the `consoles`, `code-console` and
-  `debug-console` plugins in page_config; the stragglers in overrides. File ▸ New ▸
-  Console, the launcher card, New Console for Notebook or Editor, New Subshell Console,
-  Run Selected Text in Console, Settings ▸ Console Run Keystroke. A bare query cell is the
-  REPL already.
+- **Console** -- File ▸ New ▸ Console, New Console for Notebook or Editor, New Subshell
+  Console, Run Selected Text in Console and Settings ▸ Console Run Keystroke in
+  overrides; the launcher card in `custom/custom.css`; the `consoles`, `code-console` and
+  status plugins in page_config. The tracker itself stays: the debugger requires it. A
+  bare query cell is the REPL already.
 - **Tabs menu** -- `jp-mainmenu-tabs` in overrides. Activate Next, Previous and
   Previously Used Tab, the tab bars, the list of open tabs. The tab bar shows the same and
   the shortcuts still work.
@@ -152,7 +152,8 @@ the image, so a change is a rebuild, never an edit on the target machine.
   `/<NOTEBOOK_PATH>/hub/home`.
 
 Kept on purpose: the terminal, which is how the `sqlmesh` CLI is run, and the debugger,
-for Python models.
+for Python models -- also the last occupant of the right sidebar, which Lab leaves open
+and empty on a first visit if nothing is ever added to it.
 
 ## What it deliberately does not do
 

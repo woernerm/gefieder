@@ -196,12 +196,15 @@ body {
     --app-quak-separator: var(--jp-layout-color1);
 }
 
-/* Two menu rows requirements.md lists as taken out that no setting reaches, both added
-   by code rather than declared in a schema: the terminal's theme submenu, and jupytext's
-   pairing submenu (its plugin must stay -- it is what opens a .sql as a notebook). Neither
-   row carries a name, so each is found by the neighbour that does. If an upgrade reorders
-   the group the rule stops matching and the row shows again; nothing breaks. */
+/* Three rows requirements.md lists as taken out that no setting reaches. Two menu rows
+   are added by code rather than declared in a schema: the terminal's theme submenu, and
+   jupytext's pairing submenu (its plugin must stay -- it is what opens a .sql as a
+   notebook). Neither row carries a name, so each is found by the neighbour that does. The
+   launcher's Console section is the third: launcher cards have no setting at all, and the
+   console plugin stays because the debugger requires it. If an upgrade reorders a group
+   a rule stops matching and the row shows again; nothing breaks. */
 .lm-Menu-item[data-command="terminal:decrease-font"] + .lm-Menu-item[data-type="submenu"],
-.lm-Menu-item[data-type="submenu"]:has(+ .lm-Menu-item[data-command="launcher:create"]) {
+.lm-Menu-item[data-type="submenu"]:has(+ .lm-Menu-item[data-command="launcher:create"]),
+.jp-Launcher-section:has(.jp-LauncherCard[data-category="Console"]) {
     display: none;
 }

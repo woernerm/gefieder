@@ -1,7 +1,9 @@
 {
   "disabledExtensions": {
     "@jupyterlab/workspaces-extension": true,
-    "@jupyterlab/console-extension": true,
+    "@jupyterlab/console-extension:foreign": true,
+    "@jupyterlab/console-extension:kernel-status": true,
+    "@jupyterlab/console-extension:cursor-position": true,
     "@jupyterlab/notebook-extension:code-console": true,
     "@jupyterlab/debugger-extension:consoles": true,
     "@jupyterlab/debugger-extension:debug-console": true,
@@ -13,6 +15,7 @@
     "@jupyterlab/notebook-extension:metadata-editor": true,
     "@jupyterlab/celltags-extension": true,
     "@jupyterlab/metadataform-extension": true,
+    "@jupyterlab/notebook-extension:update-raw-mimetype": true,
     "@jupyterlab/extensionmanager-extension": true,
     "@jupyterlab/translation-extension:plugin": true,
     "@jupyterlab/hub-extension:menu": true
