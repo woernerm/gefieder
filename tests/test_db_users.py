@@ -35,6 +35,9 @@ ADMIN_ROLE = f"{ROLE_PREFIX}admin"
 # one -- the name is readability alone, DB_USER_PREFIX being optional.
 MARKER_ROLE = f"{ROLE_PREFIX}person"
 
+# What pg_duckdb's duckdb.postgres_role names; editors hold it through their rank.
+DUCKDB_ROLE = f"{ROLE_PREFIX}duckdb"
+
 # Throwaway account names, with the prefix crudman derives (dbusers.utils).
 VIEWER = f"{DB_USER_PREFIX}itest_viewer"
 EDITOR = f"{DB_USER_PREFIX}itest_editor"
@@ -75,6 +78,19 @@ def memberships(conn, name):
         return {row[0] for row in cur.fetchall()}
 
 
+def connect_as(admin_db, user):
+    """A connection as a throwaway account, on the port admin_db reached the server."""
+    conn = psycopg2.connect(
+        host="localhost",
+        port=admin_db.get_dsn_parameters()["port"],
+        dbname=PG_DATABASE,
+        user=user,
+        password=PASSWORD,
+    )
+    conn.autocommit = True
+    return conn
+
+
 @pytest.fixture
 def cleanup(admin_db):
     """Remove the throwaway roles either side, so a failed run does not poison the next."""
@@ -94,8 +110,8 @@ def cleanup(admin_db):
 
 
 def test_group_roles_exist(admin_db):
-    """The three ranks and the marker are created at first start, none of them a login."""
-    for name in (VIEWER_ROLE, EDITOR_ROLE, ADMIN_ROLE, MARKER_ROLE):
+    """The ranks, the marker and the duckdb group exist from first start, none a login."""
+    for name in (VIEWER_ROLE, EDITOR_ROLE, ADMIN_ROLE, MARKER_ROLE, DUCKDB_ROLE):
         assert role_exists(admin_db, name), f"{name} is missing"
         assert not can_login(admin_db, name), f"{name} must not be a login role"
 
@@ -245,18 +261,46 @@ def test_editor_can_read_analytics(crudman_db, admin_db, cleanup):
     with crudman_db.cursor() as cur:
         cur.execute("SELECT create_db_user(%s, %s, %s)", (EDITOR, PASSWORD, EDITOR_ROLE))
 
-    conn = psycopg2.connect(
-        host="localhost",
-        port=admin_db.get_dsn_parameters()["port"],
-        dbname=PG_DATABASE,
-        user=EDITOR,
-        password=PASSWORD,
-    )
-    conn.autocommit = True
+    conn = connect_as(admin_db, EDITOR)
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT has_schema_privilege(%s, 'USAGE')", (SILVER_SCHEMA,))
             assert cur.fetchone()[0], "an editor must be able to read the silver layer"
+    finally:
+        conn.close()
+
+
+def duckdb_execution(conn):
+    """Whether pg_duckdb lets this connection run a query, as a model would opt in."""
+    with conn.cursor() as cur:
+        try:
+            cur.execute("SELECT * FROM duckdb.query('SELECT 1')")
+        except psycopg2.errors.InternalError as error:
+            assert "duckdb.postgres_role" in str(error), error
+            return False
+        return True
+
+
+def test_an_editor_shall_run_queries_on_duckdb(crudman_db, admin_db, cleanup):
+    """Writing models includes speeding one up; the rank carries the duckdb group."""
+    with crudman_db.cursor() as cur:
+        cur.execute("SELECT create_db_user(%s, %s, %s)", (EDITOR, PASSWORD, EDITOR_ROLE))
+
+    conn = connect_as(admin_db, EDITOR)
+    try:
+        assert duckdb_execution(conn), "an editor must be admitted to DuckDB execution"
+    finally:
+        conn.close()
+
+
+def test_a_viewer_shall_not_run_queries_on_duckdb(crudman_db, admin_db, cleanup):
+    """A viewer reads what is materialised; the second engine is not theirs."""
+    with crudman_db.cursor() as cur:
+        cur.execute("SELECT create_db_user(%s, %s, %s)", (VIEWER, PASSWORD, VIEWER_ROLE))
+
+    conn = connect_as(admin_db, VIEWER)
+    try:
+        assert not duckdb_execution(conn), "a viewer must be refused DuckDB execution"
     finally:
         conn.close()
 
@@ -296,14 +340,7 @@ def test_issuing_the_password_makes_the_account_usable(crudman_db, admin_db, cle
 
     assert has_password(admin_db, VIEWER)
 
-    conn = psycopg2.connect(
-        host="localhost",
-        port=admin_db.get_dsn_parameters()["port"],
-        dbname=PG_DATABASE,
-        user=VIEWER,
-        password=PASSWORD,
-    )
-    conn.close()
+    connect_as(admin_db, VIEWER).close()
 
 
 def test_clearing_a_password_locks_the_account_immediately(crudman_db, admin_db, cleanup):

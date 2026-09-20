@@ -12,6 +12,9 @@
 -- A fourth role, <prefix>person, grants nothing: it is the marker create_db_user puts on
 -- every account it provisions, and the only thing that tells a personal role from a service
 -- role. See is_db_user in gf_0003.
+--
+-- A fifth, <prefix>duckdb, is the role pg_duckdb's duckdb.postgres_role names; see the
+-- DuckDB execution section below.
 
 -- CREATE ROLE has no IF NOT EXISTS, and these scripts re-run on every start. The rights
 -- below are re-granted either way, which is what lets a re-run repair a tampered grant.
@@ -22,7 +25,8 @@ BEGIN
     FOREACH group_role IN ARRAY ARRAY['${ROLE_PREFIX}viewer',
                                       '${ROLE_PREFIX}editor',
                                       '${ROLE_PREFIX}admin',
-                                      '${ROLE_PREFIX}person']
+                                      '${ROLE_PREFIX}person',
+                                      '${ROLE_PREFIX}duckdb']
     LOOP
         -- create_db_user would hand out somebody else's login role as one of ours: the
         -- ranks share a namespace with the login role each person is provisioned.
@@ -120,6 +124,24 @@ GRANT ALL ON SCHEMA ${SILVER_SCHEMA}, ${GOLD_SCHEMA} TO ${ROLE_PREFIX}editor;
 -- The engine has to read and replace what a developer's plan materialised, which it
 -- cannot do for a table another role owns. Rather than widening the production role, every
 -- developer's role gives sqlmesh default membership of what it creates (gf_0003).
+
+--------------------------------------------------------------------
+-- DuckDB execution.
+--
+-- pg_duckdb refuses duckdb.force_execution and duckdb.query() to everyone but a superuser
+-- until duckdb.postgres_role names a role, whose members it then admits. The engine and
+-- whoever develops models get it; a viewer or a dashboard reads gold, which is materialised
+-- already. Neither the local filesystem nor secrets come with it: pg_duckdb disables
+-- LocalFileSystem for every non-superuser, and a secret is a SERVER on the duckdb foreign
+-- data wrapper nobody here has USAGE on.
+--
+-- ALTER SYSTEM rather than a line in gf_0001: the setting is read at server start only,
+-- and this script runs against the temporary server the entrypoint brings up before the
+-- real one -- on first install and on every later start alike -- so it reaches an existing
+-- deployment too, which the once-only gf_0001 cannot.
+--------------------------------------------------------------------
+GRANT ${ROLE_PREFIX}duckdb TO ${SQLMESH_DB_USER}, ${ROLE_PREFIX}editor;
+ALTER SYSTEM SET duckdb.postgres_role = '${ROLE_PREFIX}duckdb';
 
 --------------------------------------------------------------------
 -- Who may provision database users.

@@ -21,6 +21,9 @@ The expected permission matrix (from postgresql/initdb) is:
   * a bronze schema is created by SQLMesh when a model first names one, so a fresh stack
     has none and the bronze visibility checks below create a throwaway one directly.
 
+DuckDB execution (duckdb.postgres_role, gf_0008) is sqlmesh's and the editor rank's; the
+other service roles are refused. The ranks are covered in test_db_users.
+
 A representative table is seeded into each schema, so the assertions hold regardless of
 what the running apps have created.
 """
@@ -185,3 +188,26 @@ class TestGrafanaUser:
         finally:
             with admin_db.cursor() as cur:
                 cur.execute("DROP SCHEMA test_probe CASCADE")
+
+
+class TestDuckDBExecution:
+    """pg_duckdb admits the members of <prefix>duckdb and nobody else."""
+
+    def test_sqlmesh_shall_run_a_query_on_duckdb(self, sqlmesh_db):
+        with sqlmesh_db.cursor() as cur:
+            cur.execute("SELECT use_duckdb(true)")
+            try:
+                cur.execute(f"EXPLAIN SELECT count(*) FROM {GOLD_TABLE}")
+                plan = "\n".join(row[0] for row in cur.fetchall())
+            finally:
+                # Session-wide, on a connection the other tests share.
+                cur.execute("SELECT use_duckdb(false)")
+        assert "DuckDBScan" in plan, plan
+
+    @pytest.mark.parametrize("role", ["crudman_db", "grafana_db"])
+    def test_the_other_service_roles_shall_be_refused(self, request, role):
+        conn = request.getfixturevalue(role)
+        with conn.cursor() as cur:
+            # Not InsufficientPrivilege: pg_duckdb raises it as an internal error.
+            with pytest.raises(psycopg2.errors.InternalError, match="duckdb.postgres_role"):
+                cur.execute("SELECT * FROM duckdb.query('SELECT 1')")

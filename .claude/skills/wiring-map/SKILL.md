@@ -209,6 +209,11 @@ renaming it there too; `tests/test_medallion_schemas.py` fails when the two disa
 An event trigger matching a configured prefix uses `starts_with()`, not `LIKE` — a name
 ending in `_` would otherwise be read as a single-character wildcard.
 
+DuckDB execution inside PostgreSQL (`duckdb.force_execution`, `duckdb.query()`) is a
+privilege of its own: pg_duckdb admits only the members of the role `duckdb.postgres_role`
+names, which `gf_0008` creates as `<ROLE_PREFIX>duckdb` and grants to `SQLMESH_DB_USER` and
+the editor rank. Widening it is a `GRANT` there, not a setting.
+
 ## Identity-provider rank
 
 `MANAGED_APPS` in `sso/roles.py` is which apps a rank may hold permissions for, so an app
