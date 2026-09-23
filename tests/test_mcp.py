@@ -48,10 +48,11 @@ def parse_rpc(response):
 
 
 class McpClient:
-    """One MCP session, authenticated as whoever the token belongs to.
+    """One MCP conversation, authenticated as whoever the token belongs to.
 
-    A session is opened by the initialize handshake and named by the Mcp-Session-Id the
-    server returns; every later call carries it back.
+    Opened by the initialize handshake. A server that keeps session state names it with an
+    Mcp-Session-Id and every later call carries that back; this one keeps none and returns
+    no id, which the specification allows and which changes nothing about the calls.
     """
 
     def __init__(self, token=None, cookies=None, headers=None):
@@ -82,9 +83,12 @@ class McpClient:
         assert response.status_code == 200, (
             f"the mcp handshake failed: {response.status_code} {response.text[:200]}"
         )
+        # Optional by the specification: a server "MAY assign a session ID at
+        # initialization time", and a client carries one back only if it was given one.
+        # This server keeps no session state and returns none, which is why the id is
+        # read rather than required -- asserting it would test the server's choice
+        # rather than anything this system relies on.
         self.session_id = response.headers.get("Mcp-Session-Id")
-        assert self.session_id, "the server returned no Mcp-Session-Id"
-        # Without it the server considers the handshake unfinished and refuses calls.
         self._post({"jsonrpc": "2.0", "method": "notifications/initialized"})
         return parse_rpc(response)["result"]
 

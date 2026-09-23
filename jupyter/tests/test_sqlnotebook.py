@@ -7,10 +7,12 @@ release actually ships, not only against examples written for the test.
 """
 import json
 import os
+import subprocess
 from pathlib import Path
 
 import nbformat
 import pytest
+from sqlnotebook.branch import switch_off_main
 from sqlnotebook.cells import from_notebook, to_notebook
 from sqlnotebook.help import describe, token_at
 from sqlnotebook.kernel import route
@@ -374,6 +376,103 @@ class TestPythonModels:
             served = manager.get(rel, content=True, type="notebook")
             manager.save({"type": "notebook", "format": "json", "content": served["content"]}, rel)
             assert (root / rel).read_text() == before
+
+
+class TestBranchOnFirstWrite:
+    """That a save never lands on the branch that deploys.
+
+    The button is deliberately not disabled: a person with edits and no way to save them
+    has lost work. So the first save moves the workspace onto a branch of its own instead,
+    and everything downstream still waits for a deliberate push.
+    """
+
+    @staticmethod
+    def workspace(tmp_path):
+        """A repository with one commit on main, as a fresh clone of the models is."""
+        run = lambda *args: subprocess.run(args, cwd=tmp_path, check=True, capture_output=True)
+        run("git", "init", "--initial-branch=main")
+        run("git", "config", "user.email", "jdupont@example.org")
+        run("git", "config", "user.name", "Jean Dupont")
+        (tmp_path / "models").mkdir()
+        (tmp_path / "models" / "orders.sql").write_text("MODEL (name a.b);\nSELECT 1;\n")
+        run("git", "add", "-A")
+        run("git", "commit", "-m", "seed")
+        return tmp_path
+
+    @staticmethod
+    def head(root):
+        """The branch the workspace is on."""
+        return subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=root, check=True, capture_output=True, text=True,
+        ).stdout.strip()
+
+    def test_a_first_save_moves_off_main(self, tmp_path, monkeypatch):
+        root = self.workspace(tmp_path)
+        monkeypatch.setenv("JUPYTERHUB_USER", "jdupont")
+        switch_off_main(root / "models" / "orders.sql")
+        assert self.head(root) == "work/jdupont/orders"
+
+    def test_the_file_is_still_written(self, tmp_path, monkeypatch):
+        """The whole point: branching is what a save does on the way, not instead."""
+        from sqlnotebook.contents import ModelContentsManager
+
+        root = self.workspace(tmp_path)
+        monkeypatch.setenv("JUPYTERHUB_USER", "jdupont")
+        manager = ModelContentsManager(root_dir=str(root))
+        manager.save(
+            {"type": "notebook", "format": "json", "content": cells("SELECT 2;")},
+            "models/orders.sql",
+        )
+        assert (root / "models" / "orders.sql").read_text() == "SELECT 2;\n"
+        assert self.head(root) == "work/jdupont/orders"
+
+    def test_a_later_save_stays_where_it_is(self, tmp_path, monkeypatch):
+        """Only the first save branches; the rest are ordinary saves on that branch."""
+        root = self.workspace(tmp_path)
+        monkeypatch.setenv("JUPYTERHUB_USER", "jdupont")
+        switch_off_main(root / "models" / "orders.sql")
+        switch_off_main(root / "models" / "orders.sql")
+        assert self.head(root) == "work/jdupont/orders"
+
+    def test_a_branch_the_person_chose_is_left_alone(self, tmp_path, monkeypatch):
+        """Only main carries the deployment, so only main is moved off."""
+        root = self.workspace(tmp_path)
+        subprocess.run(["git", "checkout", "-b", "spike"], cwd=root, check=True,
+                       capture_output=True)
+        monkeypatch.setenv("JUPYTERHUB_USER", "jdupont")
+        switch_off_main(root / "models" / "orders.sql")
+        assert self.head(root) == "spike"
+
+    def test_a_second_sitting_gets_its_own_branch(self, tmp_path, monkeypatch):
+        """The earlier branch may be finished and pushed, so it is not silently reused."""
+        root = self.workspace(tmp_path)
+        monkeypatch.setenv("JUPYTERHUB_USER", "jdupont")
+        switch_off_main(root / "models" / "orders.sql")
+        subprocess.run(["git", "checkout", "main"], cwd=root, check=True, capture_output=True)
+        switch_off_main(root / "models" / "orders.sql")
+        assert self.head(root) == "work/jdupont/orders-2"
+
+    def test_a_file_outside_a_repository_is_untouched(self, tmp_path):
+        """A notebook in the person's home is theirs, and is not the models'."""
+        loose = tmp_path / "scratch.ipynb"
+        loose.write_text("")
+        switch_off_main(loose)
+
+    def test_a_workspace_git_cannot_read_still_saves(self, tmp_path, monkeypatch):
+        """Branching is tidiness; the save is the person's work. It must not be lost."""
+        from sqlnotebook.contents import ModelContentsManager
+
+        root = tmp_path
+        (root / ".git").mkdir()
+        (root / "models").mkdir()
+        monkeypatch.setenv("JUPYTERHUB_USER", "jdupont")
+        manager = ModelContentsManager(root_dir=str(root))
+        manager.save(
+            {"type": "notebook", "format": "json", "content": cells("SELECT 3;")},
+            "models/orders.sql",
+        )
+        assert (root / "models" / "orders.sql").read_text() == "SELECT 3;\n"
 
 
 class TestColumnExplorer:

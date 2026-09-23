@@ -39,6 +39,9 @@ corresponds to a commit somebody can point at.
 - **Ship a model the way everything else ships**: a commit pushed to `REPO_MODELS`, deployed
   by the poll crudman already runs. There is no path from a notebook to production that does
   not go through a commit.
+- **Never write to the branch that deploys.** A save while the workspace is on `main` moves
+  it onto a branch of its own first. Nothing is ever refused: a person with edits and no way
+  to save them has lost work, which is worse than an untidy branch.
 
 ## How it is arranged
 
@@ -49,6 +52,17 @@ notebook-specific branch in it. Each person's working tree is a clone of the mod
 repository under `workspaces/` on the `models_data` volume, the directory
 `crudman/app/system/requirements.md` reserved for it; the deployed tree beside it stays
 crudman's alone and is never touched from here.
+
+**The first save leaves `main`.** `sqlnotebook/branch.py` checks the workspace's branch
+before a file is written and, on `main` alone, creates `work/<person>/<file>` and checks it
+out; a branch the person chose themselves is left as it is. The save then proceeds normally,
+so the button, autosave, a checkpoint and Save As all behave as they always did -- the
+contents manager is the one door they share. Where the save landed is not announced: Lab's
+document context copies a fixed set of fields out of the response and drops the rest, so the
+git panel is what reports the branch. The workspace keeps its branch and its uncommitted
+edits between visits, the clone being made once and then left alone, so returning to work
+needs nothing remembered. Branching is tidiness, not protection -- what guards production is
+that deployment reads the origin, which still takes a deliberate push.
 
 Everything a server needs is readable by every account: the interpreter uv downloads goes to
 `/opt/python` rather than under `/root`, and the environment beside it is world-readable.

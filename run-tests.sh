@@ -294,6 +294,10 @@ install -m 0755 serverstats/collect.sh "$APP_CONFIG_DIR/serverstats/collect.sh"
 } > "$APP_CONFIG_DIR/runtime.env"
 
 cleanup() {
+  # The status the script is exiting with, saved before anything here overwrites it: the
+  # trap's own last command is what the shell would otherwise report, which turned a failed
+  # test run into a successful script.
+  status=$?
   # On EXIT, after pytest's summary. Silenced, so it is announced: this is the pause
   # between the result and the prompt returning.
   echo "Tearing down the test stack ..."
@@ -302,6 +306,7 @@ cleanup() {
   # The unit tests' password file, should they have failed before removing it. Unset
   # until they run, so guard against rm -rf on an empty path.
   if [ -n "$UNIT_SECRET_DIR" ]; then rm -rf "$UNIT_SECRET_DIR"; fi
+  exit "$status"
 }
 trap cleanup EXIT INT TERM
 

@@ -15,6 +15,7 @@ import nbformat
 from jupyter_server.services.contents.filemanager import FileContentsManager
 from jupytext import build_sync_jupytext_contents_manager_class
 
+from .branch import switch_off_main
 from .cells import KERNELSPEC, from_notebook, to_notebook
 
 
@@ -72,6 +73,15 @@ class ModelContentsManager(
     def save(self, model, path=""):
         """Save a file, writing a notebook back to a .sql file as its cells' text.
 
+        Every save passes here -- the button, autosave, a checkpoint, Save As -- which is
+        what makes this the one place that can move a workspace off the deploying branch
+        before anything is written to it.
+
+        Where the save landed is not reported back: Lab's document context copies a fixed
+        set of fields out of the response and drops everything else, so a ``message`` on
+        the model reaches nobody. The git panel names the current branch, which is the
+        place a person looks for it anyway.
+
         Args:
             model: The content model being saved.
             path: The API path to save it at.
@@ -79,6 +89,7 @@ class ModelContentsManager(
         Returns:
             The saved content model, without content, as Jupyter expects.
         """
+        switch_off_main(self._get_os_path(path))
         if model.get("type") != "notebook" or not self._is_model(path):
             return super().save(model, path)
 
