@@ -13,17 +13,27 @@ Both live under ``/<CRUDMAN_PATH>/``, which the proxy forwards, so a browser cou
 otherwise reach them as well. They answer only requests that did not come through the
 proxy.
 """
+from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from dbusers.utils import db_role_for_user
 from sso.roles import GROUP_FOR_RANK
+from system.models import Approval, Deployment
 
 from .utils import issue_notebook_credential, may_use_notebooks, refusal
 
 GRAFANA_ROLE = {GROUP_FOR_RANK[rank]: rank.capitalize() for rank in GROUP_FOR_RANK}
 """Grafana's organisation role for each rank's group: Viewer, Editor, Admin."""
+
+PREVIEW_DATASOURCE = f"{settings.APP_NAME}-{Deployment.PREVIEW}"
+"""The Grafana data source that reads a version under review.
+
+Named after the environment, so a second review is a second data source and no new rule.
+grafana/provisioning/datasources/postgresql.yaml is where this one is declared, and
+proxy/maps.conf.template where the production uid it replaces is spelled out.
+"""
 
 FORWARDED = "HTTP_X_FORWARDED_FOR"
 """What tells a browser's request from the hub's.
@@ -97,6 +107,12 @@ def grafana(request):
     is what a viewer is for. Someone with no rank at all is a 403: signed in, but with
     nothing to be let in as.
 
+    The answer also says which version this person reads. Someone who owes a decision on a
+    version under review reads that one: the proxy substitutes the data source named here
+    for the one every dashboard carries, so the same dashboards show the reviewed models
+    without a copy of them existing. The header is absent for everybody else, which the
+    proxy's map reads as production.
+
     Args:
         request: The HTTP request, carrying the visitor's crudman session cookie.
 
@@ -115,10 +131,14 @@ def grafana(request):
     if role is None:
         return HttpResponse(status=403)
 
-    return HttpResponse(headers={
+    headers = {
         "X-WEBAUTH-USER": user.username,
         "X-WEBAUTH-NAME": user.get_full_name() or user.username,
         "X-WEBAUTH-EMAIL": user.email,
         "X-WEBAUTH-ROLE": role,
         "Cache-Control": "no-store",
-    })
+    }
+    if Approval.owed_by(user):
+        headers["X-Preview-Datasource"] = PREVIEW_DATASOURCE
+
+    return HttpResponse(headers=headers)

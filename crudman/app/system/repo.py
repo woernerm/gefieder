@@ -445,19 +445,53 @@ def is_on_branch(sha: str) -> bool:
         return False
 
 
-def checkout(sha: str) -> None:
-    """Put one commit into the deployed working tree.
+def tree_of(environment: str) -> tuple[Path, Path]:
+    """The working tree an environment runs, and the marker naming its commit.
+
+    An environment is a tree and a marker beside it, so a second one costs a directory
+    rather than a mechanism. Production keeps the name it has always had, the engine
+    watching ``deployed.sha``; every other environment is named after itself.
+
+    Args:
+        environment: The environment name, as ``Deployment.environment`` holds it.
+
+    Returns:
+        The working tree and its marker file.
+    """
+    from .models import Deployment
+
+    name = "deployed" if environment == Deployment.PROD else environment
+    return MODELS_DIR / name, MODELS_DIR / f"{name}.sha"
+
+
+def checkout(sha: str, environment: str) -> None:
+    """Put one commit into an environment's working tree.
 
     Detached on purpose: the tree is a rendering of a commit, never a branch someone could
     commit onto by mistake.
+
+    Args:
+        sha: The commit to check out.
+        environment: Whose tree to write.
     """
-    git("checkout", "--force", "--detach", sha)
-    git("clean", "--force", "-d")
-    MARKER.write_text(f"{sha}\n")
+    tree, marker = tree_of(environment)
+    if not (tree / ".git").exists():
+        shutil.rmtree(tree, ignore_errors=True)
+        git("clone", "--branch", BRANCH, ORIGIN, str(tree), cwd=MODELS_DIR)
+    # Best effort: an origin that is briefly unreachable must not stop a commit this tree
+    # already has from being deployed, which is the whole of "survive an unreachable
+    # origin". A commit it does not have fails on the checkout instead, and says so.
+    try:
+        git("fetch", "--quiet", "--prune", "origin", cwd=tree)
+    except GitError:
+        pass
+    git("checkout", "--force", "--detach", sha, cwd=tree)
+    git("clean", "--force", "-d", cwd=tree)
+    marker.write_text(f"{sha}\n")
 
 
-def deploy(sha, *, pinned=False, user=None, main_sha=None):
-    """Deploy one commit and record the attempt.
+def deploy(sha, *, environment=None, pinned=False, user=None, main_sha=None):
+    """Deploy one commit into an environment and record the attempt.
 
     The row is what the page reads, so it is created before the working tree is touched
     and carries the step being worked on. The engine notices the tree has changed on its
@@ -465,6 +499,7 @@ def deploy(sha, *, pinned=False, user=None, main_sha=None):
 
     Args:
         sha: The commit to deploy.
+        environment: Which environment to deploy into; production by default.
         pinned: Whether a person chose it rather than the poll.
         user: Who asked, or None for the poll.
         main_sha: Where the branch stood, so the poll knows it has already seen this.
@@ -482,6 +517,7 @@ def deploy(sha, *, pinned=False, user=None, main_sha=None):
 
         record = {
             "sha": sha,
+            "environment": environment or Deployment.PROD,
             "main_sha": main_sha or head_of_main(),
             "pinned": pinned,
             "requested_by": user,
@@ -499,7 +535,7 @@ def deploy(sha, *, pinned=False, user=None, main_sha=None):
         # within its run interval.
         deployment = Deployment.objects.create(**record)
         try:
-            checkout(sha)
+            checkout(sha, deployment.environment)
         except GitError as error:
             deployment.status = Deployment.FAILED
             deployment.message = str(error)
@@ -522,8 +558,34 @@ def poll(user=None):
     fetch()
     head = head_of_main()
 
-    latest = Deployment.objects.first()
+    latest = Deployment.current()
     if latest and latest.main_sha == head:
         return None
 
     return deploy(head, main_sha=head, user=user)
+
+
+def review(sha, approvers, user=None):
+    """Put one commit up for review, and ask these people to decide about it.
+
+    The commit is deployed into an environment of its own, which is all a preview is: the
+    engine plans it there, so only what this commit changes is built and every other table
+    stays production's. The people named then read it in place of production until they
+    have answered.
+
+    Args:
+        sha: The commit to review.
+        approvers: The users who have to approve it.
+        user: Who asked for the review.
+
+    Returns:
+        The Deployment row for the preview, already failed when the commit was refused.
+    """
+    from .models import Approval, Deployment
+
+    with transaction.atomic():
+        deployment = deploy(sha, environment=Deployment.PREVIEW, pinned=True, user=user)
+        Approval.objects.bulk_create(
+            Approval(deployment=deployment, user=approver) for approver in approvers
+        )
+    return deployment

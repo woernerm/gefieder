@@ -11,6 +11,9 @@ from django.contrib.auth.models import Group, User
 from django.test import TestCase
 from django.urls import reverse
 from sso.roles import GROUP_FOR_RANK
+from system.models import Approval, Deployment
+
+from .views import PREVIEW_DATASOURCE
 
 from .utils import (
     CREDENTIAL_LIFETIME,
@@ -298,3 +301,28 @@ class GrafanaTests(TestCase):
         make_user("viewer", GROUP_FOR_RANK["viewer"])
         self.client.login(username="viewer", password="x")
         self.assertEqual(self.client.get(self.url)["Cache-Control"], "no-store")
+
+    def test_the_answer_names_no_preview_for_an_ordinary_visitor(self):
+        """Absent rather than empty: the proxy's map reads a missing header as production,
+        which is what makes the substitution a no-op for everybody but a reviewer."""
+        make_user("viewer", GROUP_FOR_RANK["viewer"])
+        self.client.login(username="viewer", password="x")
+
+        self.assertNotIn("X-Preview-Datasource", self.client.get(self.url))
+
+    def test_someone_who_owes_a_decision_is_shown_the_version_they_were_asked_about(self):
+        """The data source is named here because this is the one place that knows who is
+        asking; the proxy substitutes its uid into every dashboard on the way out."""
+        user = make_user("jean", GROUP_FOR_RANK["viewer"])
+        review = Deployment.objects.create(sha="a" * 40, main_sha="a" * 40,
+                                           environment=Deployment.PREVIEW)
+        approval = Approval.objects.create(deployment=review, user=user)
+        self.client.login(username="jean", password="x")
+
+        self.assertEqual(
+            self.client.get(self.url)["X-Preview-Datasource"], PREVIEW_DATASOURCE
+        )
+
+        # And not once they have answered: the decision is what ends the review.
+        approval.decide(approved=True)
+        self.assertNotIn("X-Preview-Datasource", self.client.get(self.url))

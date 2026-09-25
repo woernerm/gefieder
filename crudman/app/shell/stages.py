@@ -15,7 +15,7 @@ from django.urls import reverse
 
 from dropzones.models import Dropzone
 from notebooks.utils import may_use_notebooks
-from system.models import Deployment
+from system.models import Approval, Deployment
 
 
 def may_change(user, apps):
@@ -78,7 +78,14 @@ HOME = Stage("Dashboards", "monitoring", f"/{settings.GRAFANA_PATH}/?kiosk", adm
 STAGES = (
     HOME,
     Stage("Sources", "input", apps=("dropzones",), landing=(Dropzone,)),
-    Stage("Model", "science", f"/{settings.NOTEBOOK_PATH}/", admits=may_use_notebooks),
+    # Two spellings of one stage, never both at once. Someone who owes a decision on a
+    # version is reading it, not writing models, and a notebook is a developer's tool: what
+    # they need from "Model" is what the models say they do, in words. The documentation
+    # follows their review too, so both halves of the stage describe what they are seeing.
+    Stage("Model", "science", f"/{settings.NOTEBOOK_PATH}/",
+          admits=lambda user: may_use_notebooks(user) and not Approval.owed_by(user)),
+    Stage("Model", "science", f"/{settings.CRUDMAN_PATH}/docs/",
+          admits=lambda user: bool(Approval.owed_by(user))),
     # Users and groups are django.contrib.auth's, under the app label "auth" whatever
     # sso/apps.py calls the heading.
     Stage("System", "settings", apps=("auth", "system"), landing=(User, Deployment)),

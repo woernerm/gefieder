@@ -9,7 +9,7 @@ from django.urls import reverse
 from sso.roles import GROUP_FOR_RANK
 
 from . import repo
-from .models import Deployment
+from .models import Approval, Deployment
 
 # ---------------------------------------------------------------------------------------
 # The models repository, exercised against a real git binary in a temporary directory.
@@ -486,6 +486,125 @@ class OrderTest(RepositoryTestCase):
         stamps = [commit["when"] for commit in repo.log()]
 
         self.assertEqual(stamps, sorted(stamps, reverse=True))
+
+
+class ReviewTest(RepositoryTestCase):
+    """Putting a version to the people who know what the numbers mean.
+
+    The approvers are named per version rather than being a rank: who should judge a
+    metric depends on the metric, and every one of them holds the viewer rank, which the
+    versions page itself is closed to.
+    """
+
+    def setUp(self):
+        super().setUp()
+        repo.poll()
+        self.older = repo.deployed_sha()
+        self.commit("A newer model")
+        repo.poll()
+        self.candidate = repo.head_of_main()
+
+        self.editor = User.objects.create_user("paul", password="x", is_staff=True)
+        group, _ = Group.objects.get_or_create(name=GROUP_FOR_RANK["editor"])
+        self.editor.groups.add(group)
+
+        self.stakeholder = User.objects.create_user("jean", password="x", is_staff=True)
+
+    def _review(self, *approvers):
+        return repo.review(self.candidate, approvers or [self.stakeholder], user=self.editor)
+
+    def test_a_review_is_planned_into_an_environment_of_its_own(self):
+        review = self._review()
+
+        # Its own tree and its own marker, so production keeps running the commit it was
+        # running while the engine plans this one.
+        tree, marker = repo.tree_of(Deployment.PREVIEW)
+        self.assertEqual(review.environment, Deployment.PREVIEW)
+        self.assertEqual(marker.read_text().strip(), self.candidate)
+        self.assertNotEqual(tree, repo.DEPLOYED)
+        self.assertEqual(repo.MARKER.read_text().strip(), self.candidate)
+
+    def test_the_people_asked_read_the_reviewed_version(self):
+        self._review()
+
+        # What puts them on it: the undecided row, and nothing they have to switch on.
+        self.assertIsNotNone(Approval.owed_by(self.stakeholder))
+        self.assertIsNone(Approval.owed_by(self.editor))
+
+    def test_answering_puts_them_back_on_production(self):
+        self._review()
+
+        Approval.owed_by(self.stakeholder).decide(approved=True)
+
+        self.assertIsNone(Approval.owed_by(self.stakeholder))
+
+    def test_a_version_is_approved_only_once_everyone_has_approved(self):
+        other = User.objects.create_user("jos", password="x", is_staff=True)
+        review = self._review(self.stakeholder, other)
+
+        Approval.owed_by(self.stakeholder).decide(approved=True)
+        self.assertFalse(review.is_approved)
+
+        Approval.owed_by(other).decide(approved=True)
+        self.assertTrue(review.is_approved)
+
+    def test_a_rejection_keeps_the_version_unapproved(self):
+        review = self._review()
+
+        Approval.owed_by(self.stakeholder).decide(approved=False, comment="wrong period")
+
+        self.assertFalse(review.is_approved)
+
+    def test_a_version_under_review_is_not_deployed_until_it_is_approved(self):
+        self._review()
+        self.client.force_login(self.editor)
+        deploy = reverse("admin:system_deployment_deploy")
+
+        # Back to the older one first, so deploying the candidate would be a change.
+        self.client.post(deploy, {"sha": self.older})
+        self.client.post(deploy, {"sha": self.candidate})
+        self.assertEqual(repo.deployed_sha(), self.older)
+
+        Approval.owed_by(self.stakeholder).decide(approved=True)
+        self.client.post(deploy, {"sha": self.candidate})
+
+        self.assertEqual(repo.deployed_sha(), self.candidate)
+
+    def test_a_review_with_nobody_asked_is_refused(self):
+        self.client.force_login(self.editor)
+
+        self.client.post(reverse("admin:system_deployment_review"), {"sha": self.candidate})
+
+        self.assertIsNone(Deployment.current(Deployment.PREVIEW))
+
+    def test_only_the_rank_that_deploys_may_ask_for_a_review(self):
+        self.client.force_login(self.stakeholder)
+
+        response = self.client.post(
+            reverse("admin:system_deployment_review"),
+            {"sha": self.candidate, "approvers": [self.stakeholder.pk]},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIsNone(Deployment.current(Deployment.PREVIEW))
+
+    def test_a_stakeholder_answers_without_reaching_the_versions_page(self):
+        self._review()
+        self.client.force_login(self.stakeholder)
+
+        self.assertEqual(self.client.get(reverse("admin:system_deployment_changelist")).status_code, 403)
+        self.client.post(reverse("system:decide"), {"decision": "approve", "comment": "fine"})
+
+        self.assertTrue(Deployment.current(Deployment.PREVIEW).is_approved)
+
+    def test_nobody_decides_about_a_version_they_were_not_asked_about(self):
+        self._review()
+        self.client.force_login(self.editor)
+
+        response = self.client.post(reverse("system:decide"), {"decision": "approve"})
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(Deployment.current(Deployment.PREVIEW).is_approved)
 
 
 class LostOriginTest(RepositoryTestCase):

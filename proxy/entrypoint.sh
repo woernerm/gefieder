@@ -118,9 +118,9 @@ fi
 
 # Only our own variables, so nginx's ($host, $scheme, ...) survive. The fragments are
 # rendered beside the templates, where the include lines name them.
-envsubst '${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${NOTEBOOK_PATH}' < "$template" > /etc/nginx/conf.d/default.conf
+envsubst '${APP_NAME} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${NOTEBOOK_PATH}' < "$template" > /etc/nginx/conf.d/default.conf
 for fragment in maps locations; do
-  envsubst '${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${NOTEBOOK_PATH}' \
+  envsubst '${APP_NAME} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${NOTEBOOK_PATH}' \
     < "/etc/nginx/proxy/${fragment}.conf.template" > "/etc/nginx/proxy/${fragment}.conf"
 done
 

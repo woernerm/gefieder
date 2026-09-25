@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class Deployment(models.Model):
@@ -36,7 +37,20 @@ class Deployment(models.Model):
     FINISHED = (SUCCEEDED, FAILED)
     """The statuses nothing follows. Everything else is a step still running."""
 
+    PROD = "prod"
+    PREVIEW = "preview"
+    """The environments a commit is deployed into.
+
+    ``prod`` is what the dashboards read and the only one the poll makes. ``preview`` is a
+    version under review: SQLMesh plans it into an environment of its own, so only what the
+    commit changes is built and everything else stays the production table. The name is a
+    field rather than a flag because a second review is a second environment and nothing
+    else -- see the requirements.
+    """
+
     sha = models.CharField("commit", max_length=40, editable=False)
+
+    environment = models.CharField(max_length=40, default=PROD, editable=False)
 
     # What "main" pointed at when this deployment was made. The poll deploys only when the
     # branch has moved away from this, which is what lets a pinned older commit stand until
@@ -79,9 +93,23 @@ class Deployment(models.Model):
         ordering = ("-created_on",)
         get_latest_by = "created_on"
 
+    @classmethod
+    def current(cls, environment: str = PROD):
+        """The newest deployment of an environment, which is the one it is running."""
+        return cls.objects.filter(environment=environment).first()
+
     @property
     def short_sha(self) -> str:
         return self.sha[:8]
+
+    @property
+    def is_approved(self) -> bool:
+        """Whether every stakeholder asked has approved this version.
+
+        A review with nobody assigned is not approved: it was never put to anyone.
+        """
+        decisions = list(self.approvals.values_list("approved", flat=True))
+        return bool(decisions) and all(decisions)
 
     @property
     def is_applying(self) -> bool:
@@ -94,3 +122,67 @@ class Deployment(models.Model):
 
     def __str__(self):
         return f"{self.sha[:8]} ({self.get_status_display()})"
+
+
+class Approval(models.Model):
+    """One stakeholder's decision about the version under review.
+
+    A row per person asked, created when the review starts and left undecided until they
+    answer -- so "who still owes a decision" is a query rather than a second table, and it
+    is also what puts them on the preview: crudman tells the proxy to show a person the
+    reviewed version exactly while an undecided row of theirs exists (notebooks/views.py).
+
+    The person is any account that has signed in, not a rank and not a group. Who should
+    judge a metric depends on the metric, and a standing group would answer a different
+    question.
+    """
+
+    deployment = models.ForeignKey(
+        Deployment, on_delete=models.CASCADE, related_name="approvals"
+    )
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+
+    # Undecided until they answer, which is what makes them a reviewer rather than a
+    # record of one.
+    approved = models.BooleanField(null=True, blank=True)
+
+    comment = models.TextField(blank=True, default="")
+
+    decided_on = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        # One decision per person per review: asking someone twice is the same request.
+        constraints = [
+            models.UniqueConstraint(
+                fields=("deployment", "user"), name="one_approval_per_reviewer"
+            )
+        ]
+
+    @classmethod
+    def owed_by(cls, user):
+        """The decision this person still owes, or None.
+
+        The newest review only: an older one they never answered is superseded, and
+        showing them a version nobody is waiting on would strand them off production.
+
+        One query rather than two, the newest review being a subquery rather than a
+        lookup: this is asked on every page the bar is drawn on and on every Grafana
+        request, the proxy putting the question about each of them to notebooks/views.py.
+        """
+        newest_review = Deployment.objects.filter(
+            environment=Deployment.PREVIEW
+        ).values("pk")[:1]
+        return cls.objects.filter(
+            user=user, approved__isnull=True, deployment__in=newest_review
+        ).first()
+
+    def decide(self, approved: bool, comment: str = "") -> None:
+        """Record what this person decided."""
+        self.approved = approved
+        self.comment = comment
+        self.decided_on = timezone.now()
+        self.save(update_fields=["approved", "comment", "decided_on"])
+
+    def __str__(self):
+        return f"{self.user} on {self.deployment.short_sha}"

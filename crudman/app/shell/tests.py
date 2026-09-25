@@ -186,8 +186,13 @@ class SidebarTests(TestCase):
         self.assertIn(reverse("admin:auth_user_changelist"), page)
         self.assertIn(reverse("admin:dropzones_dropzone_changelist"), page)
 
-    def test_a_page_outside_every_stage_has_none(self):
-        self.assertIsNone(stage_of(reverse("docs:index")))
+    def test_a_page_that_is_not_the_admins_narrows_nothing(self):
+        """The documentation is the Model stage for someone reviewing a version and is
+        offered to nobody else, but it is not an admin page either way -- so whichever it
+        is, the sidebar it would narrow is not drawn there."""
+        stage = stage_of(reverse("docs:index"))
+
+        self.assertFalse(stage.apps if stage else ())
 
 
 class PresenceTests(TestCase):

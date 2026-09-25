@@ -14,6 +14,7 @@ from django.shortcuts import render
 from django.urls import reverse
 
 from notebooks.views import FORWARDED
+from system.models import Approval
 
 from .models import lately, seen
 from .stages import HOME, stages_for
@@ -49,6 +50,9 @@ def shell(get_response):
                 "grafana": f"/{settings.GRAFANA_PATH}/",
                 "stages": stages_for(request),
                 "online": len(lately()["online"]),
+                # The bar is where a stakeholder answers, because it is the one thing on
+                # every page: they were sent a link to a dashboard, not to a form.
+                "approval": Approval.owed_by(user),
             })
         # The admin panel's own pages sign a visitor in themselves; another service's
         # address has no route here to do it, so the redirect happens here instead.

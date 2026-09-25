@@ -7,7 +7,7 @@ from django.contrib.auth.models import Group, User
 from django.test import TestCase
 from django.urls import reverse
 
-from system.models import Deployment
+from system.models import Approval, Deployment
 from sso.roles import GROUP_FOR_RANK
 
 from . import lineage, views
@@ -64,7 +64,7 @@ class DocumentationPagesTest(TestCase):
     """The pages themselves, with the export stubbed so the test needs no build."""
 
     def setUp(self):
-        patcher = patch.object(views, "documentation", lambda: DOCS)
+        patcher = patch.object(views, "documentation", lambda user=None: DOCS)
         patcher.start()
         self.addCleanup(patcher.stop)
         self.index = reverse("docs:index")
@@ -144,6 +144,25 @@ class MissingExportTest(TestCase):
             sha="b" * 40, main_sha="b" * 40, status=Deployment.SUCCEEDED, docs=DOCS
         )
         self.assertEqual(views.documentation(), DOCS)
+
+    def test_a_version_under_review_is_described_to_the_people_asked_about_it(self):
+        """They read that version everywhere else, so describing production to them would
+        describe something other than what their dashboards show."""
+        Deployment.objects.create(
+            sha="b" * 40, main_sha="b" * 40, status=Deployment.SUCCEEDED, docs=DOCS
+        )
+        review = Deployment.objects.create(
+            sha="c" * 40, main_sha="c" * 40, status=Deployment.SUCCEEDED,
+            environment=Deployment.PREVIEW, docs={"layers": [{"name": "gold", "models": []}]},
+        )
+        user = User.objects.create_user("jean", password="x")
+        approval = Approval.objects.create(deployment=review, user=user)
+
+        self.assertEqual(views.documentation(user), review.docs)
+
+        # And production again once they have answered.
+        approval.decide(approved=True)
+        self.assertEqual(views.documentation(user), DOCS)
 
 
 class ExportShapeTest(TestCase):
@@ -256,7 +275,7 @@ class LineageTest(TestCase):
         group, _ = Group.objects.get_or_create(name=GROUP_FOR_RANK["viewer"])
         user.groups.add(group)
         self.client.login(username="viewer", password="x")
-        with patch.object(views, "documentation", lambda: DOCS):
+        with patch.object(views, "documentation", lambda user=None: DOCS):
             page = self.client.get(reverse("docs:index")).content.decode()
         self.assertIn("lineage-data", page)
         self.assertIn("echarts", page)

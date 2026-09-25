@@ -26,6 +26,11 @@ PROJECT="${MODELS_DIR}/deployed/sqlmesh"
 # says the tree is complete. Read with cat rather than git, which this image does not have.
 MARKER="${MODELS_DIR}/deployed.sha"
 
+# The environment a version under review is planned into, and the tree crudman checks that
+# version out in. One review at a time, so one name; a second would be a second pair here
+# and nothing else, every step below already taking the environment as an argument.
+PREVIEW="preview"
+
 # Only for the psycopg2 call below; config.py reads the secret file itself.
 SQLMESH_PASSWORD="$(cat "/run/secrets/${SECRET_SQLMESH_PASSWORD:-sqlmesh_password}")"
 export SQLMESH_PASSWORD
@@ -62,29 +67,42 @@ trap 'exit 0' TERM INT
 # Applies the deployed commit and reports the outcome to the row crudman created for it.
 # The log is kept rather than streamed alone, so the failure a person reads on the versions
 # page is the one journald recorded.
-apply() {  # commit sha
-  echo "Deploying models ${1}"
+apply() {  # environment, commit sha
+  env="$1"
+  sha="$2"
+  # Production runs the deployed tree; every other environment has a tree of its own, named
+  # after itself, which is how a review is planned while production keeps running.
+  tree="$env"
+  [ "$env" = prod ] && tree=deployed
+  project="${MODELS_DIR}/${tree}/sqlmesh"
+
+  echo "Deploying models ${sha} into ${env}"
 
   # Each step is announced before it starts, so the page names the one taking the time
   # rather than saying only that something is.
-  $PYTHON /sqlmesh/status.py "$1" transforming
-  if sqlmesh plan --auto-apply --no-prompts >/tmp/plan.log 2>&1; then
+  $PYTHON /sqlmesh/status.py "$env" "$sha" transforming
+  if SQLMESH_TREE="$tree" sqlmesh plan "$env" --auto-apply --no-prompts >/tmp/plan.log 2>&1; then
     cat /tmp/plan.log
+    # A plan into an environment of its own builds only what this commit changes and leaves
+    # every other table production's. Publishing it under the schema names the dashboards
+    # already write is what makes it readable; see preview.py.
+    [ "$env" = prod ] || $PYTHON /sqlmesh/preview.py "$env"
     # The documentation of what now runs. Exported after the plan, so a model that failed
     # to build is not described as though it had. It loads the project a second time,
     # which is why it is a step of its own rather than part of the one before it.
-    $PYTHON /sqlmesh/status.py "$1" documenting
-    $PYTHON /sqlmesh/docs_export.py "$PROJECT" /tmp/docs.json >/dev/null
-    $PYTHON /sqlmesh/status.py "$1" succeeded /tmp/docs.json
+    $PYTHON /sqlmesh/status.py "$env" "$sha" documenting
+    $PYTHON /sqlmesh/docs_export.py "$project" /tmp/docs.json >/dev/null
+    $PYTHON /sqlmesh/status.py "$env" "$sha" succeeded /tmp/docs.json
     return 0
   fi
 
   cat /tmp/plan.log >&2
-  $PYTHON /sqlmesh/status.py "$1" failed </tmp/plan.log
+  $PYTHON /sqlmesh/status.py "$env" "$sha" failed </tmp/plan.log
   return 1
 }
 
 applied=""
+reviewed=""
 live=""
 while true; do
   deployed="$(cat "$MARKER" 2>/dev/null || true)"
@@ -93,7 +111,15 @@ while true; do
   # would fail the same way, and the fix is another commit, which changes this value.
   if [ -n "$deployed" ] && [ "$deployed" != "$applied" ]; then
     applied="$deployed"
-    if apply "$deployed"; then live="$deployed"; else live=""; fi
+    if apply prod "$deployed"; then live="$deployed"; else live=""; fi
+  fi
+
+  # The same for a version somebody was asked to approve, and after production rather than
+  # before it: a review can wait a few seconds, what the dashboards serve cannot.
+  candidate="$(cat "${MODELS_DIR}/${PREVIEW}.sha" 2>/dev/null || true)"
+  if [ -n "$candidate" ] && [ "$candidate" != "$reviewed" ]; then
+    reviewed="$candidate"
+    apply "$PREVIEW" "$candidate" || true
   fi
 
   # The models due by their cron schedules, but only once a plan has succeeded: there is

@@ -1,9 +1,12 @@
 """Report the outcome of a deployment back to the row crudman created for it.
 
-    python status.py <sha> transforming
-    python status.py <sha> documenting
-    python status.py <sha> succeeded docs.json
-    ... | python status.py <sha> failed
+    python status.py <environment> <sha> transforming
+    python status.py <environment> <sha> documenting
+    python status.py <environment> <sha> succeeded docs.json
+    ... | python status.py <environment> <sha> failed
+
+The environment as well as the commit: the same commit is planned into production and into
+a review, and the two are separate rows whose outcomes must not be swapped.
 
 crudman opens the row when it checks a commit out; this moves it through the steps the
 engine does and closes it. Naming each step before starting it is what lets the page say
@@ -56,8 +59,8 @@ def failure_message(log: str) -> str:
 
 
 def main() -> int:
-    sha, status = sys.argv[1], sys.argv[2]
-    docs = json.loads(Path(sys.argv[3]).read_text()) if len(sys.argv) > 3 else {}
+    environment, sha, status = sys.argv[1], sys.argv[2], sys.argv[3]
+    docs = json.loads(Path(sys.argv[4]).read_text()) if len(sys.argv) > 4 else {}
     # Only on a failure: the other calls are not given a pipe, and reading a standard
     # input nobody is writing would wait for the container's own.
     message = failure_message(sys.stdin.read()) if status == FAILED else ""
@@ -85,11 +88,12 @@ def main() -> int:
                    applied_on = CASE WHEN %s THEN now() ELSE applied_on END
              WHERE id = (
                      SELECT id FROM crudman.system_deployment
-                      WHERE sha = %s AND NOT (status = ANY(%s))
+                      WHERE sha = %s AND environment = %s AND NOT (status = ANY(%s))
                       ORDER BY created_on DESC LIMIT 1
                    )
             """,
-            (status, message, json.dumps(docs), status in FINISHED, sha, list(FINISHED)),
+            (status, message, json.dumps(docs), status in FINISHED, sha, environment,
+             list(FINISHED)),
         )
         updated = cursor.rowcount
 
@@ -98,7 +102,7 @@ def main() -> int:
     # Not an error: the engine also starts against a tree that was put there before this
     # version of crudman existed, and saying so beats failing the deployment over it.
     if not updated:
-        print(f"No unfinished deployment recorded for {sha[:8]}; nothing to update.")
+        print(f"No unfinished {environment} deployment recorded for {sha[:8]}.")
     return 0
 
 

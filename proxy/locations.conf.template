@@ -43,6 +43,9 @@
         auth_request_set $webauth_name  $upstream_http_x_webauth_name;
         auth_request_set $webauth_email $upstream_http_x_webauth_email;
         auth_request_set $webauth_role  $upstream_http_x_webauth_role;
+        # Not a Grafana header: it feeds the map in maps.conf.template and through it the
+        # substitution below.
+        auth_request_set $preview_datasource $upstream_http_x_preview_datasource;
         # Nobody signed in: to the admin panel's login, and back here afterwards. That
         # login is where single sign-on happens when it is on.
         error_page 401 = @grafana_login;
@@ -61,6 +64,22 @@
         proxy_set_header X-WEBAUTH-NAME  $webauth_name;
         proxy_set_header X-WEBAUTH-EMAIL $webauth_email;
         proxy_set_header X-WEBAUTH-ROLE  $webauth_role;
+
+        # Which version a visitor sees. A dashboard names the production data source by
+        # uid, and substituting that uid on the way out is what puts a reviewer on the
+        # preview database instead -- in every dashboard, saved or provisioned, without
+        # the person who wrote it having had to do anything. The browser then sends the
+        # uid it was given back on /api/ds/query, so only answers are rewritten.
+        #
+        # The upstream must not compress, a compressed body having nothing to substitute
+        # in; nginx compresses again on the way out, so nothing but loopback bytes is lost.
+        proxy_set_header Accept-Encoding "";
+        gzip on;
+        gzip_types application/json;
+        gzip_proxied any;
+        sub_filter_types application/json;
+        sub_filter_once off;
+        sub_filter '"${APP_NAME}-postgresql"' '"$datasource_uid"';
 
         # A rotation Grafana refuses: the browser's token has expired, or belongs to a
         # Grafana that no longer exists, while the admin panel's session is still good.

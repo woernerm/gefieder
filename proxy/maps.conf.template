@@ -56,6 +56,17 @@ map "$request_method:$http_sec_fetch_dest" $notebook_port {
     "GET:document" 8000;
 }
 
+# --- the data source a Grafana visitor reads ------------------------------------------
+# Dashboards name the production data source and nothing else; a version under review is
+# shown by answering with a different uid, which the substitution in locations.conf does
+# from this variable. crudman names the data source in X-Preview-Datasource while someone
+# owes a decision on a review and leaves the header off otherwise -- so the default below
+# is the ordinary case, and the substitution is then the uid replaced by itself.
+map $preview_datasource $datasource_uid {
+    default $preview_datasource;
+    ""      "${APP_NAME}-postgresql";
+}
+
 # --- WebSocket handshakes ---------------------------------------------------------------
 # The Connection header sent upstream: "upgrade" for a handshake, "close" otherwise.
 map $http_upgrade $connection_upgrade {

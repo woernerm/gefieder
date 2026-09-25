@@ -71,6 +71,12 @@
                                     Latest
                                 </span>
                             {% endif %}
+                            {# A third fact: what the people asked about it have said. #}
+                            {% if commit.review %}
+                                <span class="border border-base-300 ml-1 px-2 py-0.5 rounded-full text-xs dark:border-base-700">
+                                    {% if commit.review.is_approved %}Approved{% else %}In review{% endif %}
+                                </span>
+                            {% endif %}
                         </td>
                         <td class="px-4 py-3">{{ commit.subject }}</td>
                         <td class="px-4 py-3 whitespace-nowrap">{{ commit.author }}</td>
@@ -79,14 +85,54 @@
                         <td class="px-4 py-3 whitespace-nowrap">{{ commit.when|date:"Y-m-d H:i:s" }}</td>
                         <td class="px-4 py-3 text-right whitespace-nowrap">
                             {% if commit.sha != current_sha %}
-                                <form method="post" action="{% url 'admin:system_deployment_deploy' %}">
-                                    {% csrf_token %}
-                                    <input type="hidden" name="sha" value="{{ commit.sha }}">
-                                    <button type="submit"
-                                            class="border border-base-300 px-3 py-1 rounded-default hover:bg-base-100 dark:border-base-700 dark:hover:bg-white/[.06]">
-                                        Use this version
-                                    </button>
-                                </form>
+                                <div class="flex gap-2 items-start justify-end">
+                                    {# Unreviewed is still deployable: the poll deploys #}
+                                    {# every push, so a gate here would only be one a #}
+                                    {# push walks around. The prompt is the difference #}
+                                    {# between doing it and doing it by accident. #}
+                                    <form method="post" action="{% url 'admin:system_deployment_deploy' %}">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="sha" value="{{ commit.sha }}">
+                                        <button type="submit"
+                                                {% if commit.review and not commit.review.is_approved %}
+                                                    disabled title="Not everyone asked has approved this version yet."
+                                                    class="border border-base-300 cursor-not-allowed opacity-40 px-3 py-1 rounded-default dark:border-base-700"
+                                                {% else %}
+                                                    {% if not commit.review %}onclick="return confirm('Nobody has approved this version. Deploy it anyway?')"{% endif %}
+                                                    class="border border-base-300 px-3 py-1 rounded-default hover:bg-base-100 dark:border-base-700 dark:hover:bg-white/[.06]"
+                                                {% endif %}>
+                                            Use this version
+                                        </button>
+                                    </form>
+
+                                    {% if stakeholders %}
+                                        {# The list is the people who have signed in: who #}
+                                        {# judges a metric depends on the metric, so it #}
+                                        {# is chosen per version rather than being a rank. #}
+                                        <details class="relative text-left">
+                                            <summary class="border border-base-300 cursor-pointer list-none px-3 py-1 rounded-default hover:bg-base-100 dark:border-base-700 dark:hover:bg-white/[.06]">
+                                                Ask for approval
+                                            </summary>
+                                            <form method="post" action="{% url 'admin:system_deployment_review' %}"
+                                                  class="absolute bg-white border border-base-200 mt-1 p-3 right-0 rounded-default shadow-lg w-64 z-50 dark:bg-base-800 dark:border-base-700">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="sha" value="{{ commit.sha }}">
+                                                <div class="max-h-64 overflow-y-auto">
+                                                    {% for person in stakeholders %}
+                                                        <label class="flex gap-2 items-center py-1">
+                                                            <input type="checkbox" name="approvers" value="{{ person.pk }}">
+                                                            {{ person.get_full_name|default:person.username }}
+                                                        </label>
+                                                    {% endfor %}
+                                                </div>
+                                                <button type="submit"
+                                                        class="bg-primary-600 mt-2 px-3 py-1 rounded-default text-white w-full">
+                                                    Put up for review
+                                                </button>
+                                            </form>
+                                        </details>
+                                    {% endif %}
+                                </div>
                             {% endif %}
                         </td>
                     </tr>

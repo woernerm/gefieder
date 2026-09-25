@@ -28,19 +28,32 @@ SQL_FORMATTER = HtmlFormatter(nowrap=True)
 code block matches Unfold."""
 
 
-def documentation() -> dict:
-    """The documentation of the models that are deployed.
+def documentation(user=None) -> dict:
+    """The documentation of the models this person is reading.
+
+    The deployed ones, except for someone who owes a decision on a version under review:
+    they are reading that version everywhere else, and describing production to them would
+    be describing something other than what their dashboards show.
 
     Not cached: a deployment replaces it, and a process that remembered the previous one
     would describe models the engine has stopped running.
+
+    Args:
+        user: Who is reading, or None for the deployed models regardless.
 
     Returns:
         The layers and their models, or empty layers before the first deployment has been
         planned -- an empty page beats a broken one.
     """
-    from system.models import Deployment
+    from system.models import Approval, Deployment
 
-    latest = Deployment.objects.filter(status=Deployment.SUCCEEDED).first()
+    environment = Deployment.PROD
+    if user is not None and Approval.owed_by(user):
+        environment = Deployment.PREVIEW
+
+    latest = Deployment.objects.filter(
+        environment=environment, status=Deployment.SUCCEEDED
+    ).first()
     return latest.docs if latest and latest.docs else {"layers": []}
 
 
@@ -71,7 +84,7 @@ class DocsView(ViewerRequiredMixin, TemplateView):
         context.update(
             {
                 "templates": {"navigation": "docs/navigation.html"},
-                "docs_layers": documentation()["layers"],
+                "docs_layers": documentation(self.request.user)["layers"],
                 "sql_styles": mark_safe(sql_styles()),
             }
         )

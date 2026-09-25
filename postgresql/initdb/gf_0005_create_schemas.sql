@@ -19,25 +19,34 @@ ALTER DEFAULT PRIVILEGES FOR ROLE ${CRUDMAN_DB_USER} IN SCHEMA crudman GRANT SEL
 -- to be queried.
 --
 -- SQLMesh creates a bronze schema when a model first names one, so an event trigger grants
--- each as it appears, and only bronze_<project>, skipping sqlmesh__bronze_* and everything
+-- each as it appears, and only the medallion layers, skipping sqlmesh__* and everything
 -- else sqlmesh creates. silver and gold are created below and granted directly.
+--
+-- A plan into an environment of its own -- what a version under review is deployed as --
+-- names its schemas <layer>__<environment>, so the layer is read off the part before the
+-- separator and each copy is granted like the layer it copies. Without it the preview
+-- database, which is foreign tables over exactly those schemas, would read nothing.
 CREATE OR REPLACE FUNCTION grant_grafana_read()
 RETURNS event_trigger
 LANGUAGE plpgsql
 AS $$
 DECLARE
     obj record;
+    layer text;
 BEGIN
     FOR obj IN
         SELECT object_identity
         FROM pg_event_trigger_ddl_commands()
         WHERE command_tag = 'CREATE SCHEMA'
     LOOP
-        -- The bronze schemas, not sqlmesh's internal mirror of them. starts_with rather
-        -- than LIKE: the configurable prefix ends in an underscore, which LIKE would read
-        -- as a wildcard.
-        CONTINUE WHEN NOT starts_with(obj.object_identity, '${BRONZE_SCHEMA_PREFIX}')
-                   OR starts_with(obj.object_identity, 'sqlmesh__');
+        layer := split_part(obj.object_identity, '__', 1);
+
+        -- The medallion layers, not sqlmesh's internal mirror of them and not the staging
+        -- schema, whose name merely starts like silver's. starts_with rather than LIKE:
+        -- the configurable prefix ends in an underscore, which LIKE would read as a
+        -- wildcard.
+        CONTINUE WHEN NOT starts_with(layer, '${BRONZE_SCHEMA_PREFIX}')
+                  AND layer NOT IN ('${SILVER_SCHEMA}', '${GOLD_SCHEMA}');
 
         EXECUTE format('GRANT USAGE ON SCHEMA %I TO ${GRAFANA_DB_USER}', obj.object_identity);
         EXECUTE format(

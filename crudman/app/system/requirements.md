@@ -96,3 +96,113 @@ treated as a rejected change. Recovery is another deployment, which takes second
 within the poll interval. That is the point, and the control that replaces the old wait is
 that a revert deploys just as fast: promotion is a view swap in both directions.
 
+## Approval
+
+### Why this exists
+
+A version reaches production in seconds, which is the point of the section above. What it
+leaves out is the one question nobody in this system can answer from the code: whether the
+number a metric now produces is the number the business means. That is domain knowledge —
+held by the people whose work the data describes, who have no analytics background, often
+no git account, and no reason to acquire either.
+
+Every obvious answer makes them pay for the workflow. A pull request asks them to read a
+diff, when what they can judge is a chart. A ticket in a tracker asks them to correlate a
+version they cannot see with a dashboard they can. A second site asks them to remember it
+exists. So the requirement is not "add an approval step": it is that a stakeholder should
+be able to answer without learning anything, and that what they answer about should be the
+thing itself rather than a description of it.
+
+### What it must do
+
+- **Show them the reviewed version, not tell them about it.** Someone asked to approve a
+  version signs in as they always do and their dashboards are that version. They choose
+  nothing and switch nothing on.
+- **Ask in the words they already have.** Approve, reject, and a box to say why. No commit,
+  no branch, no environment: those words appear nowhere a stakeholder can see.
+- **Take anyone as an approver.** Who is competent to judge a metric depends on the metric,
+  so the people are named per version out of everyone who has signed in — never a rank,
+  never a group. This is a deliberate refusal: a standing "approvers" group would answer a
+  different question and would be wrong as soon as the second metric came up.
+- **End the review by answering it.** The next page they ask for is production again.
+  Nothing to switch back, and nothing to leave someone stranded on a preview.
+- **Let the version go live only once everyone asked has approved.** The page's deploy
+  button is dead until then, and says why.
+- **Cost nothing when nobody is reviewing.** No second stack, no copy of the data, no
+  second set of dashboards, and no rule an author of a dashboard or a model has to follow.
+
+### How it is arranged
+
+A review is a `Deployment` with `environment = "preview"`: the same row, the same steps,
+the same page. SQLMesh plans it into an environment of its own, so **only what the commit
+changes is built** and every other table stays production's, behind a view. That is what
+makes a preview free, and it is SQLMesh's own mechanism rather than one built here.
+
+The problem that mechanism creates is naming. A plan into an environment writes
+`gold__preview`, and a dashboard writes `gold.issue_metrics` — literally, because a panel's
+SQL is written by hand and "always leave the schema off" is a convention an author will
+forget, silently, in a way that shows them production while they believe they are reviewing.
+
+So the names move instead of the dashboards. A second database, `<PG_DATABASE>_preview`,
+holds **nothing but foreign tables** over the first (`postgres_fdw`): one schema per
+production schema, named the same, each pointing at the environment's copy where there is
+one and at production where there is none. `refresh_preview()` in
+`postgresql/initdb/gf_0009` does that in a loop over production's catalog, so a bronze
+schema a new project adds is picked up without anything being told about it. A panel's SQL
+is then byte-identical in both databases and correct in both.
+
+Which of the two a person reads is one substitution. Grafana has one data source per
+database, both provisioned into the default organisation at boot. `notebooks/views.py`
+already answers the proxy's question about every Grafana visitor; it now also names the
+preview data source while that person owes a decision, and the proxy replaces the
+production uid with it in Grafana's answers (`sub_filter`, `proxy/locations.conf.template`).
+The browser sends back the uid it was given, so only responses are rewritten. Nobody picks
+a data source, no dashboard carries a variable, and the substitution is a no-op for
+everyone else.
+
+The decision itself is an `Approval` row per person asked, undecided until they answer.
+That row is the whole of the mechanism: it is what puts them on the preview, what the bar
+draws its Approve/Reject on, what the "Model" stage reads to lead them to the
+documentation of the version they are judging rather than to a notebook, and what the
+deploy button waits for. There is no review state to keep in step with it.
+
+### Several reviews at once
+
+One at a time, deliberately — it is what lets a stakeholder be put on their review by
+signing in, with nothing to choose. Everything underneath is already plural, so lifting it
+is additive rather than a rewrite: `environment` is a field, `tree_of()` derives the
+checkout and marker from it, `apply()` in `sqlmesh/entrypoint.sh` takes it as an argument,
+the preview database is named after it, `refresh_preview()` takes it as an argument, and
+the data source uid is `<APP_NAME>-<environment>`. A second review is a second environment,
+a second database and a second data source — that last one created through Grafana's API
+rather than provisioning, which is where the first attempt at this failed: provisioning
+runs before Grafana serves, so a data source in an organisation that does not exist yet
+cannot be declared. Hence one organisation and a uid substitution.
+
+What is *not* free is the person: one session shows one version, so several reviews mean a
+chooser in the bar, and with it the "you are simply looking at it" property this design
+was built around.
+
+### What it deliberately does not do
+
+**It does not make approval mandatory.** The poll deploys every push to `main` within the
+interval, by design, so a gate on the versions page would only be one a push walks around.
+A version nobody was asked about therefore still deploys — after a prompt, which is the
+difference between doing it and doing it by accident. Making approval binding means taking
+the poll away, which is a decision about the whole system rather than about this feature.
+
+**It does not review dashboards.** Only what the models compute. A dashboard lives in
+Grafana, not in the models repository, so a version of one is not something this system can
+point at. Putting dashboards in the repository beside the models would make them reviewable
+by exactly this mechanism, and is the reason the repository has a `sqlmesh/` subdirectory
+rather than being the project itself.
+
+**It does not keep a review after it is answered.** The rows stay, so who approved what and
+why is on record, but the preview environment is overwritten by the next review. An audit
+trail is what the rows are for; a reconstructable past version is what the git history is
+for.
+
+**It does not protect a panel that names no data source at all.** Such a panel falls back
+to Grafana's default, which is production, and there is no uid in the response to
+substitute. Saved dashboards always write one; a hand-authored provisioned dashboard may
+not.

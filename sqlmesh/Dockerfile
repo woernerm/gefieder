@@ -66,7 +66,7 @@ RUN uv run --project /sqlmesh python -c \
 #
 # entrypoint.sh is committed executable, so a plain COPY preserves the mode without
 # BuildKit's --chmod.
-COPY sqlmesh/entrypoint.sh sqlmesh/docs_export.py sqlmesh/status.py /sqlmesh/
+COPY sqlmesh/entrypoint.sh sqlmesh/docs_export.py sqlmesh/status.py sqlmesh/preview.py /sqlmesh/
 
 # On PATH, so "podman exec sqlmesh sqlmesh <command>" reaches the deployed project. The
 # file itself says why the CLI needs help finding it.

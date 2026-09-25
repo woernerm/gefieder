@@ -19,7 +19,7 @@ import uuid
 
 import pytest
 
-from conftest import CRUDMAN_PATH, GRAFANA_PATH, inspect_container
+from conftest import APP_NAME, CRUDMAN_PATH, GRAFANA_PATH, inspect_container
 
 # The ports the two applications listen on inside the pod, which the proxy forwards to.
 CRUDMAN_PORT = 8000
@@ -126,7 +126,8 @@ def _run_proxy(script, debug, fixtures):
         "set -e",
         "mkdir -p /var/log/app /etc/nginx/conf.d",
         "cp /fixtures/upstreams.conf /etc/nginx/conf.d/upstreams.conf",
-        f"export CRUDMAN_PATH={CRUDMAN_PATH} GRAFANA_PATH={GRAFANA_PATH} DEBUG={debug}",
+        f"export APP_NAME={APP_NAME} CRUDMAN_PATH={CRUDMAN_PATH}"
+        f" GRAFANA_PATH={GRAFANA_PATH} DEBUG={debug}",
     ]
     if debug != "true":
         setup_steps += [
@@ -136,12 +137,12 @@ def _run_proxy(script, debug, fixtures):
             "reorder_fullchain",
         ]
     setup_steps.append(
-        "envsubst '${CRUDMAN_PATH} ${GRAFANA_PATH}'"
+        "envsubst '${APP_NAME} ${CRUDMAN_PATH} ${GRAFANA_PATH}'"
         f" < /etc/nginx/proxy/{template}.conf.template > /etc/nginx/conf.d/default.conf"
     )
     # Both templates include the shared maps and locations fragments.
     setup_steps += [
-        "for f in maps locations; do envsubst '${CRUDMAN_PATH} ${GRAFANA_PATH}'"
+        "for f in maps locations; do envsubst '${APP_NAME} ${CRUDMAN_PATH} ${GRAFANA_PATH}'"
         " < /etc/nginx/proxy/$f.conf.template > /etc/nginx/proxy/$f.conf; done"
     ]
     setup = "; ".join(setup_steps)

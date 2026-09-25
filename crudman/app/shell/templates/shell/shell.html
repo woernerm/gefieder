@@ -43,6 +43,38 @@
             {% include "shell/stages.html" %}
         </div>
 
+        {# What someone was asked about, on every page until they answer. The bar rather #}
+        {# than a page of its own: they arrived at a dashboard, and the question belongs #}
+        {# beside what it is about. Answering puts them back on production, which is the #}
+        {# whole of leaving a review -- there is nothing to switch off. #}
+        {% if approval %}
+            <div class="flex items-center relative" x-data="{ deciding: false }">
+                <form method="post" action="{% url 'system:decide' %}"
+                      class="absolute bg-white border border-base-200 p-3 right-0 rounded-default shadow-lg w-80 z-50 menu dark:bg-base-800 dark:border-base-700"
+                      x-cloak x-show="deciding" x-transition x-on:click.outside="deciding = false">
+                    {% csrf_token %}
+                    <p class="mb-2 text-important">
+                        You are looking at version <code>{{ approval.deployment.short_sha }}</code>
+                        rather than the live one.
+                    </p>
+                    <textarea name="comment" rows="3" placeholder="{% translate 'Anything you want to say about it' %}"
+                              class="border border-base-200 p-2 rounded-default text-xs w-full dark:bg-base-900 dark:border-base-700"></textarea>
+                    <div class="flex gap-2 mt-2">
+                        <button type="submit" name="decision" value="approve"
+                                class="bg-primary-600 grow px-3 py-1 rounded-default text-white">{% translate "Approve" %}</button>
+                        <button type="submit" name="decision" value="reject"
+                                class="border border-base-300 grow px-3 py-1 rounded-default dark:border-base-700">{% translate "Reject" %}</button>
+                    </div>
+                </form>
+
+                <button type="button" class="bg-primary-600 cursor-pointer flex gap-1 items-center px-2 rounded-default text-white"
+                        x-on:click="deciding = !deciding">
+                    <span class="material-symbols-outlined md-18">rate_review</span>
+                    {% translate "Review" %}
+                </button>
+            </div>
+        {% endif %}
+
         {# Who is here. The count is rendered with the bar; the list is fetched when it is #}
         {# opened, and brings the count up to date with it (the span swapped out of band). #}
         <div class="flex items-center relative" x-data="{ open: false }">

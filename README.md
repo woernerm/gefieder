@@ -694,6 +694,21 @@ One kind of change still needs a release of the system: editing `sqlmesh/pyproje
 Dependencies are installed when the images are built, so such a commit is refused with that
 explanation rather than being checked out into an engine that cannot run it.
 
+### 7a. Let the people who know the numbers check it first
+A metric can be built correctly and still be wrong, and the only people who can tell are
+the ones whose work the data is about. They need no account anywhere else and nothing
+explained to them.
+
+On **System → Models → Versions**, press **Ask for approval** beside a commit and tick the
+people who should look at it. The next time each of them signs in, their dashboards simply
+*are* that version — they pick nothing and switch nothing on — and the bar at the foot of
+every page offers **Approve** and **Reject** with a box for anything they want to say. As
+soon as they answer they are back on the live version.
+
+**Use this version** stays greyed out until everyone asked has approved. A version nobody
+was asked about still deploys, after a confirmation — and a push to `main` still goes live
+on its own, so this is a way of asking, not a lock on the system.
+
 ### 8. If something is wrong
 The engine reports what happened on the **Versions** page, including the plan's own
 output when it fails. A bad model is undone the same way it arrived — push a revert, or

@@ -27,6 +27,10 @@ urlpatterns = [
     # What JupyterHub authenticates its visitors against, so the notebooks have no
     # accounts of their own.
     path(f"{CRUDMAN_PATH}/notebooks/", include("notebooks.urls")),
+    # Where a stakeholder answers about a version they were asked to review. Outside the
+    # admin: they hold the viewer rank, which the versions page itself is closed to. Its
+    # own prefix rather than the app's name, which the admin already serves pages under.
+    path(f"{CRUDMAN_PATH}/review/", include("system.urls")),
     # Where a developer's checkout exchanges its token for a database password.
     path(f"{CRUDMAN_PATH}/dbusers/", include("dbusers.urls")),
     # The admin's own login address, claimed so an unauthenticated visitor is sent to the

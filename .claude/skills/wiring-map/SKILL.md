@@ -131,6 +131,27 @@ handoff between the two containers is a path and a marker, not an API.
 `REPO_MODELS` is a **build-time setting**, so that table applies too. `MODELS_POLL_INTERVAL`
 is a **runtime setting**, so that one does.
 
+## Approval and the preview database
+
+A version under review is a second environment: a second checkout on the models volume, a
+SQLMesh environment of its own, a second database holding foreign tables over the first,
+and a second Grafana data source. Which of the two a person reads is decided by one string
+— the data source uid — that four files spell out.
+
+| Also touch | Because |
+|---|---|
+| `grafana/provisioning/datasources/postgresql.yaml` | both uids are declared here, and the preview one names the preview database; both sit in the default organisation because provisioning runs before Grafana can be asked to create another one |
+| `proxy/maps.conf.template`, `proxy/locations.conf.template` | the map supplying the production uid as the default, and the `sub_filter` that replaces it in Grafana's answers — with `Accept-Encoding ""` upstream, since a compressed body has nothing to substitute in. `APP_NAME` is in the proxy's envsubst list and in `proxy.container` for this one substitution — and in the second copy of that list, which `tests/test_proxy_config.py` renders the templates with |
+| `crudman/app/notebooks/views.py` | `PREVIEW_DATASOURCE`, and the `X-Preview-Datasource` header the proxy reads it from — so Grafana's sign-in fan-out above applies as well |
+| `postgresql/initdb/gf_0009_create_preview.sh` | the database, the foreign server, and `refresh_preview()`, which publishes `<layer>__<environment>` under the bare layer name. `gf_0005`'s Grafana grant has to reach those copies, which is why it matches on the part before the separator |
+| `sqlmesh/entrypoint.sh`, `sqlmesh/preview.py`, `sqlmesh/sqlmesh.sh` | the loop watches a second marker, `apply()` takes the environment, `SQLMESH_TREE` points the CLI at that environment's checkout, and `preview.py` is the call to `refresh_preview` after the plan. A new tool in this image is named in **both** Dockerfiles (see the models-repository table) |
+| `sqlmesh/status.py` | the environment is part of what identifies a deployment row now: the same commit can be planned into production and into a review at once |
+| `crudman/app/system/repo.py` | `tree_of()` derives a checkout and a marker from the environment name; the engine's side of that is the `apply()` row above |
+| `tests/test_preview_database.py` | the schema names end to end, and the one class that guards the four spellings of the uid against drifting |
+
+`crudman/app/system/requirements.md` carries the reasoning, including why one review at a
+time and what a second would cost.
+
 ## Volume
 
 `quadlets/<name>_data.volume` carries the `VolumeName=`. `QUADLETS=` in `install.sh` ships

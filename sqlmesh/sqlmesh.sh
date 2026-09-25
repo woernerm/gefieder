@@ -15,7 +15,9 @@
 #   --log-to-stdout  the handler its logger otherwise lacks, so journald sees the run
 #
 # The entrypoint uses it too, so there is one spelling of "run SQLMesh here".
+# SQLMESH_TREE names the checkout on the volume: "deployed" is what production runs and
+# what an operator means, and a version under review has one of its own beside it.
 MODELS_DIR="${MODELS_DIR:-/var/lib/app/models}"
 exec uv run --project /sqlmesh sqlmesh \
   --log-to-stdout --log-file-dir /tmp/sqlmesh-logs \
-  --paths "${MODELS_DIR}/deployed/sqlmesh" "$@"
+  --paths "${MODELS_DIR}/${SQLMESH_TREE:-deployed}/sqlmesh" "$@"
