@@ -71,7 +71,8 @@ def _duration(text: str) -> timedelta:
 class Filter:
     """A control above a dashboard, bound to every :placeholder of the same name.
 
-    Named after the variable it is assigned to in ``filters.py``.
+    Named after the variable it is assigned to in ``filters.py``. Each kind says what the
+    control offers (``choices``) and what the queries receive for what was picked (``bind``).
     """
 
     name = ""
@@ -85,14 +86,6 @@ class Filter:
     @property
     def label(self) -> str:
         return self._label or self.name.replace("_", " ").capitalize()
-
-    def choices(self, cursor) -> list:
-        """What the control offers."""
-        raise NotImplementedError
-
-    def bind(self, picked: list[str], choices: list):
-        """The value the queries receive for what the viewer picked."""
-        raise NotImplementedError
 
 
 class Select(Filter):

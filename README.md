@@ -335,10 +335,6 @@ Client secrets expire — Entra ID allows two years at most. When one does, ever
 fails at once, so note the date somewhere and replace the secret with the command above
 before it arrives.
 
-## AI assistant access
-Not available in this version: the AI assistant endpoint left with Grafana. One built on the
-dashboards is planned.
-
 ## Certificates
 In production mode the proxy needs a TLS certificate for `SERVER_NAME`. It is the only
 host-local config (it is a secret, so it is never baked into an image), placed in

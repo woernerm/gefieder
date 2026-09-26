@@ -13,7 +13,6 @@ from django.contrib.auth.views import redirect_to_login
 from django.shortcuts import render
 from django.urls import reverse
 
-from notebooks.views import FORWARDED
 from system.models import Approval
 
 from .models import lately, seen
@@ -21,16 +20,14 @@ from .stages import HOME, stages_for
 
 
 def is_page(request):
-    """Whether the browser asked for this as a page of its own, through the proxy.
+    """Whether the browser asked for this as a page of its own.
 
-    Through the proxy, because what reaches the panel from inside the pod -- the hub asking
-    who a visitor is -- is a question, never a page. The admin's related-object popups are
-    pages of their own too, but talk to the window that opened them, which a frame cannot.
+    The admin's related-object popups are pages of their own too, but talk to the window
+    that opened them, which a frame cannot.
     """
     return (
         request.method == "GET"
         and request.headers.get("Sec-Fetch-Dest") == "document"
-        and FORWARDED in request.META
         and "_popup" not in request.GET
     )
 

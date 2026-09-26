@@ -17,7 +17,7 @@ from .models import ONLINE, RECENT, Presence, lately, seen
 from .stages import stage_of
 
 # What the proxy adds to a request a browser made for its address bar.
-PAGE = {"HTTP_SEC_FETCH_DEST": "document", "HTTP_X_FORWARDED_FOR": "203.0.113.7"}
+PAGE = {"HTTP_SEC_FETCH_DEST": "document"}
 FRAMED = {**PAGE, "HTTP_SEC_FETCH_DEST": "iframe"}
 
 
@@ -44,13 +44,6 @@ class PageRequestTests(TestCase):
 
         self.assertNotContains(response, 'id="frame"')
         self.assertContains(response, "Dropzones")
-
-    def test_a_request_not_through_the_proxy_is_answered_as_before(self):
-        """What reaches the panel from inside the pod -- the hub asking who a visitor
-        is -- is a question, never a page."""
-        response = self.client.get(self.url, HTTP_SEC_FETCH_DEST="document")
-
-        self.assertNotContains(response, 'id="frame"')
 
     def test_a_related_object_popup_is_not_framed(self):
         response = self.client.get(self.url + "?_popup=1", **PAGE)

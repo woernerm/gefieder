@@ -1,28 +1,16 @@
-{# The dashboards' own sidebar, standing in for the admin's app list: every dashboard, one #}
-{# click away. Same markup as the documentation's, which copies Unfold's navigation. #}
-{% load unfold %}
+{# The dashboards' sidebar: every dashboard, one click away. #}
+{% extends "shell/sidebar.html" %}
 
-<nav id="nav-sidebar-inner" class="bg-base-50 flex flex-col min-h-screen dark:text-font-default-dark dark:bg-base-950/20 {% element_classes 'navigation_inner' %}">
-    {% include "unfold/helpers/navigation_header.html" %}
+{% block home %}{% url 'dashboards:index' %}{% endblock %}
+{% block icon %}monitoring{% endblock %}
+{% block heading %}Dashboards{% endblock %}
 
-    <div class="flex flex-col h-0 grow overflow-auto px-3 py-2">
-        <a href="{% url 'dashboards:index' %}"
-           class="flex font-semibold gap-3 items-center px-3 py-2 rounded-default text-font-important-light hover:bg-base-100 dark:text-font-important-dark dark:hover:bg-white/[.06]">
-            <span class="material-symbols-outlined md-18">monitoring</span>
-            Dashboards
+{% block links %}
+    {% for board in listing.dashboards %}
+        <a href="{% url 'dashboards:dashboard' board.name %}"
+           class="block px-3 py-1 rounded-default truncate hover:bg-base-100 dark:hover:bg-white/[.06] {% if board.name == name %}text-primary-600 dark:text-primary-500{% else %}text-font-default-light dark:text-font-default-dark{% endif %}"
+           title="{{ board.description }}">
+            {{ board.title }}
         </a>
-
-        {% for board in listing.dashboards %}
-            <a href="{% url 'dashboards:dashboard' board.name %}"
-               class="block px-3 py-1 rounded-default truncate hover:bg-base-100 dark:hover:bg-white/[.06] {% if board.name == name %}text-primary-600 dark:text-primary-500{% else %}text-font-default-light dark:text-font-default-dark{% endif %}"
-               title="{{ board.description }}">
-                {{ board.title }}
-            </a>
-        {% endfor %}
-    </div>
-
-    {# As in the admin's sidebar: only when no bar below carries the menu. #}
-    <template x-if="window.top === window.self">
-        {% include "unfold/helpers/navigation_user.html" %}
-    </template>
-</nav>
+    {% endfor %}
+{% endblock %}

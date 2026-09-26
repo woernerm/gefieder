@@ -150,11 +150,14 @@ class Handler(BaseHTTPRequestHandler):
             self._answer(200, buffer.getvalue(),
                          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
+    def log_request(self, code="-", size="-"):
+        # Failures only: every panel of every page view would otherwise be a line.
+        if str(code)[0] in "45":
+            super().log_request(code, size)
+
     def log_message(self, format, *args):  # noqa: A002 -- http.server's own signature.
-        # Errors only, and without the timestamp http.server adds: journald stamps every
-        # line, and every panel of every page view would otherwise be a line of its own.
-        if args and str(args[1] if len(args) > 1 else "").startswith(("4", "5")):
-            print(f"{self.command} {self.path} {args[1]}", flush=True)
+        # Without the timestamp http.server adds: journald stamps every line.
+        print(format % args, flush=True)
 
 
 if __name__ == "__main__":

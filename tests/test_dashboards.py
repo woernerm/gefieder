@@ -162,7 +162,7 @@ class TestTheService:
 
     def test_the_seeded_queries_shall_name_the_configured_schema(self):
         """The seed is rendered at build time; the schema is a build-time setting."""
-        query = podman("exec", "crudman", "cat", "/seed/dashboards/queries/memory.sql")
+        query = podman("exec", "crudman", "cat", "/seed/dashboards/queries/usage.sql")
 
         assert f"FROM {SERVER_STATS_SCHEMA}.host_sample" in query
 

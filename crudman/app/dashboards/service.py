@@ -20,10 +20,6 @@ TIMEOUT = 90
 query, so a slow panel reports its own error rather than this one."""
 
 
-class Unavailable(Exception):
-    """The service did not answer; the message says what to tell the reader."""
-
-
 def environment(user) -> str:
     """Which version this person reads: the one they owe a decision on, or production.
 
@@ -41,10 +37,8 @@ def ask(request, path: str = "") -> tuple[int, bytes]:
         path: What to ask for, below /dashboards/.
 
     Returns:
-        The service's status and body.
-
-    Raises:
-        Unavailable: The service is down or did not answer in time.
+        The service's status and body -- or, when it did not answer, 503 and a detail
+        in the shape of its own errors, so a caller handles both alike.
     """
     query = [*request.GET.lists(), ("environment", [environment(request.user)])]
     url = SERVICE + path + "?" + urlencode([(k, v) for k, values in query for v in values])
@@ -53,8 +47,8 @@ def ask(request, path: str = "") -> tuple[int, bytes]:
             return response.status, response.read()
     except HTTPError as error:
         return error.code, error.read()
-    except (URLError, TimeoutError) as error:
-        raise Unavailable("The dashboards are not available right now.") from error
+    except (URLError, TimeoutError):
+        return 503, json.dumps({"detail": "The dashboards are not available right now."}).encode()
 
 
 def ask_json(request, path: str = "") -> tuple[int, dict]:

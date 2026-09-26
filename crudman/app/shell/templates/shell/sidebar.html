@@ -1,0 +1,25 @@
+{# The sidebar of a page outside the admin -- the documentation, the dashboards -- standing #}
+{# in for the admin's app list. Same markup as Unfold's navigation helper, so the header, #}
+{# the resize handle and the user menu keep behaving as they do in the admin. #}
+{% load unfold %}
+
+<nav id="nav-sidebar-inner" class="bg-base-50 flex flex-col min-h-screen dark:text-font-default-dark dark:bg-base-950/20 {% element_classes 'navigation_inner' %}">
+    {% include "unfold/helpers/navigation_header.html" %}
+
+    {# h-0 grow, as Unfold's own app list does it: the nav scrolls on its own and the #}
+    {# user menu below stays in view however long the list is. #}
+    <div class="flex flex-col h-0 grow overflow-auto px-3 py-2">
+        <a href="{% block home %}{% endblock %}"
+           class="flex font-semibold gap-3 items-center px-3 py-2 rounded-default text-font-important-light hover:bg-base-100 dark:text-font-important-dark dark:hover:bg-white/[.06]">
+            <span class="material-symbols-outlined md-18">{% block icon %}{% endblock %}</span>
+            {% block heading %}{% endblock %}
+        </a>
+
+        {% block links %}{% endblock %}
+    </div>
+
+    {# As in the admin's sidebar: only when no bar below carries the menu. #}
+    <template x-if="window.top === window.self">
+        {% include "unfold/helpers/navigation_user.html" %}
+    </template>
+</nav>

@@ -3,7 +3,7 @@
 // so a chart looks in a notebook exactly as it will on the dashboard.
 //
 // Colours come from the page -- the palette as dashboards.css maps it for light and dark --
-// so nothing here names one, and a theme switch redraws every chart in the other mode.
+// so nothing here names one, and a theme switch recolours every chart for the other mode.
 const Dashboards = (() => {
   const style = (name) => getComputedStyle(document.body).getPropertyValue(name).trim();
 
@@ -57,9 +57,9 @@ const Dashboards = (() => {
     };
   }
 
-  // Every chart drawn, by its box, so a theme switch can draw it again and a box that has
-  // left the page -- a panel drawn anew -- lets go of its chart.
-  const charts = new Map();
+  // Every chart drawn, so a theme switch can recolour it; one that has left the page -- a
+  // panel drawn anew -- is let go of then.
+  const charts = new Set();
 
   function echart(element, payload) {
     const box = element.appendChild(document.createElement("div"));
@@ -74,20 +74,16 @@ const Dashboards = (() => {
       }
       option.tooltip = { valueFormatter: format, ...option.tooltip };
     }
-    const init = () => {
-      echarts.getInstanceByDom(box)?.dispose();
-      const chart = echarts.init(box, theme());
-      chart.setOption(option);
-      // Asks the page to set a filter; one without that filter -- a notebook -- ignores it.
-      if (payload.click) {
-        chart.on("click", (event) => box.dispatchEvent(new CustomEvent("dashboards:pick", {
-          bubbles: true, detail: { filter: payload.click, value: event.name },
-        })));
-      }
-    };
-    init();
-    charts.set(box, init);
-    new ResizeObserver(() => echarts.getInstanceByDom(box)?.resize()).observe(box);
+    const chart = echarts.init(box, theme());
+    chart.setOption(option);
+    // Asks the page to set a filter; one without that filter -- a notebook -- ignores it.
+    if (payload.click) {
+      chart.on("click", (event) => box.dispatchEvent(new CustomEvent("dashboards:pick", {
+        bubbles: true, detail: { filter: payload.click, value: event.name },
+      })));
+    }
+    charts.add(chart);
+    new ResizeObserver(() => chart.resize()).observe(box);
   }
 
   // Tabulator: sorted by a click on a heading, filtered by typing under it. Fields are named
@@ -175,15 +171,18 @@ const Dashboards = (() => {
   }
 
   // A theme switch: the admin panel's class on <html>, JupyterLab's attribute on <body>.
-  const redraw = () => {
-    for (const [box, init] of charts) box.isConnected ? init() : charts.delete(box);
+  const recolour = () => {
+    for (const chart of charts) {
+      if (chart.getDom().isConnected) chart.setTheme(theme());
+      else { chart.dispose(); charts.delete(chart); }
+    }
   };
-  const observer = new MutationObserver(redraw);
+  const observer = new MutationObserver(recolour);
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
   observer.observe(document.body, { attributes: true, attributeFilter: ["data-jp-theme-light"] });
 
   // --- a dashboard page -------------------------------------------------------------
-  // Each panel arrives from the server as its payload in a JSON script (panel.html), and is
+  // Each panel arrives from the server as its payload in a JSON script (views.PanelView), and is
   // drawn once it is in the page.
   document.body.addEventListener("htmx:afterSwap", (event) => {
     for (const data of event.detail.target.querySelectorAll("script[type='application/json']")) {

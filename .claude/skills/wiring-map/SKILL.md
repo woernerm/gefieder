@@ -106,11 +106,11 @@ know they are framed, and each has to allow being framed from its own origin.
 | Also touch | Because |
 |---|---|
 | `proxy/maps.conf.template` | the `$notebook_port` map; a new app behind the bar needs one, and its location a `proxy_pass` through it |
-| `crudman/app/shell/middleware.py` | `is_page` is the other half of that classification; it also refuses a request without `X-Forwarded-For`, which is how the hub's own questions keep being answered rather than framed |
+| `crudman/app/shell/middleware.py` | `is_page` is the other half of that classification |
 | `crudman/app/shell/stages.py` | the stages, where each leads, who may enter it, and which admin apps belong to it -- the sidebar (`templates/unfold/helpers/navigation.html`, via `templatetags/shell.py`) shows the apps of the stage the page is under. A new admin app a rank should reach is named here as well as in `MANAGED_APPS` |
 | `X_FRAME_OPTIONS` in `settings.py`, `tornado_settings` in both `jupyter/jupyterhub_config.py` and `jupyter/jupyter_server_config.py` | Django's, the hub's and (under the hub) a notebook server's defaults all refuse every frame |
 | `sso/views.py` `login` | asked for inside the frame, hands itself to the window: the provider refuses to be framed |
-| `crudman/app/templates/unfold/helpers/navigation.html`, `docs/templates/docs/navigation.html` | draw the sidebar's user menu only outside a frame, the bar carrying it inside one. Copies of Unfold's template; an Unfold upgrade that changes it needs them re-based |
+| `crudman/app/templates/unfold/helpers/navigation.html`, `shell/templates/shell/sidebar.html` (the docs and dashboards sidebars extend it) | draw the sidebar's user menu only outside a frame, the bar carrying it inside one. Copies of Unfold's template; an Unfold upgrade that changes it needs them re-based |
 | `tests/test_shell.py`, `tests/test_proxy_config.py` | the chain end to end, and the proxy's classification on its own |
 
 The bar's theme switch is the only one: it writes the choice into each app's own store and

@@ -9,12 +9,12 @@ documentation, and in Unfold's layout like it.
 """
 from django.contrib import admin
 from django.http import Http404, HttpResponse
-from django.shortcuts import render
+from django.utils.html import json_script
 from django.views.generic import TemplateView, View
 
 from docs.access import ViewerRequiredMixin
 
-from .service import Unavailable, ask, ask_json
+from .service import ask, ask_json
 
 
 class DashboardsView(ViewerRequiredMixin, TemplateView):
@@ -24,10 +24,9 @@ class DashboardsView(ViewerRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         context.update(admin.site.each_context(self.request))
         context["templates"] = {"navigation": "dashboards/navigation.html"}
-        try:
-            _, listing = ask_json(self.request)
-        except Unavailable as error:
-            listing = {"dashboards": [], "problems": {"": str(error)}}
+        status, listing = ask_json(self.request)
+        if status != 200:
+            listing = {"dashboards": [], "problems": {"": listing["detail"]}}
         context["listing"] = listing
         return context
 
@@ -45,10 +44,7 @@ class DashboardView(DashboardsView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         name = self.kwargs["name"]
-        try:
-            status, board = ask_json(self.request, f"{name}/")
-        except Unavailable as error:
-            status, board = 503, {"detail": str(error)}
+        status, board = ask_json(self.request, f"{name}/")
         if status == 404:
             raise Http404(board["detail"])
         return {**context, "name": name, "board": board, "title": board.get("title", name)}
@@ -58,21 +54,18 @@ class PanelView(ViewerRequiredMixin, View):
     """One panel, drawn: the payload the page's script turns into a chart."""
 
     def get(self, request, name, index):
-        try:
-            _, payload = ask_json(request, f"{name}/{index}/")
-        except Unavailable as error:
-            payload = {"kind": "error", "message": str(error)}
-        return render(request, "dashboards/panel.html", {"payload": payload})
+        status, payload = ask_json(request, f"{name}/{index}/")
+        if status != 200:
+            payload = {"kind": "error", "message": payload["detail"]}
+        # dashboards.js draws it once htmx has put it in the page.
+        return HttpResponse(json_script(payload))
 
 
 class DownloadView(ViewerRequiredMixin, View):
     """A panel's data as an Excel workbook, filtered as the page is."""
 
     def get(self, request, name, index):
-        try:
-            status, body = ask(request, f"{name}/{index}.xlsx")
-        except Unavailable as error:
-            return HttpResponse(str(error), status=503, content_type="text/plain")
+        status, body = ask(request, f"{name}/{index}.xlsx")
         if status != 200:
             return HttpResponse(body, status=status, content_type="application/json")
         response = HttpResponse(
