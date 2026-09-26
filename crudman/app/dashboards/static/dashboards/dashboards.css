@@ -1,0 +1,90 @@
+/* Dashboards in the system's palette (css/palette.css), light or dark as the page around
+   them is. Each page says which its own way: the admin panel with a class on <html>,
+   JupyterLab with an attribute on <body> -- so a notebook draws in the notebook's mode. */
+:root, [data-jp-theme-light="true"] {
+    --dashboards-text: var(--app-light-text-0);
+    --dashboards-muted: var(--app-light-text-1);
+    --dashboards-line: var(--app-light-border-0);
+    --dashboards-panel: var(--app-light-bg-1);
+    --dashboards-raised: var(--app-light-bg-2);
+    --dashboards-error: var(--app-light-error-text);
+}
+
+html.dark, [data-jp-theme-light="false"] {
+    --dashboards-text: var(--app-dark-text-0);
+    --dashboards-muted: var(--app-dark-text-1);
+    --dashboards-line: var(--app-dark-border-0);
+    --dashboards-panel: var(--app-dark-bg-1);
+    --dashboards-raised: var(--app-dark-bg-2);
+    --dashboards-error: var(--app-dark-error-text);
+}
+
+/* Panels flow in the order given and wrap to the window: a number takes little room, a
+   chart more, and a wide panel a row of its own. Nothing is placed by hand, so nothing has
+   to be placed again for a narrower screen. */
+.dashboards-panels, .dashboards-stats { display: flex; flex-wrap: wrap; gap: 1rem; }
+/* Sized by the window alone: a wide table scrolls inside its panel rather than widening
+   the page around it. */
+.dashboards-panels { contain: inline-size; }
+.dashboards-stats { flex-basis: 100%; }
+
+.dashboards-panel {
+    background: var(--dashboards-panel);
+    border: 1px solid var(--dashboards-line);
+    border-radius: 6px;
+    color: var(--dashboards-text);
+    flex: 1 1 26rem;
+    min-width: 0;
+    padding: .75rem 1rem;
+}
+.dashboards-panel.stat { flex-basis: 10rem; }
+.dashboards-panel.wide { flex-basis: 100%; }
+
+.dashboards-panel header { align-items: center; display: flex; gap: .5rem; justify-content: space-between; }
+.dashboards-panel h2 { font-size: .875rem; font-weight: 600; margin: 0 0 .5rem; }
+.dashboards-panel header a { color: var(--dashboards-muted); }
+
+.dashboards-chart { height: 18rem; }
+.dashboards-stat { font-size: 2.25rem; font-weight: 600; line-height: 1.2; }
+.dashboards-video { aspect-ratio: 16 / 9; border: 0; width: 100%; }
+.dashboards-panel p { margin: 0 0 .5rem; }
+.dashboards-note { color: var(--dashboards-muted); font-size: .75rem; }
+.dashboards-error { color: var(--dashboards-error); white-space: pre-wrap; }
+
+.dashboards-table { max-height: 26rem; overflow: auto; }
+.dashboards-table table { border-collapse: collapse; font-size: .8125rem; width: 100%; }
+.dashboards-table th, .dashboards-table td {
+    border-bottom: 1px solid var(--dashboards-line);
+    max-width: 32rem;
+    overflow: hidden;
+    padding: .25rem .5rem;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.dashboards-table thead { background: var(--dashboards-panel); position: sticky; top: 0; }
+.dashboards-table thead tr:first-child th { cursor: pointer; }
+.dashboards-table td.number { font-variant-numeric: tabular-nums; text-align: right; }
+.dashboards-table input {
+    background: transparent;
+    border: 1px solid var(--dashboards-line);
+    border-radius: 4px;
+    color: inherit;
+    font-weight: normal;
+    padding: 0 .25rem;
+    width: 100%;
+}
+
+/* The filters above a dashboard. */
+.dashboards-filters { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin-bottom: 1rem; }
+.dashboards-filters label { align-items: center; display: flex; gap: .5rem; }
+.dashboards-filters select {
+    background: var(--dashboards-panel);
+    border: 1px solid var(--dashboards-line);
+    border-radius: 4px;
+    color: var(--dashboards-text);
+    padding: .25rem .5rem;
+}
+
+/* A panel still asking for its data. */
+.htmx-request .dashboards-chart, .htmx-request .dashboards-table, .htmx-request .dashboards-stat { opacity: .5; }

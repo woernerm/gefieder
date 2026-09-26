@@ -1,0 +1,38 @@
+{# The dashboards there are, each with what it shows. #}
+{% extends "unfold/layouts/base_simple.html" %}
+{% load static %}
+
+{% block title %}{{ title }} | {{ site_title }}{% endblock %}
+
+{% block branding %}
+    {% include "unfold/helpers/site_branding.html" %}
+{% endblock %}
+
+{% block extrahead %}
+    {{ block.super }}
+    <link href="{% static 'dashboards/dashboards.css' %}" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+    <h1 class="font-semibold mb-4 text-xl text-font-important-light dark:text-font-important-dark">{{ title }}</h1>
+
+    <div class="dashboards-panels">
+        {% for board in listing.dashboards %}
+            <a href="{% url 'dashboards:dashboard' board.name %}" class="dashboards-panel hover:border-primary-600">
+                <h2>{{ board.title }}</h2>
+                <p class="dashboards-note">{{ board.description }}</p>
+            </a>
+        {% empty %}
+            <p>No dashboards yet. They are written in the models repository, under <code>dashboards/</code>.</p>
+        {% endfor %}
+    </div>
+
+    {# Shown to everyone: a viewer learns why a dashboard is missing, the person who #}
+    {# broke it what to fix. #}
+    {% if listing.problems %}
+        <h2 class="font-semibold mb-2 mt-8">Not shown</h2>
+        {% for file, problem in listing.problems.items %}
+            <p class="dashboards-error mb-2">{% if file %}<strong>{{ file }}</strong>: {% endif %}{{ problem }}</p>
+        {% endfor %}
+    {% endif %}
+{% endblock %}

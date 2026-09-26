@@ -1,0 +1,13 @@
+{# One panel: its title, its download, and the box that fetches its drawing -- once when #}
+{# the page loads, again whenever a filter its query reads changes. #}
+<section class="dashboards-panel {{ panel.kind }}{% if panel.wide %} wide{% endif %}">
+    <header>
+        <h2>{{ panel.title }}</h2>
+        {% if panel.kind != "text" %}
+            <a href="{% url 'dashboards:download' name panel.index %}" data-download
+               title="Download for Excel" class="material-symbols-outlined md-18">download</a>
+        {% endif %}
+    </header>
+    <div hx-get="{% url 'dashboards:panel' name panel.index %}" hx-include="#filters"
+         hx-trigger="load{% for filter in panel.filters %}, change from:[name='{{ filter }}']{% endfor %}{% if board.refresh %}, every {{ board.refresh }}s{% endif %}"></div>
+</section>

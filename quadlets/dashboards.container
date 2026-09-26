@@ -1,0 +1,42 @@
+# The dashboards service: draws the dashboards the deployed models repository defines, for
+# the admin panel to show. Reached on the pod's loopback only, never through the proxy.
+#
+# The engine's image in a role of its own, as sftp and flight are crudman's: the
+# dashboards are Python from the models repository and run on the models' dependencies,
+# and away from the admin panel's secrets, as the read-only dashboards role.
+[Unit]
+Description=${APP_NAME} dashboards
+After=postgresql.service
+After=crudman.service
+
+[Container]
+ContainerName=dashboards
+Pod=main.pod
+Notify=healthy
+Image=${REGISTRY}/sqlmesh:${IMAGE_TAG}
+Exec=uv run --project /sqlmesh python /sqlmesh/dashboards_api.py
+# The host's timezone, so a time range ends at the reader's now rather than the image's.
+Timezone=local
+Environment=POSTGRES_HOST=localhost
+Environment=POSTGRES_PORT=5432
+Environment=POSTGRES_DB=${PG_DATABASE}
+Environment=POSTGRES_USER=${DASHBOARDS_DB_USER}
+# Read-only, at the path crudman checks the models out to: the dashboards are the
+# deployed commit's, and a reviewer's are the reviewed one's beside it.
+Environment=MODELS_DIR=/var/lib/app/models
+Volume=models_data.volume:/var/lib/app/models:ro,z
+# So the code reading a file back out of /run/secrets looks for the name podman put
+# there (see SECRET_* in buildtime.env).
+Environment=SECRET_DASHBOARDS_PASSWORD=${SECRET_DASHBOARDS_PASSWORD}
+Secret=${SECRET_DASHBOARDS_PASSWORD}
+HealthCmd=python -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8002/health", timeout=5)'
+HealthInterval=10s
+HealthTimeout=5s
+HealthRetries=10
+HealthStartPeriod=20s
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

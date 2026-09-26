@@ -1,0 +1,55 @@
+{# One dashboard: its filters, then a box per panel that fetches its own drawing -- once #}
+{# when the page loads, again whenever a filter its query reads changes. #}
+{% extends "unfold/layouts/base_simple.html" %}
+{% load static %}
+
+{% block title %}{{ title }} | {{ site_title }}{% endblock %}
+
+{% block branding %}
+    {% include "unfold/helpers/site_branding.html" %}
+{% endblock %}
+
+{% block extrahead %}
+    {{ block.super }}
+    <link href="{% static 'dashboards/dashboards.css' %}" rel="stylesheet">
+    <script src="{% static 'docs/echarts.min.js' %}"></script>
+    <script src="{% static 'dashboards/dashboards.js' %}" defer></script>
+{% endblock %}
+
+{% block content %}
+    <h1 class="font-semibold text-xl text-font-important-light dark:text-font-important-dark">{{ title }}</h1>
+    <p class="dashboards-note mb-4">{{ board.description }}</p>
+
+    {% if board.detail %}
+        <p class="dashboards-error">{{ board.detail }}</p>
+    {% else %}
+        <form id="filters" class="dashboards-filters" onsubmit="return false">
+            {% for filter in board.filters %}
+                <label>
+                    {{ filter.label }}
+                    <select name="{{ filter.name }}">
+                        {% if filter.everything %}<option value="">All</option>{% endif %}
+                        {% for choice in filter.choices %}
+                            <option{% if choice in filter.picked %} selected{% endif %}>{{ choice }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            {% endfor %}
+        </form>
+
+        {# A run of numbers is a row of tiles of its own, rather than each tile stretched #}
+        {# to the height of the chart beside it. #}
+        {% regroup board.panels by kind as runs %}
+        <div class="dashboards-panels">
+            {% for run in runs %}
+                {% if run.grouper == "stat" %}
+                    <div class="dashboards-stats">
+                        {% for panel in run.list %}{% include "dashboards/box.html" %}{% endfor %}
+                    </div>
+                {% else %}
+                    {% for panel in run.list %}{% include "dashboards/box.html" %}{% endfor %}
+                {% endif %}
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endblock %}
