@@ -6,11 +6,12 @@ requires-python = ">=3.13"
 # sqlmesh's postgres extra is deliberately unused: it depends on psycopg2, which must be
 # compiled against libpq, while psycopg2-binary is the same module as a prebuilt wheel.
 #
-# polars is what the Project C bronze model transforms its raw data with.
+# polars is what the Project C bronze model transforms its raw data with, and what the
+# dashboards shape their data with; xlsxwriter is how a panel's data is downloaded for Excel.
 #
 # duckdb is pinned to the version pg_duckdb runs, which the postgresql image stores its
 # extensions under. With config.py's duckdb gateway there are two DuckDB engines in one
 # system, and DUCKDB_EXTENSIONS has to exist for both while a community build lags a new
 # DuckDB release by weeks. tests/test_duckdb_extensions.py fails when the two drift apart,
 # which is the signal to bump this line.
-dependencies = ["sqlmesh[lsp,github,web]", "psycopg2-binary", "polars", "duckdb==1.5.4"]
+dependencies = ["sqlmesh[lsp,github,web]", "psycopg2-binary", "polars", "xlsxwriter", "duckdb==1.5.4"]

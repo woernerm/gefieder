@@ -23,10 +23,9 @@ from .stages import HOME, stages_for
 def is_page(request):
     """Whether the browser asked for this as a page of its own, through the proxy.
 
-    Through the proxy, because the proxy asks here about Grafana's visitors with their
-    request's headers copied, and that answer must stay an answer. The admin's related-
-    object popups are pages of their own too, but talk to the window that opened them,
-    which a frame cannot.
+    Through the proxy, because what reaches the panel from inside the pod -- the hub asking
+    who a visitor is -- is a question, never a page. The admin's related-object popups are
+    pages of their own too, but talk to the window that opened them, which a frame cannot.
     """
     return (
         request.method == "GET"
@@ -47,7 +46,6 @@ def shell(get_response):
             return render(request, "shell/shell.html", {
                 **admin.site.each_context(request),
                 "home": HOME.url,
-                "grafana": f"/{settings.GRAFANA_PATH}/",
                 "stages": stages_for(request),
                 "online": len(lately()["online"]),
                 # The bar is where a stakeholder answers, because it is the one thing on

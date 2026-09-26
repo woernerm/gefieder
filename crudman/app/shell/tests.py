@@ -46,8 +46,8 @@ class PageRequestTests(TestCase):
         self.assertContains(response, "Dropzones")
 
     def test_a_request_not_through_the_proxy_is_answered_as_before(self):
-        """The proxy's identity check for Grafana copies the browser's headers; its
-        answer has to stay the identity, not a page."""
+        """What reaches the panel from inside the pod -- the hub asking who a visitor
+        is -- is a question, never a page."""
         response = self.client.get(self.url, HTTP_SEC_FETCH_DEST="document")
 
         self.assertNotContains(response, 'id="frame"')
@@ -134,8 +134,8 @@ class StageTests(TestCase):
 
         self.assertEqual(self.stages(user), ["Dashboards", "Sources"])
 
-    def test_the_dashboards_open_in_kiosk_mode(self):
-        self.assertEqual(self.landing(make_user("viewer", "viewer"))["Dashboards"], f"/{settings.GRAFANA_PATH}/?kiosk")
+    def test_the_dashboards_open_on_their_list(self):
+        self.assertEqual(self.landing(make_user("viewer", "viewer"))["Dashboards"], reverse("dashboards:index"))
 
     def test_the_stages_are_served_afresh_for_the_bar(self):
         """What the bar fetches after every page load, so a right granted meanwhile shows."""

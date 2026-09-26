@@ -14,13 +14,15 @@
 # output.
 
 # The services with a Dockerfile. Each builds independently, so the order is arbitrary.
-SERVICES="postgresql crudman sqlmesh proxy grafana grafana_mcp jupyter"
+SERVICES="postgresql crudman sqlmesh proxy jupyter"
 
-# The templated parts of the two images whose Dockerfiles COPY them in: Grafana's dashboard
-# JSON, which Grafana cannot interpolate, and the psql init scripts, whose role names sit
-# inside function bodies. Deterministic, so an unchanged dashboard keeps its layer cached.
+# The templated build inputs: the example dashboards the crudman image seeds a models
+# repository with, whose SQL names the server-statistics schema, and the psql init
+# scripts, whose role names sit inside function bodies. Deterministic, so an unchanged
+# file keeps its layer cached.
 render_build_templates() {
-  ./grafana/render.sh grafana/.render
+  VARS='${SERVER_STATS_SCHEMA}'
+  render_tree "$VARS" .render/dashboards dashboards ! -path '*/__pycache__/*'
   ./postgresql/render.sh postgresql/.initdb
 }
 
@@ -36,8 +38,6 @@ build_image() {  # engine, service
     --build-arg "SERVER_STATS_SCHEMA=${SERVER_STATS_SCHEMA}" \
     --build-arg "SECRET_PG_SUPERUSER_PASSWORD=${SECRET_PG_SUPERUSER_PASSWORD}" \
     --build-arg "DUCKDB_EXTENSIONS=${DUCKDB_EXTENSIONS}" \
-    --build-arg "GRAFANA_PLUGINS=${GRAFANA_PLUGINS}" \
-    --build-arg "GRAFANA_MCP_TOOLS=${GRAFANA_MCP_TOOLS}" \
     --build-arg "JUPYTER_EXTENSIONS=${JUPYTER_EXTENSIONS}"
   if [ "$engine" = "docker" ]; then
     set -- "$@" \
@@ -66,11 +66,11 @@ create_service_secrets() {
   create_secret "$SECRET_DJANGO_KEY"       "$(openssl rand -hex 32)"
   create_secret "$SECRET_CRUDMAN_PASSWORD" "$(openssl rand -hex 32)"
   create_secret "$SECRET_SQLMESH_PASSWORD" "$(openssl rand -hex 32)"
-  create_secret "$SECRET_GRAFANA_PASSWORD" "$(openssl rand -hex 32)"
+  create_secret "$SECRET_DASHBOARDS_PASSWORD" "$(openssl rand -hex 32)"
   # Encrypts the session the hub keeps for each person; see jupyter/entrypoint.sh.
   create_secret "$SECRET_JUPYTER"          "$(openssl rand -hex 32)"
   # A placeholder for the single sign-on a development or test stack leaves off. It still
-  # has to exist: the crudman and grafana quadlets name it in a Secret=.
+  # has to exist: the crudman quadlet names it in a Secret=.
   create_secret "$SECRET_OIDC_CLIENT" "unconfigured"
 }
 
@@ -145,15 +145,15 @@ run_quadlet() {  # service name, then any extra podman run arguments
 }
 
 # --- rendering the templated build inputs -----------------------------------------------
-# Two images bake settings into files their own tooling cannot interpolate: Grafana's
-# dashboard JSON and configuration, and the psql init scripts, whose role names sit inside
-# dollar-quoted function bodies. Both use envsubst with an explicit allowlist, so every
-# other $-token (nginx's $host, Grafana's $__file{}, SQL's $$ quoting) survives.
+# Two build inputs carry settings their own tooling cannot interpolate: the example
+# dashboards' SQL, and the psql init scripts, whose role names sit inside dollar-quoted
+# function bodies. Both use envsubst with an explicit allowlist, so every other $-token
+# (SQL's $$ quoting among them) survives.
 #
 # The allowlist doubles as the list of settings that must be present: rendering with one
 # empty produces a file that fails at first start, so a missing value aborts the build. The
-# _rt prefix stands in for the `local` POSIX sh lacks, grafana/render.sh calling this twice
-# with an $out of its own.
+# _rt prefix stands in for the `local` POSIX sh lacks, a caller possibly holding an $out of
+# its own.
 render_tree() {  # allowlist, output dir, source, then optional -name patterns to skip
   _rt_vars="$1"; _rt_out="$2"; _rt_src="$3"; shift 3
 

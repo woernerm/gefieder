@@ -70,10 +70,9 @@ class Stage:
         return self.url or f"/{settings.CRUDMAN_PATH}/{self.apps[0]}/"
 
 
-# Everyone: a dashboard is what a viewer is for. Kiosk mode, since the bar is the
-# navigation now and Grafana's own chrome would sit inside it a second time. The home
-# stage as well, the one the bar's own name leads to.
-HOME = Stage("Dashboards", "monitoring", f"/{settings.GRAFANA_PATH}/?kiosk", admits=lambda user: True)
+# Everyone: a dashboard is what a viewer is for. The home stage as well, the one the bar's
+# own name leads to.
+HOME = Stage("Dashboards", "monitoring", f"/{settings.CRUDMAN_PATH}/dashboards/", admits=lambda user: True)
 
 STAGES = (
     HOME,

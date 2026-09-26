@@ -9,9 +9,9 @@ author can forget.
 So the names are what moves. This second database holds nothing but foreign tables over
 the first, one schema per production schema and named the same, each pointing at the
 environment's copy where there is one and at production where there is none. A panel's SQL
-is then identical in both, and showing somebody a reviewed version is Grafana being handed
-a different data source uid -- which the proxy does, from the admin panel's answer about
-who is asking.
+is then identical in both, and showing somebody a reviewed version is the dashboards
+service connecting to the other database -- which it does when the admin panel names the
+environment the reader owes a decision on.
 """
 
 from pathlib import Path
@@ -23,7 +23,7 @@ from conftest import (
     BRONZE_SCHEMA_PREFIX,
     DB_PASSWORDS,
     GOLD_SCHEMA,
-    GRAFANA_DB_USER,
+    DASHBOARDS_DB_USER,
     PG_DATABASE,
     PG_PORT,
     SILVER_SCHEMA,
@@ -39,10 +39,10 @@ REPO = Path(__file__).resolve().parents[1]
 
 @pytest.fixture(scope="module")
 def preview_db():
-    """A connection to the preview database as the read-only Grafana role."""
+    """A connection to the preview database as the read-only dashboards role."""
     conn = psycopg2.connect(
         host="localhost", port=PG_PORT, dbname=f"{PG_DATABASE}_{PREVIEW_ENV}",
-        user=GRAFANA_DB_USER, password=DB_PASSWORDS[GRAFANA_DB_USER],
+        user=DASHBOARDS_DB_USER, password=DB_PASSWORDS[DASHBOARDS_DB_USER],
     )
     conn.autocommit = True
     yield conn
@@ -131,7 +131,7 @@ class TestContents:
 
 class TestBoundary:
     def test_the_reader_cannot_write_through_it(self, published):
-        """The foreign server is reached as the read-only Grafana role, so the preview is
+        """The foreign server is reached as the read-only dashboards role, so the preview is
         a way of looking at production and never a way into it."""
         with published.cursor() as cur:
             with pytest.raises(psycopg2.Error):
@@ -146,44 +146,20 @@ class TestBoundary:
 
 
 class TestOneSpelling:
-    """The uid is written in three files and nothing fails loudly when one drifts.
-
-    A dashboard carries the production uid; the proxy replaces that literal with the one
-    crudman names; the data source answering to it is declared in Grafana's provisioning.
-    Get any of the three wrong and a reviewer quietly reads production -- the one failure
-    this whole arrangement exists to rule out.
+    """The preview database's name is spelled in two places and nothing fails loudly when
+    one drifts: a reviewer would quietly read production -- the one failure this whole
+    arrangement exists to rule out.
     """
 
-    PROVISIONING = REPO / "grafana/provisioning/datasources/postgresql.yaml"
-    MAPS = REPO / "proxy/maps.conf.template"
-    LOCATIONS = REPO / "proxy/locations.conf.template"
-    CRUDMAN = REPO / "crudman/app/notebooks/views.py"
+    def test_the_dashboards_read_a_review_from_the_database_named_after_it(self):
+        created = (REPO / "postgresql/initdb/gf_0009_create_preview.sh").read_text()
+        read = (REPO / "sqlmesh/dashboards_api.py").read_text()
 
-    def test_grafana_declares_both_data_sources(self):
-        declared = self.PROVISIONING.read_text()
+        assert f"preview_env={PREVIEW_ENV}" in created
+        assert 'preview_db="${database}_${preview_env}"' in created
+        assert 'f"{database}_{environment}"' in read
 
-        assert "uid: ${APP_NAME}-postgresql" in declared
-        assert f"uid: ${{APP_NAME}}-{PREVIEW_ENV}" in declared
+    def test_crudman_names_the_environment_the_same(self):
+        models = (REPO / "crudman/app/system/models.py").read_text()
 
-    def test_the_preview_data_source_reads_the_preview_database(self):
-        assert f"database: ${{PG_DATABASE}}_{PREVIEW_ENV}" in self.PROVISIONING.read_text()
-
-    def test_the_proxy_substitutes_the_uid_a_dashboard_carries(self):
-        """On answers only: the browser sends back what it was given, so a query names the
-        data source the dashboard was served with."""
-        assert (
-            """sub_filter '"${APP_NAME}-postgresql"' '"$datasource_uid"';"""
-            in self.LOCATIONS.read_text()
-        )
-
-    def test_a_visitor_with_no_review_gets_the_production_uid_back(self):
-        """The substitution runs for everybody; for everybody but a reviewer it replaces
-        the uid with itself."""
-        assert '"${APP_NAME}-postgresql"' in self.MAPS.read_text()
-
-    def test_crudman_names_the_data_source_after_the_environment(self):
-        """Which is what makes a second review a second data source and no new rule."""
-        assert (
-            'PREVIEW_DATASOURCE = f"{settings.APP_NAME}-{Deployment.PREVIEW}"'
-            in self.CRUDMAN.read_text()
-        )
+        assert f'PREVIEW = "{PREVIEW_ENV}"' in models

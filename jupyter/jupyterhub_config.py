@@ -22,7 +22,7 @@ NOTEBOOK_VENV = os.environ.get("NOTEBOOK_VENV", "/opt/notebook")
 # The hub's own pages in the system's colours. templates/page.html extends the stock one
 # and inlines the palette, the same file the notebooks and the admin panel use; it is read
 # here once rather than served, the hub having no static directory of its own to put it in.
-# DEFAULT_THEME comes from runtime.env, as it does for Grafana and the admin panel.
+# DEFAULT_THEME comes from runtime.env, as it does for the admin panel.
 # The stock directory stays on the list: the setting replaces the default rather than
 # adding to it, and every page that is not overridden is still served from there.
 c.JupyterHub.template_paths = [
@@ -36,15 +36,14 @@ c.JupyterHub.template_vars = {
 
 # --- where it is reached ----------------------------------------------------------------
 # The proxy forwards /${NOTEBOOK_PATH}/ here with the path unchanged, as it does for the
-# admin panel and Grafana, so the hub serves from that prefix rather than the root. Carried
+# admin panel, so the hub serves from that prefix rather than the root. Carried
 # in bind_url below rather than set on its own: setting both is what JupyterHub warns about.
 BASE_URL = f"/{os.environ.get('NOTEBOOK_PATH', 'jupyter')}/"
 
 # The containers share the pod's network namespace, so binding the loopback keeps the hub
 # and the spawned servers off the pod's published ports: the nginx proxy is the only way in.
 # One namespace also means one set of ports for the whole pod, so these three avoid the ones
-# already taken: 8000 is crudman, 8001 the Grafana MCP server, 3000 Grafana, 5432 the
-# database.
+# already taken: 8000 is crudman, 8002 the dashboards service, 5432 the database.
 c.JupyterHub.bind_url = f"http://127.0.0.1:8888{BASE_URL}"
 c.JupyterHub.hub_bind_url = "http://127.0.0.1:8081"
 
@@ -102,12 +101,13 @@ c.Spawner.env_keep = [
     "SQLMESH_DATABASE",
     "DUCKDB_EXTENSIONS",
     "MODELS_DIR",
+    # Where a chart drawn in a cell loads its script from: the admin panel's static files.
+    "CRUDMAN_PATH",
 ]
 
 # Straight into JupyterLab, and straight into a server: a person who may be here at all has
-# nothing to decide on a "start my server" page. WorkspaceSpawner narrows this per spawn to
-# the SQLMesh project inside the workspace, the server itself being rooted at the
-# repository so the git panel can find it.
+# nothing to decide on a "start my server" page. It opens on the workspace's root, where the
+# models and the dashboards sit side by side.
 c.Spawner.default_url = "/lab"
 c.JupyterHub.implicit_spawn_seconds = 1
 

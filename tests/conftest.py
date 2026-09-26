@@ -74,7 +74,7 @@ PG_PORT = os.environ.get("TEST_PG_PORT", "5432")
 PG_DATABASE = os.environ.get("TEST_PG_DATABASE", "postgres")
 SFTP_PORT = int(os.environ.get("TEST_SFTP_PORT", "2222"))
 FLIGHT_PORT = int(os.environ.get("TEST_FLIGHT_PORT", "8815"))
-GRAFANA_PASSWORD = os.environ["TEST_GRAFANA_PASSWORD"]
+DASHBOARDS_PASSWORD = os.environ["TEST_DASHBOARDS_PASSWORD"]
 SUPERUSER_PASSWORD = os.environ["TEST_SUPERUSER_PASSWORD"]
 PG_SUPERUSER_PASSWORD = os.environ["TEST_PG_SUPERUSER_PASSWORD"]
 CRUDMAN_PASSWORD = os.environ["TEST_CRUDMAN_PASSWORD"]
@@ -94,14 +94,12 @@ SECRETS = {
     "pg_superuser": os.environ["SECRET_PG_SUPERUSER_PASSWORD"],
     "crudman": os.environ["SECRET_CRUDMAN_PASSWORD"],
     "sqlmesh": os.environ["SECRET_SQLMESH_PASSWORD"],
-    "grafana": os.environ["SECRET_GRAFANA_PASSWORD"],
+    "dashboards": os.environ["SECRET_DASHBOARDS_PASSWORD"],
     "django_key": os.environ["SECRET_DJANGO_KEY"],
     "oidc_client": os.environ["SECRET_OIDC_CLIENT"],
     "jupyter": os.environ["SECRET_JUPYTER"],
 }
 CRUDMAN_PATH = os.environ["CRUDMAN_PATH"]
-GRAFANA_PATH = os.environ["GRAFANA_PATH"]
-MCP_PATH = os.environ["MCP_PATH"]
 NOTEBOOK_PATH = os.environ["NOTEBOOK_PATH"]
 
 # The database login roles the init scripts created, and the prefix on the roles that
@@ -109,7 +107,7 @@ NOTEBOOK_PATH = os.environ["NOTEBOOK_PATH"]
 # configured names rather than the ones buildtime.env ships with.
 CRUDMAN_DB_USER = os.environ["CRUDMAN_DB_USER"]
 SQLMESH_DB_USER = os.environ["SQLMESH_DB_USER"]
-GRAFANA_DB_USER = os.environ["GRAFANA_DB_USER"]
+DASHBOARDS_DB_USER = os.environ["DASHBOARDS_DB_USER"]
 DB_USER_PREFIX = os.environ["DB_USER_PREFIX"]
 
 # The prefix each rank is named behind -- Django group and database group role alike --
@@ -133,11 +131,7 @@ COLLECTOR = os.environ.get("TEST_COLLECTOR", "")
 
 # The URL paths the apps are served under, derived from the configured base paths.
 CRUDMAN_LOGIN = f"/{CRUDMAN_PATH}/login/"
-GRAFANA_LOGIN = f"/{GRAFANA_PATH}/login"
-# An address that reaches Grafana without a session: its own pages send an anonymous
-# visitor to the admin panel's login, which would report the admin panel ready, not
-# Grafana. Assets are served to anyone.
-GRAFANA_PROBE = f"/{GRAFANA_PATH}/public/img/grafana_icon.svg"
+DASHBOARDS = f"/{CRUDMAN_PATH}/dashboards/"
 
 # The stand-in identity provider run-tests.sh starts inside the pod, and the directory
 # holding the runtime.env the services read their settings from.
@@ -149,8 +143,8 @@ APP_CONFIG_DIR = os.environ.get("TEST_APP_CONFIG_DIR", "")
 # journal holds that service's log: every service logs to stdout/stderr only, and podman
 # forwards the stream to journald. One list, so a service added to the stack cannot reach
 # the startup checks while the logging checks silently skip it.
-CONTAINERS = ["postgresql", "crudman", "sftp", "flight", "sqlmesh", "grafana", "grafana_mcp",
-              "jupyter", "proxy"]
+CONTAINERS = ["postgresql", "crudman", "sftp", "flight", "sqlmesh", "dashboards", "jupyter",
+              "proxy"]
 LOGGING_UNITS = CONTAINERS
 
 # In the production profile the proxy serves a self-signed certificate, so TLS
@@ -197,7 +191,7 @@ DB_PASSWORDS = {
     PG_SUPERUSER_ROLE: PG_SUPERUSER_PASSWORD,
     CRUDMAN_DB_USER: CRUDMAN_PASSWORD,
     SQLMESH_DB_USER: SQLMESH_PASSWORD,
-    GRAFANA_DB_USER: GRAFANA_PASSWORD,
+    DASHBOARDS_DB_USER: DASHBOARDS_PASSWORD,
 }
 
 
@@ -313,8 +307,8 @@ def connect():
 
 @pytest.fixture(scope="session")
 def db(connect):
-    """A psycopg2 connection as the read-only grafana role."""
-    return connect(GRAFANA_DB_USER)
+    """A psycopg2 connection as the read-only dashboards role."""
+    return connect(DASHBOARDS_DB_USER)
 
 
 @pytest.fixture(scope="session")
@@ -336,20 +330,20 @@ def sqlmesh_db(connect):
 
 
 @pytest.fixture(scope="session")
-def grafana_db(connect):
-    """A connection as the read-only grafana role (alias of db, for clarity)."""
-    return connect(GRAFANA_DB_USER)
+def dashboards_db(connect):
+    """A connection as the read-only dashboards role (alias of db, for clarity)."""
+    return connect(DASHBOARDS_DB_USER)
 
 
 @pytest.fixture(scope="session", autouse=True)
 def wait_for_stack():
-    """Block until both apps respond and sqlmesh has created its schema.
+    """Block until the admin panel and the notebooks respond and sqlmesh has created its schema.
 
     The schema comes from the engine's first `sqlmesh plan` at runtime rather than from
     database init, so the schema and access-control tests would otherwise race it.
     """
     deadline = time.time() + STARTUP_TIMEOUT
-    targets = [CRUDMAN_LOGIN, GRAFANA_PROBE]
+    targets = [CRUDMAN_LOGIN, f"/{NOTEBOOK_PATH}/hub/login"]
     with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS, trust_env=False,
                       follow_redirects=True, timeout=5) as client:
         for target in targets:

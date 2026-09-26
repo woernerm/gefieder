@@ -497,7 +497,7 @@ def connect():
 def html(payloads: list[dict]) -> str:
     """Payloads as a notebook output, drawn by the script the dashboards themselves use.
 
-    The script and ECharts come from the admin panel's static files, which the notebook
+    The script and its libraries come from the admin panel's static files, which the notebook
     reaches on the same host: the server has no internet, and one copy of each means a
     notebook cannot draw differently from a dashboard.
     """
@@ -509,10 +509,14 @@ def html(payloads: list[dict]) -> str:
   const load = (tag, attributes) => new Promise((ready, fail) => document.head.append(
     Object.assign(document.createElement(tag), attributes, {{ onload: ready, onerror: fail }})));
   // Once per page, however many outputs ask at the same time.
+  // Tabulator's stylesheet before the one recolouring it, the libraries before the script.
   window.dashboardsLoaded ??= Promise.all([
+    load("link", {{ rel: "stylesheet", href: "{static}dashboards/tabulator.min.css" }}),
     load("link", {{ rel: "stylesheet", href: "{static}dashboards/dashboards.css" }}),
-    load("script", {{ src: "{static}docs/echarts.min.js" }})
-      .then(() => load("script", {{ src: "{static}dashboards/dashboards.js" }})),
+    Promise.all([
+      load("script", {{ src: "{static}docs/echarts.min.js" }}),
+      load("script", {{ src: "{static}dashboards/tabulator.min.js" }}),
+    ]).then(() => load("script", {{ src: "{static}dashboards/dashboards.js" }})),
   ]);
   await window.dashboardsLoaded;
   Dashboards.drawAll(document.getElementById("{target}"), {json.dumps(payloads)});

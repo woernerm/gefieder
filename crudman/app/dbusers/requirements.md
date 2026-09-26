@@ -68,7 +68,7 @@ PostgreSQL bridge and the login-time reconciliation.
   drop the role, because PostgreSQL cannot drop one that still owns anything: it takes
   that data with it.
 - Refuse to touch the service roles — the superuser plus the three named by
-  `CRUDMAN_DB_USER`, `SQLMESH_DB_USER` and `GRAFANA_DB_USER` — which the
+  `CRUDMAN_DB_USER`, `SQLMESH_DB_USER` and `DASHBOARDS_DB_USER` — which the
   `is_protected_role` database function derives rather than lists, because the
   superuser's name is configurable (`PG_SUPERUSER_ROLE`, `postgres` by default). And refuse to
   drop anything that is not a `<prefix>` account, the group roles excepted — a role may

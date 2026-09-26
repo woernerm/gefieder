@@ -45,9 +45,9 @@ Thumbs.db
 # Podman / container artifacts
 *.tar
 
-# Grafana configuration and database init scripts rendered from templates by build.sh
-# (see grafana/render.sh and postgresql/render.sh)
-grafana/.render/
+# The example dashboards and the database init scripts, rendered from templates by
+# build.sh (see render_build_templates in build-lib.sh)
+.render/
 postgresql/.initdb/
 
 # Django

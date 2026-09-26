@@ -4,9 +4,7 @@ Two halves. The first checks the plumbing is inert while OIDC_ENABLED is false, 
 every existing installation stays in after an upgrade. The second turns it on against the
 stand-in provider run-tests.sh runs inside the pod, signs in through the proxy as a browser
 would, and asserts the admin panel ends up with the person the provider described -- and
-Grafana with them too, though Grafana never talks to the provider: the proxy signs its
-visitors in on the admin panel's say-so, so single sign-on reaches it by reaching the
-admin panel (tests/test_grafana_auth.py).
+with it the dashboards, which are its pages.
 
 The stand-in is a real OpenID Connect server, so the exchange under test is the real one.
 What it does not reproduce is a directory's own behaviour -- consent screens, conditional
@@ -21,13 +19,9 @@ import httpx
 import pytest
 
 from conftest import (
-    APP_CONFIG_DIR, BASE_URL, CRUDMAN_LOGIN, CRUDMAN_PATH, GRAFANA_PATH, OIDC_ISSUER,
-    RESTART_TIMEOUT, SECRETS, ROLE_PREFIX, VERIFY_TLS, inspect_container, podman,
+    APP_CONFIG_DIR, BASE_URL, CRUDMAN_LOGIN, CRUDMAN_PATH, DASHBOARDS, OIDC_ISSUER,
+    RESTART_TIMEOUT, SECRETS, ROLE_PREFIX, VERIFY_TLS, podman,
 )
-
-# Grafana has to be told the host name: its default is "localhost", out of which it
-# builds every absolute address it hands out.
-SERVER_NAME = os.environ.get("SERVER_NAME", "localhost")
 
 # The person the stand-in provider describes. Editor is the middle rank, so both a
 # granted and a withheld permission can be asserted.
@@ -64,8 +58,8 @@ def _set_single_sign_on(enabled):
                 line = f"OIDC_ENABLED={'true' if enabled else 'false'}\n"
             fh.write(line)
 
-    # The admin panel alone: it is the only service with a provider client, Grafana and
-    # the hub taking the person it signed in from it.
+    # The admin panel alone: it is the only service with a provider client, the hub taking
+    # the person it signed in from it.
     subprocess.run(["systemctl", "--user", "restart", "crudman.service"], check=True)
 
     deadline = time.time() + RESTART_TIMEOUT
@@ -79,24 +73,6 @@ def _set_single_sign_on(enabled):
                 pass
             time.sleep(2)
     raise AssertionError("the admin panel did not come back after the restart")
-
-
-def _derived_root_url(**env):
-    """The public address the grafana image's entrypoint settles on for this environment.
-
-    Runs the real entrypoint in a throwaway container with its last line -- the handover
-    to Grafana's /run.sh -- replaced by a print. Reading the address off a started Grafana
-    would cost a server startup per case and assert nothing more.
-    """
-    info = inspect_container("grafana")
-    if info is None:
-        pytest.skip("grafana container does not exist")
-    argv = ["podman", "run", "--rm", "--network", "none"]
-    for name, value in env.items():
-        argv += ["-e", f"{name}={value}"]
-    argv += ["--entrypoint", "sh", info["ImageName"], "-c",
-             "sed 's|^exec /run.sh.*|printenv GF_SERVER_ROOT_URL|' /entrypoint.sh | sh"]
-    return subprocess.run(argv, capture_output=True, text=True, timeout=120).stdout.strip()
 
 
 @pytest.fixture(scope="module")
@@ -130,66 +106,6 @@ class TestClientSecret:
 
     def test_the_secret_shall_be_mounted_in_the_admin_panel(self):
         podman("exec", "crudman", "test", "-r", f"/run/secrets/{SECRETS['oidc_client']}")
-
-    def test_grafana_shall_not_have_it(self):
-        """Grafana is no provider client: it takes the visitor from the proxy. A secret it
-        cannot use is one more place it could leak from."""
-        result = subprocess.run(
-            ["podman", "exec", "grafana", "test", "-e", f"/run/secrets/{SECRETS['oidc_client']}"],
-            capture_output=True,
-        )
-        assert result.returncode != 0
-
-
-class TestGrafanaConfiguration:
-    """Grafana learns the host name from runtime.env, and nothing about the provider."""
-
-    def test_grafana_shall_receive_the_server_name(self):
-        # Without the EnvironmentFile, $__env{SERVER_NAME} in custom.ini resolves to
-        # nothing and Grafana falls back to localhost.
-        assert podman("exec", "grafana", "printenv", "SERVER_NAME").strip() == SERVER_NAME
-
-    def test_grafana_shall_have_no_provider_client(self):
-        """The whole generic_oauth block is gone, not merely switched off: with the proxy
-        signing visitors in, a second client would be a second identity for the same
-        person, and a second thing to register with the provider."""
-        config = podman("exec", "grafana", "cat", "/etc/grafana/grafana.ini")
-        assert "[auth.generic_oauth]" not in config
-        assert "[auth.proxy]" in config
-
-
-class TestRootAddress:
-    """The address Grafana puts into every absolute link it builds.
-
-    Grafana takes it from root_url rather than from the request, and root_url's
-    %(protocol)s is what Grafana serves inside the pod -- http, the proxy terminating TLS.
-    Left at that, production hands out links naming the wrong scheme; the assistant
-    dashboard's MCP address is one of them.
-    """
-
-    def test_production_shall_use_https(self):
-        derived = _derived_root_url(DEBUG="false", SERVER_NAME="reports.example.com",
-                                    GRAFANA_PATH=GRAFANA_PATH)
-
-        assert derived == f"https://reports.example.com/{GRAFANA_PATH}/"
-
-    def test_development_shall_use_http(self):
-        # The one case where the proxy serves plain HTTP, so the callback has to name it.
-        derived = _derived_root_url(DEBUG="true", SERVER_NAME="localhost",
-                                    GRAFANA_PATH=GRAFANA_PATH)
-
-        assert derived == f"http://localhost/{GRAFANA_PATH}/"
-
-    def test_an_address_set_by_hand_shall_win(self):
-        # The line the README asks a custom-port installation to add, as this stack is.
-        explicit = f"https://reports.example.com:8443/{GRAFANA_PATH}/"
-
-        derived = _derived_root_url(DEBUG="false", SERVER_NAME="reports.example.com",
-                                    GRAFANA_PATH=GRAFANA_PATH,
-                                    GF_SERVER_ROOT_URL=explicit)
-
-        assert derived == explicit
-
 
 class TestSwitchedOff:
     """With OIDC_ENABLED false, the admin panel shows its own login and nothing else."""
@@ -270,26 +186,15 @@ class TestSigningIn:
         # Sorted, so the expectation follows ROLE_PREFIX rather than an assumed order.
         assert groups == str(sorted(["project-b-analysts", SSO_ROLE_GROUP]))
 
-    def test_grafana_shall_know_the_visitor_the_provider_described(self, single_sign_on, browser):
-        # Grafana never met the provider. Opening it with the session the admin panel
-        # got from the provider is the whole sign-in: the proxy asks the admin panel,
-        # and Grafana takes its word.
-        browser.get(f"/{GRAFANA_PATH}/")
+    def test_the_dashboards_shall_open_for_the_visitor_the_provider_described(
+        self, single_sign_on, browser
+    ):
+        # One sign-in: the dashboards are the admin panel's pages, and the rank the
+        # provider granted is what lets the visitor see them.
+        resp = browser.get(DASHBOARDS)
 
-        who = browser.get(f"/{GRAFANA_PATH}/api/user")
-
-        assert who.status_code == 200
-        assert who.json()["login"] == SSO_USER
-
-    def test_grafana_shall_hold_the_role_the_provider_granted(self, single_sign_on, browser):
-        # The provider's claim became a group in the admin panel; the admin panel's
-        # answer to the proxy turns that group into one of Grafana's three roles. One
-        # mapping, in notebooks/views.py, rather than one per service.
-        browser.get(f"/{GRAFANA_PATH}/")
-
-        orgs = browser.get(f"/{GRAFANA_PATH}/api/user/orgs")
-
-        assert [org["role"] for org in orgs.json()] == ["Editor"]
+        assert resp.status_code == 200
+        assert str(resp.url).endswith(DASHBOARDS)
 
     def test_signing_out_of_the_admin_panel_shall_reach_the_provider(
         self, single_sign_on, browser
@@ -332,22 +237,9 @@ class TestSigningIn:
         assert resp.status_code == 302
         assert resp.headers["location"].startswith(CRUDMAN_LOGIN)
 
-    def test_signing_out_of_grafana_shall_lead_to_the_admin_panel(self, single_sign_on, browser):
-        # Signing out of Grafana alone would be undone by the next request, which brings
-        # the proxy's headers back. The session that counts is the admin panel's, whose
-        # sign-out is a button, not an address a link could trigger -- so Grafana's
-        # sign-out leads to the admin panel, where that button ends the session and,
-        # with single sign-on on, the provider's. Grafana serves its sign-out on a GET.
-        browser.get(f"/{GRAFANA_PATH}/")
-
-        resp = browser.get(f"/{GRAFANA_PATH}/logout", follow_redirects=False)
-
-        assert resp.status_code == 302
-        assert resp.headers["location"].rstrip("/") == f"/{CRUDMAN_PATH}"
-
     def test_the_local_form_shall_stay_reachable(self, single_sign_on):
         # The way back in for the superuser when the provider is unreachable -- and, the
-        # admin panel's sign-in being everyone's, the way back into Grafana too.
+        # admin panel's sign-in being everyone's, the way back into the notebooks too.
         with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS, trust_env=False,
                           follow_redirects=False, timeout=10) as client:
             crudman = client.get(f"{CRUDMAN_LOGIN}?local")

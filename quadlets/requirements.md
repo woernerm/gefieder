@@ -1,7 +1,7 @@
 # Requirements for deployment, build and installation
 
 The units here describe the whole system to systemd: `main.pod`, one `*.container` per
-service (`postgresql`, `crudman`, `sqlmesh`, `grafana`, `grafana_mcp`, `proxy`, `sftp`, `flight`) and one
+service (`postgresql`, `crudman`, `sqlmesh`, `dashboards`, `jupyter`, `proxy`, `sftp`, `flight`) and one
 `*_data.volume` per volume. They are shipped and installed as one set, so they live in this
 one directory rather than one directory per service. The reasoning behind the choices below
 is in `CLAUDE.md`.
@@ -16,15 +16,17 @@ is in `CLAUDE.md`.
   be readable with `journalctl` on the host by the host user. The proxy's `visits.log` is
   exempt.
 
+# Dashboards
+- The dashboards shall be code in the models repository, deployed with the models by a
+  commit, and read by the person's rank like the rest of the admin panel.
+- Their code shall run apart from the admin panel, as the read-only dashboards role, so
+  code from the models repository never runs where the admin panel's secrets are.
+
 # AI assistant access
-- The system shall expose a Model Context Protocol endpoint through the proxy, so an AI
-  assistant can work the Grafana instance through its API.
-- A caller shall be granted exactly the permissions the person behind it holds in Grafana,
-  and no others: its credential shall be carried through to Grafana, which decides. The
-  server shall therefore hold no Grafana credential of its own, and a call carrying none
-  shall be refused rather than served with a shared account's rights.
-- Which capabilities exist at all shall be a build-time setting, bounding every caller
-  from above regardless of role.
+- Not provided at present: the Model Context Protocol endpoint left with Grafana. A server
+  of its own shall build on the dashboards service's JSON API (`sqlmesh/dashboards_api.py`)
+  and grant a caller exactly the permissions the person behind it holds, never a shared
+  account's.
 
 # Configuration
 - There shall be a `buildtime.env` configuration file for all variables that need to be
@@ -56,7 +58,7 @@ is in `CLAUDE.md`.
 - It shall use separate curl commands for downloading all files related to a github release.
 - It shall create the data volumes up front, so their directories belong to the rootless
   podman user from the start.
-- It shall create podman secrets for the crudman, grafana and django users as well as the
+- It shall create podman secrets for the crudman, sqlmesh and dashboards users as well as the
   django_secret_key, based on `openssl rand -hex 32`. It shall omit the creation of secrets
   for human users such as the superuser.
 - It shall store a helpfile in the rootless podman user's home directory.

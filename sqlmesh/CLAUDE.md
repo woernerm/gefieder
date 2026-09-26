@@ -1,7 +1,7 @@
 # sqlmesh — the analytics engine
 
-SQLMesh transforms raw data into bronze, silver and gold models (DB tables) that Grafana 
-reads. 
+SQLMesh transforms raw data into bronze, silver and gold models (DB tables) that the
+dashboards read.
 
 This folder is not copied into the image. It is the seed of the *models repository*: crudman
 keeps that repository on the `models_data` volume, checks a commit out under `deployed/` and

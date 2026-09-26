@@ -19,19 +19,19 @@ import uuid
 
 import pytest
 
-from conftest import APP_NAME, CRUDMAN_PATH, GRAFANA_PATH, inspect_container
+from conftest import CRUDMAN_PATH, DASHBOARDS, NOTEBOOK_PATH, inspect_container
 
 # The ports the two applications listen on inside the pod, which the proxy forwards to.
 CRUDMAN_PORT = 8000
-GRAFANA_PORT = 3000
+NOTEBOOK_PORT = 8888
 
 # What the stub upstreams answer with, so a response can be attributed to the right one.
 CRUDMAN_BODY = "stub-crudman"
-GRAFANA_BODY = "stub-grafana"
+NOTEBOOK_BODY = "stub-notebook"
 
-# A path on the grafana stub that echoes a WebSocket handshake's headers back. The path
+# A path on the notebook stub that echoes a WebSocket handshake's headers back. The path
 # is passed through unchanged, so the stub answers on the full one.
-UPGRADE_PROBE = f"/{GRAFANA_PATH}/ws-probe"
+UPGRADE_PROBE = f"/{NOTEBOOK_PATH}/ws-probe"
 
 # Where the certificate directory is mounted inside the container, fixed by the image;
 # the host side is CERTIFICATE_PATH's to decide.
@@ -55,8 +55,8 @@ def _stub_upstreams():
     return (
         f'server {{ listen {CRUDMAN_PORT}; '
         f'location / {{ return 200 "{CRUDMAN_BODY}"; }} }}\n'
-        f'server {{ listen {GRAFANA_PORT}; '
-        f'location / {{ return 200 "{GRAFANA_BODY}"; }} '
+        f'server {{ listen {NOTEBOOK_PORT}; '
+        f'location / {{ return 200 "{NOTEBOOK_BODY}"; }} '
         # Echoes back what the proxy forwarded, for the WebSocket test.
         f'location = {UPGRADE_PROBE} '
         f'{{ return 200 "upgrade=[$http_upgrade] connection=[$http_connection]"; }} }}\n'
@@ -126,8 +126,7 @@ def _run_proxy(script, debug, fixtures):
         "set -e",
         "mkdir -p /var/log/app /etc/nginx/conf.d",
         "cp /fixtures/upstreams.conf /etc/nginx/conf.d/upstreams.conf",
-        f"export APP_NAME={APP_NAME} CRUDMAN_PATH={CRUDMAN_PATH}"
-        f" GRAFANA_PATH={GRAFANA_PATH} DEBUG={debug}",
+        f"export CRUDMAN_PATH={CRUDMAN_PATH} NOTEBOOK_PATH={NOTEBOOK_PATH} DEBUG={debug}",
     ]
     if debug != "true":
         setup_steps += [
@@ -137,12 +136,12 @@ def _run_proxy(script, debug, fixtures):
             "reorder_fullchain",
         ]
     setup_steps.append(
-        "envsubst '${APP_NAME} ${CRUDMAN_PATH} ${GRAFANA_PATH}'"
+        "envsubst '${CRUDMAN_PATH} ${NOTEBOOK_PATH}'"
         f" < /etc/nginx/proxy/{template}.conf.template > /etc/nginx/conf.d/default.conf"
     )
     # Both templates include the shared maps and locations fragments.
     setup_steps += [
-        "for f in maps locations; do envsubst '${APP_NAME} ${CRUDMAN_PATH} ${GRAFANA_PATH}'"
+        "for f in maps locations; do envsubst '${CRUDMAN_PATH} ${NOTEBOOK_PATH}'"
         " < /etc/nginx/proxy/$f.conf.template > /etc/nginx/proxy/$f.conf; done"
     ]
     setup = "; ".join(setup_steps)
@@ -586,7 +585,7 @@ class TestRoutingToUpstreams:
 
     @pytest.mark.parametrize("path,expected", [
         (f"/{CRUDMAN_PATH}/", CRUDMAN_BODY),
-        (f"/{GRAFANA_PATH}/", GRAFANA_BODY),
+        (f"/{NOTEBOOK_PATH}/", NOTEBOOK_BODY),
     ])
     def test_each_path_shall_reach_its_own_upstream(self, path, expected, fixtures):
         # Plain HTTP keeps the assertion about routing rather than TLS.
@@ -597,7 +596,7 @@ class TestRoutingToUpstreams:
 
     @pytest.mark.parametrize("destination,expected", [
         ("document", CRUDMAN_BODY),
-        ("iframe", GRAFANA_BODY),
+        ("iframe", NOTEBOOK_BODY),
     ])
     def test_a_page_of_its_own_shall_reach_the_admin_panel_instead(
         self, destination, expected, fixtures
@@ -605,7 +604,7 @@ class TestRoutingToUpstreams:
         """The shell: what goes in the address bar is the admin panel's to answer
         whichever app the path names, what goes in the shell's frame is the app's."""
         args = f"--header 'Sec-Fetch-Dest: {destination}'"
-        result = _run_proxy(_fetch(f"/{GRAFANA_PATH}/", args=args), "true", fixtures)
+        result = _run_proxy(_fetch(f"/{NOTEBOOK_PATH}/", args=args), "true", fixtures)
         assert expected in result.stdout, result.stdout + result.stderr
 
     def test_the_root_shall_redirect_to_the_dashboards(self, fixtures):
@@ -614,29 +613,29 @@ class TestRoutingToUpstreams:
         assert "302" in result.stdout, result.stdout + result.stderr
         # A bare path: nginx would build a URL from the port it listens on inside the pod,
         # sending a client that arrived on any other port where nothing listens.
-        assert f"Location: /{GRAFANA_PATH}/?kiosk" in result.stdout, (
+        assert f"Location: {DASHBOARDS}" in result.stdout, (
             "the redirect is absolute; it drops the port the client is talking to:\n"
             + result.stdout + result.stderr
         )
 
 
 class TestWebSockets:
-    """A WebSocket handshake survives the hop to Grafana.
+    """A WebSocket handshake survives the hop to the notebooks.
 
     Upgrade and Connection are hop-by-hop headers nginx drops unless told otherwise, and
-    its default HTTP/1.0 upstream cannot carry an upgrade at all. Grafana Live then fails
-    while every ordinary page loads, so nothing else here would notice.
+    its default HTTP/1.0 upstream cannot carry an upgrade at all. A kernel then never
+    connects while every ordinary page loads, so nothing else here would notice.
     """
 
-    def test_the_upgrade_headers_shall_reach_grafana(self, fixtures):
+    def test_the_upgrade_headers_shall_reach_the_notebooks(self, fixtures):
         args = "--header 'Upgrade: websocket' --header 'Connection: Upgrade'"
         result = _run_proxy(_fetch(UPGRADE_PROBE, args=args), "true", fixtures)
         assert "upgrade=[websocket]" in result.stdout, (
-            "nginx dropped the Upgrade header; Grafana Live cannot connect:\n"
+            "nginx dropped the Upgrade header; a kernel cannot connect:\n"
             + result.stdout + result.stderr
         )
         assert "connection=[upgrade]" in result.stdout.lower(), (
-            "nginx dropped the Connection: upgrade header; Grafana Live cannot connect:\n"
+            "nginx dropped the Connection: upgrade header; a kernel cannot connect:\n"
             + result.stdout + result.stderr
         )
 

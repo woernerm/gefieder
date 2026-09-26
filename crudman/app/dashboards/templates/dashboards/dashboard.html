@@ -11,8 +11,11 @@
 
 {% block extrahead %}
     {{ block.super }}
+    {# Tabulator's stylesheet first: dashboards.css recolours it. #}
+    <link href="{% static 'dashboards/tabulator.min.css' %}" rel="stylesheet">
     <link href="{% static 'dashboards/dashboards.css' %}" rel="stylesheet">
     <script src="{% static 'docs/echarts.min.js' %}"></script>
+    <script src="{% static 'dashboards/tabulator.min.js' %}"></script>
     <script src="{% static 'dashboards/dashboards.js' %}" defer></script>
 {% endblock %}
 

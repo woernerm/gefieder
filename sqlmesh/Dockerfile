@@ -59,14 +59,19 @@ RUN uv run --project /sqlmesh python -c \
 # and the entrypoint runs whatever is there, so shipping a model is a commit rather than a
 # release, and this image changes only when its dependencies do.
 #
-# What is copied are the three container-side tools, and outside any project directory so
-# that a developer's clone never carries them. The venv installed above is theirs to use:
-# the engine runs "uv run --project /sqlmesh" from inside the checked-out tree, which keeps
-# the interpreter here and the models there.
+# What is copied are the container-side tools, and outside any project directory so that
+# a developer's clone never carries them. The venv installed above is theirs to use: the
+# engine runs "uv run --project /sqlmesh" from inside the checked-out tree, which keeps the
+# interpreter here and the models there.
+#
+# The dashboards service runs from this image too (quadlets/dashboards.container): the
+# dashboards are Python from the models repository, so they run on the models' own
+# dependencies, the ones a notebook has as well.
 #
 # entrypoint.sh is committed executable, so a plain COPY preserves the mode without
 # BuildKit's --chmod.
-COPY sqlmesh/entrypoint.sh sqlmesh/docs_export.py sqlmesh/status.py sqlmesh/preview.py /sqlmesh/
+COPY sqlmesh/entrypoint.sh sqlmesh/docs_export.py sqlmesh/status.py sqlmesh/preview.py \
+     sqlmesh/dashboards.py sqlmesh/dashboards_api.py /sqlmesh/
 
 # On PATH, so "podman exec sqlmesh sqlmesh <command>" reaches the deployed project. The
 # file itself says why the CLI needs help finding it.

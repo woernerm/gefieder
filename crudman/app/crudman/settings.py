@@ -47,9 +47,8 @@ SERVER_NAME = os.environ.get("SERVER_NAME", "localhost")
 # Must match CRUDMAN_PATH of the proxy service and the URL configuration in urls.py.
 CRUDMAN_PATH = os.environ.get("CRUDMAN_PATH", "crudman")
 
-# Where the proxy serves Grafana and the notebooks, from buildtime.env. Neither is served
-# here; the bar below every page links to them (shell/stages.py).
-GRAFANA_PATH = os.environ.get("GRAFANA_PATH", "grafana")
+# Where the proxy serves the notebooks, from buildtime.env. Not served here; the bar below
+# every page links to them (shell/stages.py).
 NOTEBOOK_PATH = os.environ.get("NOTEBOOK_PATH", "jupyter")
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", SERVER_NAME]
@@ -138,6 +137,8 @@ INSTALLED_APPS = [
     'sso.apps.SsoConfig',
     # The SQLMesh model documentation, open from the viewer rank up.
     'docs.apps.DocsConfig',
+    # The dashboards the models repository defines, open from the viewer rank up.
+    'dashboards.apps.DashboardsConfig',
     # What JupyterHub asks who a visitor is; it registers no admin page of its own.
     'notebooks.apps.NotebooksConfig',
     # The bar below every page, and the frame it puts the apps in.
@@ -394,16 +395,16 @@ UNFOLD = {
     # function lives in an app, which cannot be imported while settings are read.
     "ACCOUNT": {"navigation": "dbusers.admin.account_links"},
 
-    # The system's colours, shared with Grafana and the notebooks. Unfold renders these as
-    # --color-* variables into every page, so the values are var() references into the
-    # palette the stylesheet below defines; the palette itself is grafana/palette.css,
-    # copied into this image, and STYLES is how it gets onto the page.
+    # The system's colours, shared with the dashboards and the notebooks. Unfold renders
+    # these as --color-* variables into every page, so the values are var() references into
+    # the palette the stylesheet below defines (system/static/css/palette.css), and STYLES
+    # is how it gets onto the page.
     #
     # "base" is a lightness scale, not a set of roles: Unfold reads base-300 as a light-mode
     # border and as dark-mode text, base-800 as a dark-mode card and as its border. So it
-    # gets the palette's grey ramp, each step the Grafana grey nearest the lightness
-    # Unfold's own step has -- which keeps the contrast between steps its design relies
-    # on, and lands the dark end on Grafana's canvas, panel and raised surface.
+    # gets the palette's grey ramp, each step the grey nearest the lightness Unfold's own
+    # step has -- which keeps the contrast between steps its design relies on, and lands
+    # the dark end on the palette's canvas, panel and raised surface.
     "STYLES": [_palette_url],
     "COLORS": {
         "base": {
@@ -422,7 +423,7 @@ UNFOLD = {
         # The accent, the same way: 600 is the light-mode button, 500 the dark-mode one,
         # 400 a link on a dark ground, and the low steps a tint of it for a selected row's
         # background. The tints are mixed from the accent rather than listed in the
-        # palette, which names no pale blue because Grafana draws none.
+        # palette, which names no pale blue.
         "primary": {
             "50": "color-mix(in srgb, var(--app-light-accent) 6%, white)",
             "100": "color-mix(in srgb, var(--app-light-accent) 12%, white)",

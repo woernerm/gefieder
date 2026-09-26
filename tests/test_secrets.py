@@ -16,7 +16,7 @@ SECRET_VALUES = {
     SECRETS["superuser"]: os.environ["TEST_SUPERUSER_PASSWORD"],
     SECRETS["crudman"]: os.environ["TEST_CRUDMAN_PASSWORD"],
     SECRETS["sqlmesh"]: os.environ["TEST_SQLMESH_PASSWORD"],
-    SECRETS["grafana"]: os.environ["TEST_GRAFANA_PASSWORD"],
+    SECRETS["dashboards"]: os.environ["TEST_DASHBOARDS_PASSWORD"],
 }
 
 # Config values the quadlets legitimately contain in plain text. The dev profile sets the

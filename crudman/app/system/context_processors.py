@@ -7,7 +7,7 @@ def default_theme(request):
 
     Read by the skeleton template, which hands it to Unfold's theme switcher as the
     starting value. Only ever "dark" or "light": anything else in the file falls back to
-    dark, as it does in Grafana and the hub.
+    dark, as it does in the hub.
 
     Args:
         request: The request being rendered, unused.

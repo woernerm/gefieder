@@ -93,13 +93,13 @@ def test_the_dropzone_healthchecks_shall_follow_their_port():
 # --- the ports inside the pod ------------------------------------------------------------
 # Not published, and so not a runtime setting: the containers share one network namespace,
 # which means one set of ports for all of them, and two services claiming the same one fail
-# only at start. That is how the notebook proxy's default (8001) met the Grafana MCP server.
+# only at start. That is how the notebook proxy's default (8001) once met another service.
 
 IN_POD_PORTS = {
     "postgresql": {5432},
     "crudman": {8000},
-    "grafana": {3000},
-    "grafana_mcp": {8001},
+    # The dashboards service, which the admin panel asks on the loopback.
+    "dashboards": {8002},
     # The hub, the server it binds for browsers, and the API of the routing proxy it spawns.
     "jupyter": {8081, 8082, 8888},
     # nginx, which is what the pod publishes.
@@ -116,6 +116,13 @@ def test_no_two_services_shall_claim_the_same_port_in_the_pod():
                 f"{service} and {seen[port]} both listen on {port} inside the pod"
             )
             seen[port] = service
+
+
+def test_the_dashboards_port_shall_be_the_one_configured():
+    """The service, its healthcheck and the admin panel's client name the same port."""
+    for path in ("sqlmesh/dashboards_api.py", "quadlets/dashboards.container",
+                 "crudman/app/dashboards/service.py"):
+        assert "8002" in (REPO / path).read_text(), f"{path} no longer names 8002"
 
 
 def test_the_notebook_ports_shall_be_the_ones_configured():

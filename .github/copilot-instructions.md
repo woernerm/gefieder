@@ -27,7 +27,8 @@
 - There is a django service `crudman` for administration and data entry (CRUD).
 - There is a PostgreSQL service for storing the analytics and django application data.
 - There is a SQLMesh analytics engine for running queries and generating reports.
-- There is a Grafana instance for visualizing the data and reports. 
+- There are dashboards for visualizing the data and reports, written as code beside the
+  models and shown by the django service.
 - There is a proxy service that terminates TLS and routes requests to the services.
 - All services are running in the same network and can communicate with each other.
 - All services have their own data volumes for persistence.
@@ -81,10 +82,10 @@
 - No service shall be *configured* to add a second timestamp of its own. PostgreSQL's
   `log_line_prefix` therefore carries the backend pid alone, with no time escape.
 - Some services format their own timestamp and cannot be told not to (gunicorn, nginx,
-  SQLMesh, Grafana). That is accepted, on one condition: the second stamp must not
+  SQLMesh). That is accepted, on one condition: the second stamp must not
   contradict the first. A stamp that names no zone shall be in the host's, so those
   containers run with `Timezone=local`.
-- Logs of apps like PostgreSQL, Grafana, crudman, sqlmesh shall be accessible by using
+- Logs of apps like PostgreSQL, crudman, sqlmesh shall be accessible by using
   journalctl on the host system by the host user. This rule does not apply to the 
   proxy's `visits.log` file. 
 
@@ -116,14 +117,14 @@
 - The install script shall create the data volumes up front, so their directories belong
   to the rootless podman user from the start rather than to whoever's container writes
   them first. The files *inside* a volume are a different matter: a service that drops to
-  a non-root user in its container (postgresql, grafana) writes them under a mapped
+  a non-root user in its container (postgresql) writes them under a mapped
   subuid, and reading those from the host needs `podman unshare`. That is accepted rather
   than worked around — the alternatives (`UserNS=keep-id`, per-service uidmap juggling)
   break the PostgreSQL image, which insists on running as its own user. The cheat sheet
   and the README shall name the volumes this applies to.
 - The install script shall use separate curl commands for downloading all files related
   to a github release.
-- The install script shall create podman secrets for the crudman, grafana and django
+- The install script shall create podman secrets for the crudman, sqlmesh, dashboards and django
   users as well as the django_secret_key based on `openssl rand -hex 32`. It shall omit 
   the creation of secrets for human users like the superuser. 
 - The install script shall output a cheat sheet with control commands for

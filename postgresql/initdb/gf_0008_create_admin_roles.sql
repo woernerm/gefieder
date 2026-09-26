@@ -47,7 +47,7 @@ $$;
 --
 -- All three ranks read the same things: the medallion layers and the crudman model
 -- tables. What separates them is write access to SQLMesh's working schemas below. The
--- grants mirror grafana's in gf_0005: what a dashboard may read and what a person may read
+-- grants mirror the dashboards' in gf_0005: what a dashboard may read and what a person may read
 -- are one question here.
 --------------------------------------------------------------------
 GRANT USAGE ON SCHEMA ${SILVER_SCHEMA}, ${GOLD_SCHEMA} TO ${ROLE_PREFIX}viewer;
@@ -55,7 +55,7 @@ GRANT SELECT ON ALL TABLES IN SCHEMA ${SILVER_SCHEMA}, ${GOLD_SCHEMA} TO ${ROLE_
 ALTER DEFAULT PRIVILEGES FOR ROLE ${SQLMESH_DB_USER} IN SCHEMA ${SILVER_SCHEMA} GRANT SELECT ON TABLES TO ${ROLE_PREFIX}viewer;
 ALTER DEFAULT PRIVILEGES FOR ROLE ${SQLMESH_DB_USER} IN SCHEMA ${GOLD_SCHEMA} GRANT SELECT ON TABLES TO ${ROLE_PREFIX}viewer;
 
--- Minus the tables holding credentials or secret tokens, as for grafana: Django's own
+-- Minus the tables holding credentials or secret tokens, as for the dashboards: Django's own
 -- auth_/django_ tables and the dropzone table with its upload-link tokens.
 GRANT USAGE ON SCHEMA crudman TO ${ROLE_PREFIX}viewer;
 
@@ -77,7 +77,7 @@ GRANT ${ROLE_PREFIX}editor TO ${ROLE_PREFIX}admin;
 GRANT CREATE ON DATABASE ${PG_DATABASE} TO ${ROLE_PREFIX}editor;
 
 -- SQLMesh's schemas appear on its first plan and whenever a model lands in a new one, so
--- an event trigger grants each as it is created, as gf_0005 does for grafana.
+-- an event trigger grants each as it is created, as gf_0005 does for the dashboards.
 CREATE OR REPLACE FUNCTION grant_developer_write()
 RETURNS event_trigger
 LANGUAGE plpgsql

@@ -20,8 +20,8 @@ RECENT = timedelta(days=7)
 STAMP_EVERY = 60
 """Seconds between two writes for the same person.
 
-Every Grafana panel refresh comes through the proxy's identity check, so without this a
-dashboard refreshing every few seconds would be a row update every few seconds.
+Every panel a dashboard draws is a request of its own, so without this a dashboard
+refreshing itself would be a row update for each of its panels, every time.
 """
 
 

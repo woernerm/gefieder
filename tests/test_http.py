@@ -1,11 +1,10 @@
-"""HTTP routing through the nginx proxy: both apps are reachable and serve assets."""
+"""HTTP routing through the nginx proxy: the apps are reachable and serve assets."""
 import re
 
 import pytest
 
 from conftest import (
-    CRUDMAN_LOGIN, CRUDMAN_PATH, GRAFANA_LOGIN, GRAFANA_PATH,
-    HTTP_BASE_URL, VERIFY_TLS,
+    CRUDMAN_LOGIN, CRUDMAN_PATH, DASHBOARDS, HTTP_BASE_URL, NOTEBOOK_PATH, VERIFY_TLS,
 )
 
 import httpx
@@ -14,7 +13,7 @@ import httpx
 class TestRouting:
     """The proxy routes requests to the right application."""
 
-    @pytest.mark.parametrize("path", [CRUDMAN_LOGIN, GRAFANA_LOGIN])
+    @pytest.mark.parametrize("path", [CRUDMAN_LOGIN, f"/{NOTEBOOK_PATH}/hub/login"])
     def test_all_apps_shall_be_reachable_through_the_proxy(self, http_follow, path):
         assert http_follow.get(path).status_code == 200
 
@@ -23,13 +22,13 @@ class TestRouting:
         assert resp.status_code in (301, 302)
         # The Location has to be the bare path: nginx builds an absolute URL from the
         # port it listens on inside the pod, not the one the request came in on.
-        assert resp.headers["location"] == f"/{GRAFANA_PATH}/?kiosk", (
+        assert resp.headers["location"] == DASHBOARDS, (
             "the redirect is absolute; it drops the port the client is talking to"
         )
 
 
 class TestStaticFiles:
-    """Both applications serve their static assets through the proxy."""
+    """The admin panel serves its static assets through the proxy."""
 
     def test_crudman_static_files_shall_be_served(self, http_follow):
         # A real hashed asset the login page references.
@@ -39,16 +38,6 @@ class TestStaticFiles:
         resp = http_follow.get(match.group(0))
         assert resp.status_code == 200
         assert "text/css" in resp.headers["content-type"]
-
-    def test_grafana_static_files_shall_be_served(self, http):
-        # Grafana's assets are served to anyone, signed in or not: the proxy exempts
-        # /public/ from the identity check so a page load is not one subrequest per
-        # script. The bundle names change between releases, so this asks for one file
-        # Grafana always ships; what is under test is the proxy serving it without a
-        # session.
-        resp = http.get(f"/{GRAFANA_PATH}/public/img/grafana_icon.svg")
-        assert resp.status_code == 200
-        assert "svg" in resp.headers["content-type"]
 
 
 class TestTransportSecurity:

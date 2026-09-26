@@ -1,9 +1,9 @@
-# The nginx reverse proxy serving the admin panel and Grafana under SERVER_NAME. The
+# The nginx reverse proxy serving the admin panel and the notebooks under SERVER_NAME. The
 # config is baked into the image, and the entrypoint picks plain HTTP or HTTPS from DEBUG.
 # The certificate is the only host-local piece, bind-mounted from CERTIFICATE_PATH.
 [Unit]
 Description=${APP_NAME} nginx reverse proxy
-After=crudman.service grafana.service
+After=crudman.service jupyter.service
 
 [Container]
 ContainerName=proxy
@@ -20,11 +20,7 @@ Timezone=local
 # SERVER_NAME and DEBUG come from runtime.env, and the entrypoint picks its template once
 # at startup. See crudman.container on why the file must exist.
 EnvironmentFile=%h/.config/${APP_NAME}/runtime.env
-# Only for the data-source uid the templates substitute; see locations.conf.template.
-Environment=APP_NAME=${APP_NAME}
 Environment=CRUDMAN_PATH=${CRUDMAN_PATH}
-Environment=GRAFANA_PATH=${GRAFANA_PATH}
-Environment=MCP_PATH=${MCP_PATH}
 Environment=NOTEBOOK_PATH=${NOTEBOOK_PATH}
 # The certificate directory as it looks on the host, for the entrypoint's message when one
 # is missing: inside the container only the mount point is visible. systemd resolves "%h".
@@ -36,7 +32,7 @@ Volume=${CERTIFICATE_PATH}:/etc/nginx/proxy/certs:ro,z
 Volume=proxy_data.volume:/var/log/app:z
 # A real page rather than the process: an unreachable upstream leaves the master running
 # while every request is reset. The redirect at "/" is served by the proxy itself, so this
-# needs neither crudman nor grafana up.
+# needs neither crudman nor the notebooks up.
 HealthCmd=wget -q --spider http://127.0.0.1/ || wget -q --spider --no-check-certificate https://127.0.0.1/
 HealthInterval=10s
 HealthTimeout=5s

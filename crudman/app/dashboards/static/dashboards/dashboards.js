@@ -90,56 +90,31 @@ const Dashboards = (() => {
     new ResizeObserver(() => echarts.getInstanceByDom(box)?.resize()).observe(box);
   }
 
+  // Tabulator: sorted by a click on a heading, filtered by typing under it. Fields are named
+  // by position, a column's own name possibly holding a dot, which Tabulator reads as a path.
   function table(element, { columns, rows, total, unit }) {
     const format = formatter(unit);
     const numeric = columns.map((_, i) => rows.some((row) => typeof row[i] === "number"));
-    const filters = columns.map(() => "");
-    let sortBy = null;
-    let descending = false;
-
-    const wrap = element.appendChild(document.createElement("div"));
-    wrap.className = "dashboards-table";
-    const grid = wrap.appendChild(document.createElement("table"));
-    const head = grid.createTHead();
-    const body = grid.createTBody();
-
-    const titles = head.insertRow();
-    const inputs = head.insertRow();
-    columns.forEach((column, i) => {
-      const th = titles.appendChild(document.createElement("th"));
-      th.textContent = column;
-      th.title = "Sort";
-      th.addEventListener("click", () => {
-        descending = sortBy === i ? !descending : numeric[i];
-        sortBy = i;
-        fill();
-      });
-      const input = inputs.appendChild(document.createElement("th")).appendChild(document.createElement("input"));
-      input.placeholder = "Filter";
-      input.addEventListener("input", () => { filters[i] = input.value.toLowerCase(); fill(); });
+    new Tabulator(element.appendChild(document.createElement("div")), {
+      data: rows.map((row) => Object.fromEntries(row.map((value, i) => [`c${i}`, value]))),
+      columns: columns.map((title, i) => ({
+        title,
+        field: `c${i}`,
+        headerFilter: "input",
+        headerFilterPlaceholder: "Filter",
+        sorter: numeric[i] ? "number" : "alphanum",
+        hozAlign: numeric[i] ? "right" : "left",
+        // Text is set as text; only the number, formatted here, is written as markup.
+        formatter: numeric[i] ? (cell) => format(cell.getValue()) : "plaintext",
+        tooltip: true,
+        // A long text -- a query, a description -- is cut at this and shown in full on
+        // hover, rather than widening the table past the page.
+        maxInitialWidth: 480,
+      })),
+      layout: "fitDataStretch",
+      maxHeight: "26rem",
+      placeholder: "No rows",
     });
-
-    function fill() {
-      const shown = rows.filter((row) =>
-        filters.every((text, i) => !text || String(row[i] ?? "").toLowerCase().includes(text)));
-      if (sortBy !== null) {
-        const sign = descending ? -1 : 1;
-        shown.sort((a, b) => sign * (a[sortBy] ?? "").toString().localeCompare(
-          (b[sortBy] ?? "").toString(), undefined, { numeric: true }));
-      }
-      body.replaceChildren(...shown.map((row) => {
-        const tr = document.createElement("tr");
-        row.forEach((value, i) => {
-          const td = tr.insertCell();
-          td.textContent = numeric[i] ? format(value) : value ?? "";
-          td.title = td.textContent;
-          if (numeric[i]) td.className = "number";
-        });
-        return tr;
-      }));
-    }
-    fill();
-
     if (total > rows.length) {
       const note = element.appendChild(document.createElement("p"));
       note.className = "dashboards-note";

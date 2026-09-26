@@ -1,7 +1,7 @@
 """The SQLMesh analytics pipeline produces data for every example project, end to end.
 
 run-tests.sh seeds a fresh stack with the three example projects and lets SQLMesh backfill
-bronze -> silver -> gold. These tests read the result as the read-only grafana role, the
+bronze -> silver -> gold. These tests read the result as the read-only dashboards role, the
 consumer of gold.
 
 project_c's bronze layer is a polars Python model rather than a SQL transform, so a
@@ -26,7 +26,7 @@ EXAMPLE_PROJECTS = {"project_a", "project_b", "project_c"}
 
 
 @pytest.fixture(scope="module", autouse=True)
-def wait_for_backfill(grafana_db):
+def wait_for_backfill(dashboards_db):
     """Block until the first SQLMesh plan has backfilled the tables asserted below.
 
     wait_for_stack waits only for the sqlmesh *state* schema, created at the start of the
@@ -37,7 +37,7 @@ def wait_for_backfill(grafana_db):
     deadline = time.time() + 180
     while True:
         try:
-            with grafana_db.cursor() as cur:
+            with dashboards_db.cursor() as cur:
                 filled = 0
                 for table in tables:
                     cur.execute("SELECT to_regclass(%s)", (table,))
@@ -67,27 +67,27 @@ def projects_in(conn, table):
 
 
 class TestAnalyticsPipeline:
-    def test_gold_has_all_example_projects(self, grafana_db):
+    def test_gold_has_all_example_projects(self, dashboards_db):
         # gold is the precomputed layer dashboards read, so it must carry a row per
         # project. Catches the polars bronze model dropping out of the pipeline.
-        present = projects_in(grafana_db, f"{GOLD_SCHEMA}.issue_metrics")
+        present = projects_in(dashboards_db, f"{GOLD_SCHEMA}.issue_metrics")
         assert EXAMPLE_PROJECTS <= present, (
             f"{GOLD_SCHEMA}.issue_metrics is missing projects: {EXAMPLE_PROJECTS - present}"
         )
 
-    def test_silver_has_all_example_projects(self, grafana_db):
+    def test_silver_has_all_example_projects(self, dashboards_db):
         # silver is where the per-project transforms are unioned, so this pins a failure
         # above to the union rather than to the gold aggregation.
-        present = projects_in(grafana_db, f"{SILVER_SCHEMA}.issues")
+        present = projects_in(dashboards_db, f"{SILVER_SCHEMA}.issues")
         assert EXAMPLE_PROJECTS <= present, (
             f"{SILVER_SCHEMA}.issues is missing projects: {EXAMPLE_PROJECTS - present}"
         )
 
-    def test_project_c_metrics_are_correct(self, grafana_db):
+    def test_project_c_metrics_are_correct(self, dashboards_db):
         # Entirely from the polars transform decoding seeds/project_c_issues.csv: five
         # issues, the two "resolved" ones mapped to closed, effort summed from "weight".
         # The exact values prove the harmonization ran, not just that rows arrived.
-        with grafana_db.cursor() as cur:
+        with dashboards_db.cursor() as cur:
             cur.execute(
                 """
                 SELECT total_issues, open_issues, closed_issues, total_effort
@@ -102,13 +102,13 @@ class TestAnalyticsPipeline:
             "project_c metrics do not match the seed decoded by the polars transform"
         )
 
-    def test_issue_risk_history_is_a_history_of_changes(self, grafana_db):
+    def test_issue_risk_history_is_a_history_of_changes(self, dashboards_db):
         # The @temporal_join example: project_a's issue history joined with each issue's
         # component history. Its output is not a row per input row, so it is asserted
         # whole. Two component changes are deliberately absent -- C-PWR on the 12th, while
         # PA-1 is still on C-NAV, and C-PWR on the 20th, reclassified to what it already
         # was -- while PA-4's reopening on the 14th is deliberately there.
-        with grafana_db.cursor() as cur:
+        with dashboards_db.cursor() as cur:
             cur.execute(
                 """
                 SELECT issue_id, valid_from, state, effort, component_id, safety_class, owner
@@ -135,14 +135,14 @@ class TestAnalyticsPipeline:
             ("PA-4", "2026-06-16", "todo", 1, "C-NAV", "C", "Navigation"),
         ]
 
-    def test_issue_risk_history_is_built_by_the_duckdb_gateway_too(self, grafana_db):
+    def test_issue_risk_history_is_built_by_the_duckdb_gateway_too(self, dashboards_db):
         # project_b's half is built by the same macro on the DuckDB gateway, which
         # attaches this database as its only catalog: DuckDB computes, PostgreSQL stores.
-        # So these rows, read back as the grafana role, prove the gateway end to end.
+        # So these rows, read back as the dashboards role, prove the gateway end to end.
         #
         # Two of A-DATA's changes are deliberately absent: the one on the 12th happens
         # while 2001 is still on A-API, and the one on the 20th changed nothing.
-        with grafana_db.cursor() as cur:
+        with dashboards_db.cursor() as cur:
             cur.execute(
                 """
                 SELECT issue_id, valid_from, state, effort, component_id, safety_class, owner

@@ -47,12 +47,11 @@ fi
 trap 'rm -rf "$WORK"' EXIT
 
 # Keep in sync with the workflow's matrix and the quadlets/ directory.
-IMAGES="postgresql crudman sqlmesh proxy grafana grafana_mcp jupyter"
+IMAGES="postgresql crudman sqlmesh proxy jupyter"
 QUADLETS="main.pod postgresql.container crudman.container sftp.container \
-  flight.container sqlmesh.container grafana.container grafana_mcp.container \
+  flight.container sqlmesh.container dashboards.container \
   jupyter.container proxy.container \
-  postgresql_data.volume \
-  grafana_data.volume sftp_data.volume \
+  postgresql_data.volume sftp_data.volume \
   proxy_data.volume uploads_data.volume models_data.volume jupyter_data.volume"
 
 # --- progress reporting ---------------------------------------------------------------
@@ -102,7 +101,7 @@ fi
 # --- images: download each tarball with its own curl, then load it --------------------
 step "Downloading the release from ${BASE}"
 curl -fsSL "${BASE}/manifest.env" -o "${WORK}/manifest.env"
-. "${WORK}/manifest.env"   # APP_NAME, SUPERUSER_NAME, CRUDMAN_PATH, GRAFANA_PATH, ...
+. "${WORK}/manifest.env"   # APP_NAME, SUPERUSER_NAME, CRUDMAN_PATH, NOTEBOOK_PATH, ...
 
 # --- runtime configuration -------------------------------------------------------------
 # The quadlets read this through EnvironmentFile=, and the installer needs SERVER_NAME and
@@ -299,12 +298,11 @@ install -m 0755 "${WORK}/collect.sh" "$APP_CONFIG_DIR/serverstats/collect.sh"
 
 # --- create the volumes up front so we own their directories --------------------------
 # Created here rather than at first container start, so the directories belong to the
-# rootless user. The files inside do not always: postgresql and grafana write as a
-# container user mapped to a subuid, so reading those from the host needs `podman unshare`.
+# rootless user. The files inside do not always: postgresql writes as a container user
+# mapped to a subuid, so reading those from the host needs `podman unshare`.
 # Owning them too would need UserNS=keep-id, which the PostgreSQL image does not survive.
 step "Creating data volumes"
-VOLUMES="postgresql_data grafana_data sftp_data proxy_data uploads_data models_data \
-  jupyter_data"
+VOLUMES="postgresql_data sftp_data proxy_data uploads_data models_data jupyter_data"
 for vol in $VOLUMES; do
   podman volume exists "$vol" || podman volume create "$vol" >/dev/null
 done
@@ -343,7 +341,7 @@ step "Creating secrets"
 create_secret "$SECRET_DJANGO_KEY"       "$(openssl rand -hex 32)"
 create_secret "$SECRET_CRUDMAN_PASSWORD" "$(openssl rand -hex 32)"
 create_secret "$SECRET_SQLMESH_PASSWORD" "$(openssl rand -hex 32)"
-create_secret "$SECRET_GRAFANA_PASSWORD" "$(openssl rand -hex 32)"
+create_secret "$SECRET_DASHBOARDS_PASSWORD" "$(openssl rand -hex 32)"
 create_secret "$SECRET_JUPYTER"          "$(openssl rand -hex 32)"
 create_secret "$SECRET_PG_SUPERUSER_PASSWORD" "$(openssl rand -hex 32)"
 
@@ -435,7 +433,7 @@ for u in $QUADLETS; do
   esac
 done
 
-UNITS="postgresql crudman sftp flight sqlmesh grafana grafana_mcp jupyter proxy"
+UNITS="postgresql crudman sftp flight sqlmesh dashboards jupyter proxy"
 stack_start="$(date +%s)"
 if systemctl --user restart main-pod.service 2>/dev/null; then
   for u in $UNITS; do
@@ -496,7 +494,7 @@ if systemctl --user restart main-pod.service 2>/dev/null; then
   served=true
   # An empty value would make --resolve malformed and turn this into a false alarm.
   probe_host="${SERVER_NAME:-localhost}"
-  for app in "${CRUDMAN_PATH}" "${GRAFANA_PATH}"; do
+  for app in "${CRUDMAN_PATH}" "${NOTEBOOK_PATH}"; do
     if code="$(curl -s --insecure -o /dev/null -w '%{http_code}' --max-time 10 \
                  --retry 5 --retry-delay 1 --retry-connrefused \
                  --resolve "${probe_host}:443:127.0.0.1" \
@@ -555,7 +553,7 @@ ${APP_NAME} Cheat sheet
                 under Database access; the password is shown at your next sign-in.
 
 ${PORT_SECTION}Follow the combined live log of all components:
-  journalctl --user -f -u main-pod -u postgresql -u crudman -u sftp -u flight -u sqlmesh -u grafana -u proxy
+  journalctl --user -f -u main-pod -u postgresql -u crudman -u sftp -u flight -u sqlmesh -u dashboards -u jupyter -u proxy
 
 Shut the system down:
   systemctl --user stop main-pod.service
@@ -571,14 +569,13 @@ Run a database backup now:
 
 Volume paths (cd into them to inspect data):
   postgresql: $(podman volume inspect postgresql_data -f '{{.Mountpoint}}')
-  grafana:    $(podman volume inspect grafana_data -f '{{.Mountpoint}}')
   proxy:      $(podman volume inspect proxy_data -f '{{.Mountpoint}}')
   sftp:       $(podman volume inspect sftp_data -f '{{.Mountpoint}}')
   uploads:    $(podman volume inspect uploads_data -f '{{.Mountpoint}}')
   models:     $(podman volume inspect models_data -f '{{.Mountpoint}}')
 
-The postgresql and grafana volumes are written by a user inside the container, so
-reading their contents from the host needs: podman unshare ls <path>
+The postgresql volume is written by a user inside the container, so reading its contents
+from the host needs: podman unshare ls <path>
 
 Edit the runtime configuration (SERVER_NAME, DEBUG, the published ports, single sign-on).
 The services read it when they start, so restart them to pick a change up:

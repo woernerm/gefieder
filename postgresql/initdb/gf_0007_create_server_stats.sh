@@ -19,7 +19,7 @@ set -e
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
   -v schema="$SERVER_STATS_SCHEMA" <<'SQL'
 -- The schema is owned by the superuser (the init connection); the collector writes to it
--- as the superuser too, so no extra write role is needed. grafana gets read access below.
+-- as the superuser too, so no extra write role is needed. The dashboards get read access below.
 CREATE SCHEMA IF NOT EXISTS :"schema";
 
 --------------------------------------------------------------------------------
@@ -110,8 +110,8 @@ CREATE TABLE IF NOT EXISTS :"schema".table_sample (
 -- Dashboard/page visits: who looked at which dashboard, and when.
 --------------------------------------------------------------------------------
 -- One row per page navigation, drained from the proxy's filtered visit log, which already
--- discards API, asset and non-GET noise. dashboard_uid is the Grafana dashboard id parsed
--- out of /<grafana>/d/<uid>/<slug>, NULL for crudman. session_hash is a hash of the
+-- discards asset, htmx and non-GET noise. dashboard_uid is the dashboard's name, parsed
+-- out of /<crudman>/dashboards/<name>/, NULL for any other page. session_hash is a hash of the
 -- session cookie, never the cookie, so sessions can be counted and dwell time estimated
 -- without storing anything that identifies a person.
 CREATE TABLE IF NOT EXISTS :"schema".dashboard_visit (
@@ -242,9 +242,9 @@ END;
 $$;
 
 --------------------------------------------------------------------------------
--- Read access for grafana so the display layer (added later) can chart the data.
+-- Read access for the dashboards, which chart the data.
 --------------------------------------------------------------------------------
-GRANT USAGE ON SCHEMA :"schema" TO ${GRAFANA_DB_USER};
-GRANT SELECT ON ALL TABLES IN SCHEMA :"schema" TO ${GRAFANA_DB_USER};
-ALTER DEFAULT PRIVILEGES IN SCHEMA :"schema" GRANT SELECT ON TABLES TO ${GRAFANA_DB_USER};
+GRANT USAGE ON SCHEMA :"schema" TO ${DASHBOARDS_DB_USER};
+GRANT SELECT ON ALL TABLES IN SCHEMA :"schema" TO ${DASHBOARDS_DB_USER};
+ALTER DEFAULT PRIVILEGES IN SCHEMA :"schema" GRANT SELECT ON TABLES TO ${DASHBOARDS_DB_USER};
 SQL

@@ -70,7 +70,7 @@ AS $$
     SELECT EXISTS (
         SELECT 1 FROM pg_roles
         WHERE rolname = role_name
-          AND (rolsuper OR rolname IN ('${CRUDMAN_DB_USER}', '${SQLMESH_DB_USER}', '${GRAFANA_DB_USER}'))
+          AND (rolsuper OR rolname IN ('${CRUDMAN_DB_USER}', '${SQLMESH_DB_USER}', '${DASHBOARDS_DB_USER}'))
     );
 $$;
 

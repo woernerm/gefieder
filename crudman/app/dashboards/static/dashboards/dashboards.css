@@ -7,6 +7,7 @@
     --dashboards-line: var(--app-light-border-0);
     --dashboards-panel: var(--app-light-bg-1);
     --dashboards-raised: var(--app-light-bg-2);
+    --dashboards-hover: var(--app-light-hover);
     --dashboards-error: var(--app-light-error-text);
 }
 
@@ -16,6 +17,7 @@ html.dark, [data-jp-theme-light="false"] {
     --dashboards-line: var(--app-dark-border-0);
     --dashboards-panel: var(--app-dark-bg-1);
     --dashboards-raised: var(--app-dark-bg-2);
+    --dashboards-hover: var(--app-dark-hover);
     --dashboards-error: var(--app-dark-error-text);
 }
 
@@ -51,28 +53,60 @@ html.dark, [data-jp-theme-light="false"] {
 .dashboards-note { color: var(--dashboards-muted); font-size: .75rem; }
 .dashboards-error { color: var(--dashboards-error); white-space: pre-wrap; }
 
-.dashboards-table { max-height: 26rem; overflow: auto; }
-.dashboards-table table { border-collapse: collapse; font-size: .8125rem; width: 100%; }
-.dashboards-table th, .dashboards-table td {
-    border-bottom: 1px solid var(--dashboards-line);
-    max-width: 32rem;
-    overflow: hidden;
-    padding: .25rem .5rem;
-    text-align: left;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+/* Tabulator, recoloured: its stylesheet names light greys throughout, so every colour it
+   draws is taken back to the palette here -- in both modes, through the variables above.
+   Prefixed with .dashboards-panel to outweigh its selectors; the sort arrow's are the one
+   place that takes !important, Tabulator spelling them out once per sort state. */
+.dashboards-panel .tabulator {
+    background: transparent;
+    border: 0;
+    color: var(--dashboards-text);
+    font-size: .8125rem;
 }
-.dashboards-table thead { background: var(--dashboards-panel); position: sticky; top: 0; }
-.dashboards-table thead tr:first-child th { cursor: pointer; }
-.dashboards-table td.number { font-variant-numeric: tabular-nums; text-align: right; }
-.dashboards-table input {
+.dashboards-panel .tabulator .tabulator-header,
+.dashboards-panel .tabulator .tabulator-header .tabulator-col {
+    background: var(--dashboards-panel);
+    border-color: var(--dashboards-line);
+    color: var(--dashboards-text);
+    font-weight: 600;
+}
+.dashboards-panel .tabulator .tabulator-header .tabulator-col { border-right: 0; }
+.dashboards-panel .tabulator .tabulator-header .tabulator-col.tabulator-sortable:hover {
+    background: var(--dashboards-hover);
+}
+.dashboards-panel .tabulator .tabulator-col .tabulator-arrow {
+    border-bottom-color: var(--dashboards-line) !important;
+    border-top-color: var(--dashboards-line) !important;
+}
+.dashboards-panel .tabulator .tabulator-col[aria-sort=ascending] .tabulator-arrow,
+.dashboards-panel .tabulator .tabulator-col[aria-sort=descending] .tabulator-arrow {
+    border-bottom-color: var(--dashboards-text) !important;
+    border-top-color: var(--dashboards-text) !important;
+}
+.dashboards-panel .tabulator .tabulator-header .tabulator-header-filter input {
     background: transparent;
     border: 1px solid var(--dashboards-line);
     border-radius: 4px;
     color: inherit;
     font-weight: normal;
     padding: 0 .25rem;
-    width: 100%;
+}
+.dashboards-panel .tabulator .tabulator-tableholder .tabulator-table,
+.dashboards-panel .tabulator .tabulator-row,
+.dashboards-panel .tabulator .tabulator-row.tabulator-row-even {
+    background: transparent;
+    color: inherit;
+}
+.dashboards-panel .tabulator .tabulator-row { border-bottom: 1px solid var(--dashboards-line); }
+.dashboards-panel .tabulator .tabulator-row:hover { background: var(--dashboards-hover); }
+.dashboards-panel .tabulator .tabulator-row .tabulator-cell {
+    border-right: 0;
+    font-variant-numeric: tabular-nums;
+}
+.dashboards-panel .tabulator .tabulator-placeholder-contents { color: var(--dashboards-muted); }
+/* The browser draws the table's scrollbar itself, light unless told the page is dark. */
+html.dark .dashboards-panel .tabulator, [data-jp-theme-light="false"] .dashboards-panel .tabulator {
+    color-scheme: dark;
 }
 
 /* The filters above a dashboard. */
@@ -87,4 +121,4 @@ html.dark, [data-jp-theme-light="false"] {
 }
 
 /* A panel still asking for its data. */
-.htmx-request .dashboards-chart, .htmx-request .dashboards-table, .htmx-request .dashboards-stat { opacity: .5; }
+.htmx-request .dashboards-chart, .htmx-request .tabulator, .htmx-request .dashboards-stat { opacity: .5; }

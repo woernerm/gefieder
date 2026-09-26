@@ -1,11 +1,12 @@
-"""The three applications are themed from one palette and one default, in step.
+"""The applications are themed from one palette and one default, in step.
 
-grafana/palette.css holds the colours every application is drawn in; the admin and the
-notebook images copy it in at build time, and each maps its framework's variables onto it.
-DEFAULT_THEME in runtime.env picks the mode a browser starts in, and reaches Grafana, the
-admin panel and the hub by three different routes. Nothing fails loudly when one copy
-lags: a missing COPY is a stylesheet whose @import answers 404, and a container without
-EnvironmentFile= starts fine in the built-in default.
+The admin panel's css/palette.css holds the colours every application is drawn in; the
+notebook image copies it in at build time, and each maps its framework's variables onto it
+-- the dashboards' stylesheet among them, in a notebook as on a dashboard. DEFAULT_THEME in
+runtime.env picks the mode a browser starts in, and reaches the admin panel and the hub by
+two different routes. Nothing fails loudly when one copy lags: a missing COPY is a
+stylesheet whose @import answers 404, and a container without EnvironmentFile= starts fine
+in the built-in default.
 
 These read the sources rather than the built images, as tests/test_build_args.py does.
 """
@@ -13,20 +14,21 @@ import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-PALETTE = REPO / "grafana" / "palette.css"
+PALETTE = REPO / "crudman/app/system/static/css/palette.css"
 
-# Every Dockerfile that themes its image from the palette.
-CONSUMERS = ["crudman/Dockerfile", "jupyter/Dockerfile"]
+# Every Dockerfile that copies the palette into an image of its own.
+CONSUMERS = ["jupyter/Dockerfile"]
 
 # Every file that maps a framework's variables onto the palette's.
 ADAPTERS = [
     "jupyter/custom/custom.css",
     "jupyter/templates/page.html",
     "crudman/app/crudman/settings.py",
+    "crudman/app/dashboards/static/dashboards/dashboards.css",
 ]
 
 # Every quadlet whose container reads DEFAULT_THEME.
-THEMED_CONTAINERS = ["grafana", "crudman", "jupyter"]
+THEMED_CONTAINERS = ["crudman", "jupyter"]
 
 # The bar below every page, whose switch carries a choice into each app's own store.
 SHELL = REPO / "crudman/app/shell/templates/shell/shell.html"
@@ -48,8 +50,8 @@ def test_the_palette_names_both_modes_alike():
 def test_every_consumer_copies_the_palette():
     for dockerfile in CONSUMERS:
         text = (REPO / dockerfile).read_text()
-        assert re.search(r"^COPY\s+.*grafana/palette\.css", text, re.MULTILINE), (
-            f"{dockerfile} does not copy grafana/palette.css"
+        assert re.search(r"^\s*(COPY\s+)?.*static/css/palette\.css", text, re.MULTILINE), (
+            f"{dockerfile} does not copy the palette"
         )
 
 
@@ -90,3 +92,11 @@ def test_the_bars_switch_names_what_the_apps_read():
     assert key in shell
     names = re.findall(r'THEME_NAME="([^"]+)"', (REPO / "jupyter/entrypoint.sh").read_text())
     assert names and all(name in shell for name in names)
+
+
+def test_the_charts_draw_in_the_palettes_series_colours():
+    """dashboards.js reads the series colours off the page, where only the palette puts
+    them; a rename leaves every chart in ECharts' own colours."""
+    script = (REPO / "crudman/app/dashboards/static/dashboards/dashboards.js").read_text()
+    assert '"--app-series"' in script
+    assert "--app-series" in palette_variables()

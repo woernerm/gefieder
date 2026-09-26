@@ -1,7 +1,7 @@
 """The stack starts cleanly: every container runs, healthchecks pass, nothing loops.
 
 Asserted positively -- containers reach running and healthy, none restarts -- rather than
-by grepping logs for "error", which the database, Grafana and Django all emit harmlessly.
+by grepping logs for "error", which the database and Django both emit harmlessly.
 """
 import time
 

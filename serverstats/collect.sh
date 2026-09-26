@@ -278,12 +278,12 @@ SELECT
     (j->>'ts')::timestamptz,
     j->>'app',
     j->>'path',
-    -- The Grafana dashboard uid is the path segment after /d/ or /d-solo/; NULL otherwise.
-    substring(j->>'path' FROM '/d(?:-solo)?/([^/]+)'),
+    -- The dashboard's name is the path segment after /dashboards/; NULL for any other page.
+    substring(j->>'path' FROM '^/[^/]+/dashboards/([^/]+)/'),
     -- Prefer the original client behind a forwarding proxy, else the direct peer.
     coalesce(nullif(split_part(j->>'xff', ',', 1), ''), j->>'ip'),
-    -- Hash whichever session cookie is present; never store the cookie itself.
-    md5(coalesce(nullif(j->>'grafana_session',''), nullif(j->>'crudman_session',''), '')),
+    -- Hash the session cookie; never store the cookie itself.
+    md5(coalesce(j->>'crudman_session', '')),
     nullif(j->>'status','')::int,
     j->>'ua'
 -- Keep only lines that parse as JSON, so a single malformed line (e.g. one the proxy

@@ -111,8 +111,7 @@ create_service_secrets
 create_secret "$SECRET_SUPERUSER_PASSWORD" "$SUPERUSER_DEFAULT_PASSWORD"
 create_secret "$SECRET_PG_SUPERUSER_PASSWORD" "$SUPERUSER_DEFAULT_PASSWORD"
 
-# Isolated host ports, so a stack on the default ports is undisturbed. Grafana is not
-# among them: the suite reaches it through the proxy, as a browser does.
+# Isolated host ports, so a stack on the default ports is undisturbed.
 HTTP_PORT=18080
 HTTPS_PORT=18443
 PG_PORT=15432
@@ -145,7 +144,7 @@ for svc in $SERVICES; do
 done
 
 # The suite connects as each role to check its access boundary.
-GRAFANA_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_GRAFANA_PASSWORD")"
+DASHBOARDS_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_DASHBOARDS_PASSWORD")"
 SUPERUSER_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_SUPERUSER_PASSWORD")"
 PG_SUPERUSER_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_PG_SUPERUSER_PASSWORD")"
 CRUDMAN_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_CRUDMAN_PASSWORD")"
@@ -171,11 +170,12 @@ QUADLET_DIR="$HOME/.config/containers/systemd"
 SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 mkdir -p "$QUADLET_DIR"
 
-UNITS="postgresql crudman sftp flight sqlmesh grafana grafana_mcp jupyter proxy"
+UNITS="postgresql crudman sftp flight sqlmesh dashboards jupyter proxy"
 # The volumes the current deployment uses, plus crudman_data/sqlmesh_data, which held the
-# logs that now go to journald and linger on an older installation.
-VOLUMES="postgresql_data grafana_data sftp_data proxy_data uploads_data models_data \
-  jupyter_data crudman_data sqlmesh_data"
+# logs that now go to journald, and grafana_data, which held the dashboards before they
+# became code -- all three linger on an older installation.
+VOLUMES="postgresql_data sftp_data proxy_data uploads_data models_data jupyter_data \
+  crudman_data sqlmesh_data grafana_data"
 
 # Stop the services and drop the pod, volumes and unit files. Shared by our own teardown
 # and by the removal of a pre-existing deployment, both living under the same names.
@@ -227,9 +227,8 @@ if [ -e "$QUADLET_DIR/main.pod" ]; then
   esac
 fi
 
-# As the release workflow does: only the known tokens, so nginx's $host and Grafana's
-# %(domain)s survive.
-VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${NOTEBOOK_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${PG_SUPERUSER_ROLE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_USER_PREFIX} ${ROLE_PREFIX} ${SECRET_SUPERUSER_PASSWORD} ${SECRET_PG_SUPERUSER_PASSWORD} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD} ${SECRET_DJANGO_KEY} ${SECRET_OIDC_CLIENT} ${SECRET_JUPYTER} ${REPO_MODELS}'
+# As the release workflow does: only the known tokens, so nginx's $host survives.
+VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${NOTEBOOK_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${PG_SUPERUSER_ROLE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DASHBOARDS_DB_USER} ${DB_USER_PREFIX} ${ROLE_PREFIX} ${SECRET_SUPERUSER_PASSWORD} ${SECRET_PG_SUPERUSER_PASSWORD} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_DASHBOARDS_PASSWORD} ${SECRET_DJANGO_KEY} ${SECRET_OIDC_CLIENT} ${SECRET_JUPYTER} ${REPO_MODELS}'
 for f in quadlets/*; do
   envsubst "$VARS" < "$f" > "$QUADLET_DIR/$(basename "$f")"
 done
@@ -241,12 +240,6 @@ done
 # One line is added, for the stand-in identity provider no deployment has. Appended after
 # the [Pod] header, a PublishPort under [Service] being silently ignored.
 sed -i "/^\[Pod\]/a PublishPort=${OIDC_PORT}:${OIDC_PORT}" "$QUADLET_DIR/main.pod"
-
-# Grafana builds its absolute URLs from root_url rather than from the request, so a
-# non-standard port has to be spelled out -- the step the README asks a custom-port
-# installation to take. No container can see the port it is published on.
-sed -i "/^Environment=GF_SERVER_SERVE_FROM_SUB_PATH=/i Environment=GF_SERVER_ROOT_URL=${SCHEME}://localhost:${APP_PORT}/${GRAFANA_PATH}/" \
-  "$QUADLET_DIR/grafana.container"
 
 # The password file the crudman unit tests mount, declared here for the cleanup trap.
 UNIT_SECRET_DIR=""
@@ -282,9 +275,6 @@ install -m 0755 serverstats/collect.sh "$APP_CONFIG_DIR/serverstats/collect.sh"
   echo "FLIGHT_PORT=${FLIGHT_PORT}"
   echo "OIDC_ENABLED=false"
   echo "OIDC_ISSUER=${OIDC_ISSUER}"
-  echo "OIDC_AUTH_URL=${OIDC_ISSUER}/authorize"
-  echo "OIDC_TOKEN_URL=${OIDC_ISSUER}/token"
-  echo "OIDC_USERINFO_URL=${OIDC_ISSUER}/userinfo"
   echo "OIDC_LOGOUT_URL=${OIDC_ISSUER}/endsession"
   echo "OIDC_CLIENT_ID=${OIDC_CLIENT_ID}"
   grep -v -e '^SERVER_NAME=' -e '^DEBUG=' -e '^OIDC_' -e '^HTTP_PORT=' \
@@ -384,7 +374,7 @@ export TEST_PG_PORT="$PG_PORT"
 export TEST_PG_DATABASE="$PG_DATABASE"
 export TEST_SFTP_PORT="$SFTP_PORT"
 export TEST_FLIGHT_PORT="$FLIGHT_PORT"
-export TEST_GRAFANA_PASSWORD="$GRAFANA_PASSWORD"
+export TEST_DASHBOARDS_PASSWORD="$DASHBOARDS_PASSWORD"
 export TEST_SUPERUSER_PASSWORD="$SUPERUSER_PASSWORD"
 export TEST_PG_SUPERUSER_PASSWORD="$PG_SUPERUSER_PASSWORD"
 export TEST_CRUDMAN_PASSWORD="$CRUDMAN_PASSWORD"
@@ -437,11 +427,12 @@ rm -rf "$UNIT_SECRET_DIR"
 
 # The notebook translation, in a throwaway container from the jupyter image: it is what
 # stands between a model file and being rewritten the first time somebody opens it, and it
-# runs against the models this release ships.
+# runs against the models and dashboards this release ships.
 echo "Running the notebook unit tests ..."
 podman run --rm \
   -v "${CHECKOUT}/jupyter/tests:/jupyter/tests:ro,Z" \
   -v "${CHECKOUT}/sqlmesh/models:/sqlmesh/models:ro,Z" \
+  -v "${CHECKOUT}/dashboards:/dashboards:ro,Z" \
   -e TEST_MODELS_DIR=/sqlmesh/models \
   --entrypoint sh "${REGISTRY}/jupyter:${IMAGE_TAG}" -c \
   'python -m pytest /jupyter/tests -q -p no:cacheprovider'

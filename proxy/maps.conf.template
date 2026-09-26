@@ -7,21 +7,22 @@
 # session. Limited to real page navigations, one dashboard view triggering dozens of API,
 # asset and live-poll requests. The collector drains it into server_stats.dashboard_visit.
 
-# The app a request is a page visit for, or "" to skip it. Grafana renders a dashboard at
-# /${GRAFANA_PATH}/d/<uid>/<slug> (/d-solo for one panel), with its data and assets
-# elsewhere; crudman serves its pages under /${CRUDMAN_PATH}/, its assets below static/.
+# The app a request is a page visit for, or "" to skip it. A dashboard is a page of the
+# admin panel's, /${CRUDMAN_PATH}/dashboards/<name>/, and is named apart from the rest of
+# it so the visits can be counted per dashboard; its panels arrive as requests of their
+# own, marked as htmx's (below). Assets are never a visit.
 map $uri $visit_app {
     default                              "";
-    ~^/${GRAFANA_PATH}/d-solo/           grafana;
-    ~^/${GRAFANA_PATH}/d/                grafana;
     ~^/${CRUDMAN_PATH}/static/           "";   # assets, not a page view
+    ~^/${CRUDMAN_PATH}/dashboards/       dashboards;
     ~^/${CRUDMAN_PATH}/                  crudman;
 }
 
-# A POST is a form submit or a login, not a visit.
-map $request_method $visit_is_get {
+# A POST is a form submit or a login, not a visit, and a request htmx makes is part of a
+# page already counted: a panel drawing itself, the bar fetching its stages.
+map "$request_method:$http_hx_request" $visit_is_get {
     default  0;
-    GET      1;
+    "GET:"   1;
 }
 
 # The final gate: the app name when the request is a GET that matched one, and non-empty
@@ -38,7 +39,7 @@ log_format visit_json escape=json
     '{"ts":"$time_iso8601","app":"$visit_app","path":"$uri",'
     '"status":$status,"ip":"$remote_addr","xff":"$http_x_forwarded_for",'
     '"ua":"$http_user_agent",'
-    '"grafana_session":"$cookie_grafana_session","crudman_session":"$cookie_sessionid"}';
+    '"crudman_session":"$cookie_sessionid"}';
 
 # --- the shell around every page --------------------------------------------------------
 # A page a browser puts in its address bar goes to crudman whichever app the path belongs
@@ -46,25 +47,9 @@ log_format visit_json escape=json
 # again (crudman/app/shell/middleware.py). The frame's request says "iframe" here and
 # reaches the app. Only a GET can be a page; the header is missing from older browsers
 # and from scripts, which then get the app as before.
-map "$request_method:$http_sec_fetch_dest" $grafana_port {
-    default        3000;
-    "GET:document" 8000;
-}
-
 map "$request_method:$http_sec_fetch_dest" $notebook_port {
     default        8888;
     "GET:document" 8000;
-}
-
-# --- the data source a Grafana visitor reads ------------------------------------------
-# Dashboards name the production data source and nothing else; a version under review is
-# shown by answering with a different uid, which the substitution in locations.conf does
-# from this variable. crudman names the data source in X-Preview-Datasource while someone
-# owes a decision on a review and leaves the header off otherwise -- so the default below
-# is the ordinary case, and the substitution is then the uid replaced by itself.
-map $preview_datasource $datasource_uid {
-    default $preview_datasource;
-    ""      "${APP_NAME}-postgresql";
 }
 
 # --- WebSocket handshakes ---------------------------------------------------------------

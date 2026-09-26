@@ -4,9 +4,9 @@ from conftest import GOLD_SCHEMA, SILVER_SCHEMA
 
 
 class TestSchemas:
-    """The database exposes the expected schemas and is reachable by grafana."""
+    """The database exposes the expected schemas and is reachable by the dashboards role."""
 
-    def test_grafana_user_shall_connect_to_the_database(self, db):
+    def test_dashboards_user_shall_connect_to_the_database(self, db):
         with db.cursor() as cur:
             cur.execute("SELECT 1")
             assert cur.fetchone()[0] == 1

@@ -163,8 +163,7 @@ printf '%s' "$SUPERUSER_DEFAULT_PASSWORD" | podman secret create "$SECRET_PG_SUP
 
 # --- volumes --------------------------------------------------------------------------
 # Created up front so the rootless user owns their contents, as install.sh does.
-for vol in postgresql_data grafana_data sftp_data proxy_data uploads_data models_data \
-           jupyter_data; do
+for vol in postgresql_data sftp_data proxy_data uploads_data models_data jupyter_data; do
   podman volume exists "$vol" || podman volume create "$vol" >/dev/null
 done
 
@@ -207,16 +206,8 @@ run_quadlet flight -e "SERVER_NAME=${SERVER_NAME}" -e DEBUG=true -e "FLIGHT_PORT
 
 run_quadlet sqlmesh
 
-# Spelled out rather than derived, no container seeing the port it is published on. The
-# same line the README gives custom ports.
-run_quadlet grafana \
-  -e "SERVER_NAME=${SERVER_NAME}" \
-  -e "DEFAULT_THEME=${DEFAULT_THEME}" \
-  -e "GF_SERVER_ROOT_URL=http://${HOST_ADDR}:${HTTP_PORT}/${GRAFANA_PATH}/"
-
-# Nothing to override: it reaches Grafana on localhost inside the pod, and its callers'
-# credentials arrive with each request rather than from the environment.
-run_quadlet grafana_mcp
+# The sqlmesh image in its "dashboards" role, which the quadlet's Exec= line selects.
+run_quadlet dashboards
 
 # It authenticates against crudman on the pod's localhost, and the database it hands each
 # notebook is the in-pod one whatever port the stack publishes; only the theme is its own
@@ -255,7 +246,7 @@ ${APP_NAME} is starting in development mode (plain HTTP, no certificate).
   Stop:         ./dev.sh down
 
 Server statistics are sampled every ${SERVER_STATS_INTERVAL}s in the background (the
-server_stats schema and the Grafana monitoring dashboard fill on their own). Run one sample
+server_stats schema and the server monitoring dashboard fill on their own). Run one sample
 now with ./dev.sh serverstats.
 
 The database needs a few seconds to initialise on the first run.

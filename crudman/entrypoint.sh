@@ -65,7 +65,7 @@ uv run --project /crudman python manage.py collectstatic --noinput
 #
 # The password is set only when the secret differs from it: Django ties a session to
 # the password hash, so setting it -- even to the same value, which salts anew -- signs
-# the admin out of every browser, and of Grafana and the notebooks with it, on every
+# the admin out of every browser, and of the notebooks with it, on every
 # restart.
 uv run --project /crudman python manage.py shell -c "
 import os

@@ -5,12 +5,12 @@
 Gefieder is a data analytics platform for engineering teams, built on PostgreSQL, DuckDB,
 SQLMesh and Django (with the Unfold admin interface).
 
-It runs as a small pod of containers managed by podman. Once it is up you get two web
-interfaces:
+It runs as a small pod of containers managed by podman. Once it is up you get:
 
 - an **administration panel** (Django) for entering and editing organizational data
-- **Grafana dashboards** with the database already wired up as a read-only data source
-- **notebooks** (JupyterLab) for writing and trying out the analytics models in the browser
+- **dashboards**: charts, tables and numbers with filters, drawn from the analytics models
+- **notebooks** (JupyterLab) for writing the analytics models and the dashboards in the
+  browser
 
 All three sit above one bar at the foot of the window, which is the same everywhere: the
 stages of the workflow in the middle -- *Dashboards*, *Sources*, *Model*, *System*, each shown
@@ -139,13 +139,11 @@ is `main.pod`, so the systemd unit is `main-pod.service`) of eight containers:
 - `flight` — the Arrow Flight endpoint for dropzone uploads (the crudman image in a
   third role), published on `FLIGHT_PORT` (8815 by default)
 - `sqlmesh` — the SQLMesh analytics engine, running models on their cron schedules
-- `grafana` — the Grafana dashboards, with the database pre-configured as a read-only
-  data source and the extra panel types from `GRAFANA_PLUGINS` ready to use
-- `grafana_mcp` — the Grafana MCP server, which lets an AI assistant read and change Grafana on
-  your behalf (see [AI assistant access](#ai-assistant-access))
+- `dashboards` — draws the dashboards for the admin panel to show (the sqlmesh image in
+  a second role), reading the database as a read-only user
 - `jupyter` — JupyterHub, giving each person a notebook for writing analytics models
   (see [Writing analytics models](#writing-analytics-models))
-- `proxy` — an nginx reverse proxy that serves the admin panel, Grafana and the notebooks under
+- `proxy` — an nginx reverse proxy that serves the admin panel and the notebooks under
   `SERVER_NAME` and publishes the pod's ports 80/443
 
 The unit files live in `quadlets/` as templates with `${...}` tokens. The release
@@ -165,21 +163,17 @@ adjust:
 | `REPO_MODELS` | where the analytics models live. The default is a repository the system creates on its own volume, so a fresh installation needs no git host; set it to a git repository to develop the ordinary way (see [Writing analytics models](#writing-analytics-models)) |
 | `REGISTRY` | the path the images are named under, e.g. `ghcr.io/your-org/gefieder` → `…/gefieder/crudman` |
 | `IMAGE_TAG` | the image tag, e.g. `latest` |
-| `SUPERUSER_NAME` | the name of the Django and Grafana administrator |
+| `SUPERUSER_NAME` | the name of the Django administrator |
 | `PG_SUPERUSER_ROLE` | the PostgreSQL cluster superuser, which nobody logs in as by hand |
 | `SUPERUSER_EMAIL` | the email address of the Django superuser |
 | `SUPERUSER_DEFAULT_PASSWORD` | the password used when the installer's password prompt is left empty |
-| `CRUDMAN_PATH` | the base path of the admin panel, e.g. `crudman` → `https://SERVER_NAME/crudman/` |
-| `GRAFANA_PATH` | the base path of Grafana, e.g. `grafana` → `https://SERVER_NAME/grafana/` |
-| `MCP_PATH` | the base path of the AI assistant endpoint, e.g. `ai/grafana_mcp` → `https://SERVER_NAME/ai/grafana_mcp/mcp`. The `/ai/` prefix leaves room for further assistant endpoints beside it |
+| `CRUDMAN_PATH` | the base path of the admin panel and its dashboards, e.g. `crudman` → `https://SERVER_NAME/crudman/` |
 | `NOTEBOOK_PATH` | the base path of the notebooks, e.g. `jupyter` → `https://SERVER_NAME/jupyter/` |
 | `PG_DATABASE` | the database everything lives in; change it if the cluster already has one named `postgres` |
 | `SERVER_STATS_SCHEMA` | the schema that holds the server-usage and query statistics (see [Server statistics](#server-statistics)) |
 | `SERVER_STATS_INTERVAL` | how often, in seconds, the server statistics are sampled (default 60) |
 | `DUCKDB_EXTENSIONS` | the DuckDB extensions baked into the database image, comma-separated; they are downloaded at build time, so the server needs no internet access to use them |
-| `GRAFANA_PLUGINS` | the extra panel types baked into the Grafana image, comma-separated plugin ids; downloaded at build time as well, so the dashboards can use them offline |
-| `GRAFANA_MCP_TOOLS` | what an AI assistant may ask the system to do, comma-separated (see [AI assistant access](#ai-assistant-access)) |
-| `JUPYTER_EXTENSIONS` | extra JupyterLab extensions baked into the notebook image, comma-separated package names; empty by default, and downloaded at build time like the two lists above |
+| `JUPYTER_EXTENSIONS` | extra JupyterLab extensions baked into the notebook image, comma-separated package names; downloaded at build time like the list above |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | company proxy for image builds (empty = direct) |
 | `PYTHON_INDEX` | additional Python package index for the build, e.g. a company mirror (empty = PyPI) |
 | `DOCKER_IO_MIRROR`, `GHCR_IO_MIRROR` | where the build pulls its base images from; set them to a company mirror if `docker.io` and `ghcr.io` are slow to reach |
@@ -202,7 +196,6 @@ on a reinstall, so your edits survive an upgrade.
 | `SFTP_PORT`, `FLIGHT_PORT` | the ports the two dropzone upload endpoints are reached on; `2222` and `8815` |
 | `OIDC_ENABLED` | whether people sign in with their company account (see [Single sign-on](#single-sign-on)); `false` by default |
 | `OIDC_ISSUER` | the address of your identity provider |
-| `OIDC_AUTH_URL`, `OIDC_TOKEN_URL`, `OIDC_USERINFO_URL` | the three addresses Grafana needs spelled out; your provider lists them |
 | `OIDC_LOGOUT_URL` | where signing out sends people, so their session at the provider ends too |
 | `OIDC_CLIENT_ID` | the application ID your provider issued |
 | `OIDC_SCOPES` | optional; leave it empty and what to ask your provider for is worked out from `OIDC_ISSUER` |
@@ -245,10 +238,10 @@ take effect.
 | Secret | Used for |
 | --- | --- |
 | `django_secret_key` | Django's cryptographic signing key |
-| `superuser_password` | the PostgreSQL, Django and Grafana admin login |
+| `superuser_password` | the PostgreSQL and Django admin login |
 | `crudman_password` | the database user the Django app connects with |
 | `sqlmesh_password` | the database user the analytics engine connects with |
-| `grafana_password` | the read-only database user for the Grafana data source |
+| `dashboards_password` | the read-only database user the dashboards read with |
 | `oidc_client_secret` | the single sign-on client secret, if you use it (see below) |
 | `jupyter_secret` | encrypts the notebook sessions JupyterHub keeps |
 | `postgres_password` | the PostgreSQL cluster superuser, generated at install |
@@ -264,16 +257,15 @@ back — someone who is already signed in elsewhere never sees a login page at a
 with Entra ID, Keycloak, Authentik, Okta and Google, and is off until you configure it.
 
 There is one sign-in for the whole system, whether or not single sign-on is on: the admin
-panel's. Grafana and the notebooks recognise whoever is signed in there and never ask
-again.
+panel's. The notebooks recognise whoever is signed in there and never ask again.
 
 Their access is decided by three roles, which you assign to people at the provider:
 
-| Role | In Grafana | In the admin panel |
-| --- | --- | --- |
-| `Viewer` | may look at dashboards | may look at the data |
-| `Editor` | may build dashboards | may add and change data, and use the notebooks |
-| `Admin` | full access | full access |
+| Role | What they may do |
+| --- | --- |
+| `Viewer` | look at the dashboards and the data |
+| `Editor` | also add and change data, and write models and dashboards in the notebooks |
+| `Admin` | everything |
 
 Someone who signs in successfully but holds none of the three is refused rather than let in
 with a default role. What the provider actually said about a person is shown on their entry
@@ -327,13 +319,13 @@ OIDC_SCOPES=openid profile email
 A provider that publishes no photo simply leaves people with their initial, as before.
 
 **Give individuals more than their role.** The role is a starting point, not the whole
-story. Anything you grant someone by hand — extra groups in the admin panel, permission on
-a particular Grafana folder — stays with them. Signing in only ever updates their role, so
+story. Anything you grant someone by hand — extra groups in the admin panel — stays with
+them. Signing in only ever updates their role, so
 your additions are not overwritten.
 
 **If you get locked out.** The admin panel keeps its own login for the admin account, in
 case the provider is unreachable or misconfigured — and signing in there signs you in to
-Grafana and the notebooks as well:
+the notebooks as well:
 
 ```
 https://SERVER_NAME/crudman/login/?local
@@ -344,51 +336,8 @@ fails at once, so note the date somewhere and replace the secret with the comman
 before it arrives.
 
 ## AI assistant access
-An AI assistant — Claude, Copilot, Cursor or anything else that speaks the Model Context
-Protocol — can work with your Grafana instance directly: find a dashboard, explain what a
-panel measures, run a panel's query, build a new dashboard, check which alerts are firing.
-It is reachable at:
-
-```
-https://SERVER_NAME/ai/grafana_mcp/mcp
-```
-
-**It gives whoever uses it exactly the access they already have, and nothing more.** Each
-request carries that person's own credential, and Grafana answers it the same way it
-answers them in the browser: a `Viewer` asking the assistant to change a dashboard is
-refused, an `Editor` is not. There is no shared account behind it, so nobody gains rights
-by going through the assistant, and a request that carries no credential is refused
-outright.
-
-To connect one, each person creates a token for themselves in Grafana under
-**Administration → Users and access → Service accounts**, giving it their own role, and
-puts it in their assistant's configuration. In Claude Code that is one command:
-
-```bash
-claude mcp add --transport http gefieder https://SERVER_NAME/ai/grafana_mcp/mcp \
-  -H "Authorization: Bearer YOUR_TOKEN"
-```
-
-Other assistants take the same two values as a configuration file instead:
-
-```json
-{
-  "mcpServers": {
-    "gefieder": {
-      "type": "http",
-      "url": "https://SERVER_NAME/ai/grafana_mcp/mcp",
-      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
-    }
-  }
-}
-```
-
-Treat that token like a password: it carries the holder's access. Delete it in the same
-screen when it is no longer needed, and prefer one token per person over a shared one, so
-a single one can be withdrawn without disturbing anyone else.
-
-`GRAFANA_MCP_TOOLS` in `buildtime.env` bounds what any assistant can be asked to do, whoever
-is using it — trim the list to leave a capability out entirely.
+Not available in this version: the AI assistant endpoint left with Grafana. One built on the
+dashboards is planned.
 
 ## Certificates
 In production mode the proxy needs a TLS certificate for `SERVER_NAME`. It is the only
@@ -415,13 +364,12 @@ automatically on the first start (the installer also pre-creates them so the roo
 user owns their contents):
 
 - `postgresql_data` — the database (all engineering, analytics and application data)
-- `grafana_data` — the Grafana dashboards, users and settings
 - `uploads_data` — the files uploaded through dropzones (see
   [Uploading files](#uploading-files-with-dropzones))
 - `sftp_data` — the host key of the SFTP upload endpoint, so uploaders' SFTP clients
   keep trusting the server across updates
 - `proxy_data` — the page-visit records the server statistics are built from
-- `models_data` — the analytics models: the working tree the engine runs, everyone's
+- `models_data` — the analytics models and dashboards: the working tree the engine runs, everyone's
   notebook workspaces and, unless `REPO_MODELS` points at a git host, the repository
   itself. **Back this one up.** With the default setting it is the only copy of your models
   and their history; with a git host configured it is a clone and can be thrown away, apart
@@ -432,8 +380,8 @@ user owns their contents):
 They survive stopping the stack. Inspect them with `podman volume ls`. To delete the
 data, remove the volume explicitly, e.g. `podman volume rm postgresql_data`.
 
-The `postgresql` and `grafana` volumes are written by a user inside the container, so
-listing their contents from the host needs `podman unshare ls <path>`.
+The `postgresql` volume is written by a user inside the container, so listing its contents
+from the host needs `podman unshare ls <path>`.
 
 ## Logs
 Every service logs to the journal, which keeps the logs across restarts and updates, so a
@@ -443,11 +391,11 @@ special permissions to read them:
 ```bash
 journalctl --user -f -u crudman                   # follow one component
 journalctl --user -u crudman --since '2 hours ago'
-journalctl --user -f -u main-pod -u postgresql -u crudman -u sftp -u flight -u sqlmesh -u grafana -u grafana_mcp -u proxy
+journalctl --user -f -u main-pod -u postgresql -u crudman -u sftp -u flight -u sqlmesh -u dashboards -u jupyter -u proxy
 ```
 
-Use `postgresql`, `crudman`, `sftp`, `flight`, `sqlmesh`, `grafana`, `grafana_mcp` or `proxy` as the
-component name. The SFTP and Arrow Flight endpoints are part of the crudman application
+Use `postgresql`, `crudman`, `sftp`, `flight`, `sqlmesh`, `dashboards`, `jupyter` or `proxy`
+as the component name. The SFTP and Arrow Flight endpoints are part of the crudman application
 but run as their own services, so they have their own logs. The last command combines all
 of them into one stream, and the cheat sheet the installer prints repeats it.
 
@@ -468,8 +416,8 @@ and stores the numbers in the database, next to the per-query statistics it also
   Visitors are grouped by a hashed session, never by name, and the raw session cookie is
   never stored.
 
-It starts automatically after installation. The data lives in the `server_stats` schema;
-the dashboards that present it are added separately. A few controls:
+It starts automatically after installation. The data lives in the `server_stats` schema,
+and the **Server monitoring** dashboard presents it. A few controls:
 
 ```bash
 systemctl --user status server-stats.timer    # is sampling running?
@@ -606,6 +554,13 @@ nothing is generated behind your back. Add cells below to explore — a cell sta
 written in a cell above the definition becomes the model's description on the documentation
 pages. Notebooks with charts and saved output belong in `notebooks/` beside the models.
 
+### 2a. Change a dashboard
+The dashboards live beside the models, in `dashboards/`, and ship the same way: by a
+commit. Each query is a `.sql` file in `dashboards/queries/`, each chart's look a file in
+`dashboards/charts/`, and each dashboard a file in `dashboards/boards/` saying which query
+is shown in which chart. Open any of them in the notebooks and run its last cell to see it
+drawn, exactly as the dashboard will show it. `dashboards/README.md` explains the few rules.
+
 ### 3. Plan it into your own environment
 A *plan* compares your files against a target environment and shows what would change
 before anything happens:
@@ -630,7 +585,7 @@ That makes an environment cheap to create and impossible to confuse with product
 one per piece of work if you like — `uv run sqlmesh plan feature_x`. Unused development
 environments are cleaned up after a week, so nothing accumulates.
 
-Query yours from Grafana or `psql` exactly like the real thing:
+Query yours from a notebook or `psql` exactly like the real thing:
 
 ```sql
 SELECT * FROM gold__dev.issue_metrics;
@@ -719,8 +674,8 @@ SQLMesh keeps its own record of every model version, what has been built and whi
 version each environment points at. In Gefieder that lives in the `sqlmesh` schema of the
 same PostgreSQL database, which is why your machine and the server agree about
 environments at all, and why the ordinary backup of `postgresql_data` already covers it.
-Two consequences worth knowing: dashboards have no business reading that schema (Grafana
-is denied it), and dropping it loses the history that lets SQLMesh rebuild only what
+Two consequences worth knowing: dashboards have no business reading that schema (their
+database user is denied it), and dropping it loses the history that lets SQLMesh rebuild only what
 changed — the data survives, but the next plan wants to rebuild everything.
 
 ## Scripts
@@ -743,7 +698,7 @@ podman exec sqlmesh sqlmesh test          # run a SQLMesh command on the deploye
 ```
 
 ## Connecting directly
-- **Admin panel / Grafana**: log in with `SUPERUSER_NAME` and the `superuser_password`.
+- **Admin panel**: log in with `SUPERUSER_NAME` and the `superuser_password`.
 - **PostgreSQL**: the pod publishes `PG_PORT` (5432), so reporting tools and the tools that
   fill the bronze schemas connect straight to `SERVER_NAME`. Connect as your own database
   user, which an administrator switches on under **Database access**.
@@ -789,16 +744,6 @@ The two web ports have one exception. Opening the system over plain `http://` st
 the browser to the standard HTTPS port rather than yours, because the proxy cannot know
 which port you published it on — reach it over `https://` directly.
 
-And if you use single sign-on, tell Grafana the address it is reached at, by adding this
-line to `~/.config/containers/systemd/grafana.container` and restarting. Grafana builds the
-sign-in return address from it, and left alone it would leave your port out and send people
-somewhere that does not answer. The admin panel takes the port from the browser and needs
-nothing:
-
-```
-Environment=GF_SERVER_ROOT_URL=https://SERVER_NAME:8443/grafana/
-```
-
 ## Testing
 The integration test suite spins up a throwaway stack and asserts the behaviour the
 system promises: containers start and stay healthy, the apps are reachable and serve
@@ -820,18 +765,12 @@ so it asks to remove an installed one first — and that takes its data volumes 
 The code in this repo (the Dockerfiles, scripts, quadlets, Django app and SQL) is
 Apache-2.0 — use it freely, no warranty. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
-The software it builds on keeps its own license. Two cases to be aware of:
+The software it builds on keeps its own license. One case to be aware of: **the DuckDB
+extensions** listed in `DUCKDB_EXTENSIONS` (in `buildtime.env`) are just examples, taken
+from their community repository and baked into the images at build time. Licenses and
+quality vary, so trim the list to what you actually use before going to production.
 
-- **Grafana is AGPL-3.0.** This is a copyleft license: if you run a modified Grafana as
-  a network service, you have to make your modified source available to its users.
-  Shipping the stock image as-is is fine; just don't patch Grafana and keep the changes
-  private. This says nothing about the rest of the project, which stays Apache-2.0.
-- **The DuckDB extensions** listed in `DUCKDB_EXTENSIONS` and the **Grafana panel
-  plugins** listed in `GRAFANA_PLUGINS` (both in `buildtime.env`) are just examples,
-  taken from their community repositories and baked into the images at build time.
-  Licenses and quality vary, so trim both lists to what you actually use before going to
-  production.
-
-Everything else — the base images (PostgreSQL/pgduckdb, nginx, Python) and the Python
-dependencies (Django, gunicorn, SQLMesh, ...) — is permissively licensed; check the
-individual projects if you need the details.
+Everything else — the base images (PostgreSQL/pgduckdb, nginx, Python), the Python
+dependencies (Django, gunicorn, SQLMesh, ...), and Apache ECharts and Tabulator, which draw
+the charts and tables — is permissively licensed; check the individual projects if you need
+the details.

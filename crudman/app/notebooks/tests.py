@@ -11,9 +11,6 @@ from django.contrib.auth.models import Group, User
 from django.test import TestCase
 from django.urls import reverse
 from sso.roles import GROUP_FOR_RANK
-from system.models import Approval, Deployment
-
-from .views import PREVIEW_DATASOURCE
 
 from .utils import (
     CREDENTIAL_LIFETIME,
@@ -232,97 +229,3 @@ class WhoamiTests(TestCase):
             response = self.client.post(self.url)
 
         self.assertEqual(response.headers["Cache-Control"], "no-store")
-
-
-class GrafanaTests(TestCase):
-    """The endpoint the proxy asks before every Grafana request.
-
-    Its answer travels in headers, the body being what auth_request discards; and every
-    rank is let in, a dashboard being what a viewer is for.
-    """
-
-    def setUp(self):
-        self.url = reverse("notebooks:grafana")
-
-    def test_a_request_through_the_proxy_is_not_answered(self):
-        """The subrequest sets no forwarding header; a browser's request carries one."""
-        make_user("viewer", GROUP_FOR_RANK["viewer"])
-        self.client.login(username="viewer", password="x")
-
-        response = self.client.get(self.url, headers={"x-forwarded-for": "203.0.113.7"})
-
-        self.assertEqual(response.status_code, 404)
-
-    def test_anonymous_is_refused(self):
-        self.assertEqual(self.client.get(self.url).status_code, 401)
-
-    def test_rankless_is_refused(self):
-        """Signed in, but with nothing to be let in as."""
-        make_user("nobody")
-        self.client.login(username="nobody", password="x")
-        self.assertEqual(self.client.get(self.url).status_code, 403)
-
-    def test_a_viewer_is_let_in_as_viewer(self):
-        make_user("viewer", GROUP_FOR_RANK["viewer"])
-        self.client.login(username="viewer", password="x")
-
-        response = self.client.get(self.url)
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response["X-WEBAUTH-USER"], "viewer")
-        self.assertEqual(response["X-WEBAUTH-ROLE"], "Viewer")
-
-    def test_the_rank_becomes_the_role(self):
-        for rank, role in (("editor", "Editor"), ("admin", "Admin")):
-            with self.subTest(rank=rank):
-                make_user(rank, GROUP_FOR_RANK[rank])
-                self.client.login(username=rank, password="x")
-                self.assertEqual(self.client.get(self.url)["X-WEBAUTH-ROLE"], role)
-
-    def test_a_superuser_is_admin_without_a_group(self):
-        """With single sign-on off nothing grants a group; the superuser is the admin."""
-        make_user("root", is_superuser=True)
-        self.client.login(username="root", password="x")
-        self.assertEqual(self.client.get(self.url)["X-WEBAUTH-ROLE"], "Admin")
-
-    def test_name_and_email_travel_too(self):
-        user = make_user("editor", GROUP_FOR_RANK["editor"])
-        user.first_name, user.last_name, user.email = "Jean", "Dupont", "jean@example.com"
-        user.save()
-        self.client.login(username="editor", password="x")
-
-        response = self.client.get(self.url)
-
-        self.assertEqual(response["X-WEBAUTH-NAME"], "Jean Dupont")
-        self.assertEqual(response["X-WEBAUTH-EMAIL"], "jean@example.com")
-
-    def test_the_answer_is_not_cached(self):
-        """A stale answer would keep someone signed in after they signed out."""
-        make_user("viewer", GROUP_FOR_RANK["viewer"])
-        self.client.login(username="viewer", password="x")
-        self.assertEqual(self.client.get(self.url)["Cache-Control"], "no-store")
-
-    def test_the_answer_names_no_preview_for_an_ordinary_visitor(self):
-        """Absent rather than empty: the proxy's map reads a missing header as production,
-        which is what makes the substitution a no-op for everybody but a reviewer."""
-        make_user("viewer", GROUP_FOR_RANK["viewer"])
-        self.client.login(username="viewer", password="x")
-
-        self.assertNotIn("X-Preview-Datasource", self.client.get(self.url))
-
-    def test_someone_who_owes_a_decision_is_shown_the_version_they_were_asked_about(self):
-        """The data source is named here because this is the one place that knows who is
-        asking; the proxy substitutes its uid into every dashboard on the way out."""
-        user = make_user("jean", GROUP_FOR_RANK["viewer"])
-        review = Deployment.objects.create(sha="a" * 40, main_sha="a" * 40,
-                                           environment=Deployment.PREVIEW)
-        approval = Approval.objects.create(deployment=review, user=user)
-        self.client.login(username="jean", password="x")
-
-        self.assertEqual(
-            self.client.get(self.url)["X-Preview-Datasource"], PREVIEW_DATASOURCE
-        )
-
-        # And not once they have answered: the decision is what ends the review.
-        approval.decide(approved=True)
-        self.assertNotIn("X-Preview-Datasource", self.client.get(self.url))

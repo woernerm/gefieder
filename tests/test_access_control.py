@@ -4,18 +4,18 @@ Every role's permissions are spelled out explicitly, both the allowed and the fo
 
 The expected permission matrix (from postgresql/initdb) is:
 
-  role     | crudman schema            | silver / gold     | sqlmesh schema | bronze*
-  ---------+---------------------------+-------------------+----------------+----------
-  crudman  | owns (full read/write)    | no access         | no access      | no access
-  sqlmesh  | read-only                 | owns (read/write) | owns (full)    | read/write
-  grafana  | read model tables only    | read-only         | no access**    | read-only
-           | (not auth_/django_ ones)  |                   |                |
+  role       | crudman schema            | silver / gold     | sqlmesh schema | bronze*
+  -----------+---------------------------+-------------------+----------------+----------
+  crudman    | owns (full read/write)    | no access         | no access      | no access
+  sqlmesh    | read-only                 | owns (read/write) | owns (full)    | read/write
+  dashboards | read model tables only    | read-only         | no access**    | read-only
+             | (not auth_/django_ ones)  |                   |                |
 
-  ** grafana sees only the schemas it should chart: bronze_<project>, silver and gold (and
+  ** dashboards sees only the schemas it should chart: bronze_<project>, silver and gold (and
      the crudman model tables). It must NOT see sqlmesh's internals — the state schema
      (sqlmesh), the per-project staging schema (silver_staging) or the physical schemas
      behind the virtual layer (sqlmesh__*) — which hold churning, versioned objects. The
-     CREATE SCHEMA event trigger therefore grants grafana read only on bronze_<project>
+     CREATE SCHEMA event trigger therefore grants dashboards read only on bronze_<project>
      schemas; silver and gold are granted explicitly in initdb.
 
   * a bronze schema is created by SQLMesh when a model first names one, so a fresh stack
@@ -33,7 +33,7 @@ import pytest
 from conftest import (
     BRONZE_SCHEMA_PREFIX,
     GOLD_SCHEMA,
-    GRAFANA_DB_USER,
+    DASHBOARDS_DB_USER,
     SILVER_SCHEMA,
     SILVER_STAGING_SCHEMA,
     SQLMESH_DB_USER,
@@ -59,7 +59,7 @@ def seed(crudman_db, sqlmesh_db):
     tables that owner creates.
     """
     with crudman_db.cursor() as cur:
-        # A crudman model table fires grant_grafana_read_crudman, which gives grafana
+        # A crudman model table fires grant_dashboards_read_crudman, which gives dashboards
         # SELECT; sqlmesh reads it through its default privileges.
         cur.execute("CREATE TABLE IF NOT EXISTS crudman.example_team (id int)")
     with sqlmesh_db.cursor() as cur:
@@ -110,30 +110,30 @@ class TestSqlmeshUser:
         denied(sqlmesh_db, f"INSERT INTO {CRUDMAN_MODEL} VALUES (1)")
 
 
-class TestGrafanaUser:
-    """grafana reads analytics data and crudman model tables, and never writes."""
+class TestDashboardsUser:
+    """The dashboards role reads analytics data and crudman model tables, and never writes."""
 
     @pytest.mark.parametrize("table", [SILVER_TABLE, GOLD_TABLE, CRUDMAN_MODEL])
-    def test_grafana_shall_read_analytics_and_crudman_model_tables(self, grafana_db, table):
-        allowed(grafana_db, f"SELECT * FROM {table}")
+    def test_dashboards_shall_read_analytics_and_crudman_model_tables(self, dashboards_db, table):
+        allowed(dashboards_db, f"SELECT * FROM {table}")
 
-    def test_grafana_shall_not_read_django_internal_tables(self, grafana_db):
+    def test_dashboards_shall_not_read_django_internal_tables(self, dashboards_db):
         # auth_user holds credentials.
-        denied(grafana_db, f"SELECT * FROM {CRUDMAN_DJANGO}")
+        denied(dashboards_db, f"SELECT * FROM {CRUDMAN_DJANGO}")
 
     @pytest.mark.parametrize("table", [SILVER_TABLE, GOLD_TABLE, CRUDMAN_MODEL])
-    def test_grafana_shall_not_write_anywhere(self, grafana_db, table):
-        denied(grafana_db, f"INSERT INTO {table} VALUES (1)")
+    def test_dashboards_shall_not_write_anywhere(self, dashboards_db, table):
+        denied(dashboards_db, f"INSERT INTO {table} VALUES (1)")
 
-    def test_grafana_shall_not_read_the_sqlmesh_schema(self, grafana_db):
+    def test_dashboards_shall_not_read_the_sqlmesh_schema(self, dashboards_db):
         # The sqlmesh state schema is internal bookkeeping.
-        with grafana_db.cursor() as cur:
+        with dashboards_db.cursor() as cur:
             cur.execute(
-                "SELECT has_schema_privilege(%s, 'sqlmesh', 'USAGE')", (GRAFANA_DB_USER,)
+                "SELECT has_schema_privilege(%s, 'sqlmesh', 'USAGE')", (DASHBOARDS_DB_USER,)
             )
             assert cur.fetchone()[0] is False
 
-    def test_grafana_shall_not_read_sqlmesh_internal_schemas(self, admin_db, grafana_db):
+    def test_dashboards_shall_not_read_sqlmesh_internal_schemas(self, admin_db, dashboards_db):
         # The physical (sqlmesh__*) and staging (silver_staging) schemas are SQLMesh
         # internals and must stay hidden. They may not exist on a fresh stack, so create
         # representative ones. CREATE SCHEMA IF NOT EXISTS is not atomic, so the live
@@ -147,42 +147,42 @@ class TestGrafanaUser:
                 except psycopg2.errors.DuplicateSchema:
                     pass  # sqlmesh created it first; that is exactly the state we want
         for schema in (f"sqlmesh__{SILVER_SCHEMA}", SILVER_STAGING_SCHEMA):
-            with grafana_db.cursor() as cur:
+            with dashboards_db.cursor() as cur:
                 cur.execute(
                     "SELECT has_schema_privilege(%s, %s, 'USAGE')",
-                    (GRAFANA_DB_USER, schema),
+                    (DASHBOARDS_DB_USER, schema),
                 )
-                assert cur.fetchone()[0] is False, f"grafana can see {schema}"
+                assert cur.fetchone()[0] is False, f"dashboards can see {schema}"
 
-    def test_grafana_shall_gain_read_access_to_new_bronze_schemas(self, admin_db, grafana_db):
-        # The event trigger grants grafana USAGE on a bronze schema as it is created,
-        # which is how a newly added project becomes visible in Grafana.
+    def test_dashboards_shall_gain_read_access_to_new_bronze_schemas(self, admin_db, dashboards_db):
+        # The event trigger grants dashboards USAGE on a bronze schema as it is created,
+        # which is how a newly added project becomes visible to the dashboards.
         with admin_db.cursor() as cur:
             cur.execute(
                 f"CREATE SCHEMA IF NOT EXISTS {BRONZE_PROBE} AUTHORIZATION {SQLMESH_DB_USER}"
             )
         try:
-            with grafana_db.cursor() as cur:
+            with dashboards_db.cursor() as cur:
                 cur.execute(
                     "SELECT has_schema_privilege(%s, %s, 'USAGE')",
-                    (GRAFANA_DB_USER, BRONZE_PROBE),
+                    (DASHBOARDS_DB_USER, BRONZE_PROBE),
                 )
                 assert cur.fetchone()[0] is True
         finally:
             with admin_db.cursor() as cur:
                 cur.execute(f"DROP SCHEMA {BRONZE_PROBE} CASCADE")
 
-    def test_grafana_shall_not_gain_access_to_non_bronze_schemas(self, admin_db, grafana_db):
+    def test_dashboards_shall_not_gain_access_to_non_bronze_schemas(self, admin_db, dashboards_db):
         # The trigger grants only the bronze_<project> schemas.
         with admin_db.cursor() as cur:
             cur.execute(
                 f"CREATE SCHEMA IF NOT EXISTS test_probe AUTHORIZATION {SQLMESH_DB_USER}"
             )
         try:
-            with grafana_db.cursor() as cur:
+            with dashboards_db.cursor() as cur:
                 cur.execute(
                     "SELECT has_schema_privilege(%s, 'test_probe', 'USAGE')",
-                    (GRAFANA_DB_USER,),
+                    (DASHBOARDS_DB_USER,),
                 )
                 assert cur.fetchone()[0] is False
         finally:
@@ -204,7 +204,7 @@ class TestDuckDBExecution:
                 cur.execute("SELECT use_duckdb(false)")
         assert "DuckDBScan" in plan, plan
 
-    @pytest.mark.parametrize("role", ["crudman_db", "grafana_db"])
+    @pytest.mark.parametrize("role", ["crudman_db", "dashboards_db"])
     def test_the_other_service_roles_shall_be_refused(self, request, role):
         conn = request.getfixturevalue(role)
         with conn.cursor() as cur:

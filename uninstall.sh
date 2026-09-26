@@ -150,7 +150,7 @@ if [ -n "$VOLUMES" ]; then
   done
   echo
   echo "  Removing these deletes all data in them: the database, the dropzone uploads,"
-  echo "  the Grafana dashboards and the SFTP host key. This cannot be undone."
+  echo "  the models and dashboards repository and the SFTP host key. This cannot be undone."
   ask "Delete the data volumes? [y/N] "
   case "$REPLY" in
     y|Y|yes|YES|Yes)

@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 PROJECT = "sqlmesh"
-"""The SQLMesh project inside the models repository; jupyter/spawn.py spells it too."""
+"""The SQLMesh project inside the models repository."""
 
 
 def find_project() -> Path | None:

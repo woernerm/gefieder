@@ -14,8 +14,8 @@ import pytest
 from conftest import CRUDMAN_PATH, LOGGING_UNITS
 
 # A line counts as timestamped if it carries a date and clock time anywhere: journald's
-# own ISO-8601 stamp as well as grafana's "t=2026-06-25T22:31:05", gunicorn's
-# "[2026-06-25 22:31:05 +0000]" and nginx's "2026/06/25 22:31:05".
+# own ISO-8601 stamp as well as gunicorn's "[2026-06-25 22:31:05 +0000]" and nginx's
+# "2026/06/25 22:31:05".
 TIMESTAMP = re.compile(r"\d{4}[-/]\d{2}[-/]\d{2}[ T]\d{2}:\d{2}:\d{2}")
 
 # journald's own stamp, which "-o short-iso" puts at the start of every line. Anchored, so
@@ -39,7 +39,6 @@ SELF_TIMESTAMPING = {
     "postgresql": (True, "the base image's bootstrap logs 'UTC' before gf_0001 runs"),
     "crudman": (True, "gunicorn's error-log format is fixed"),
     "sqlmesh": (False, "SQLMesh formats its records with a hardcoded module constant"),
-    "grafana": (True, "every Grafana log format puts t= inside the line, never first"),
     "proxy": (False, "nginx's error_log format is fixed"),
     "jupyter": (True, "configurable-http-proxy offers a log level and no format at all"),
 }
@@ -53,9 +52,6 @@ TIMESTAMP_TOLERANCE = timedelta(minutes=2)
 OWN_TIMESTAMP_FORMATS = (
     # gunicorn: "[2026-08-05 22:50:02 +0200]"
     (re.compile(r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) ([+-]\d{4})\]"), True),
-    # grafana: "t=2026-08-05T22:49:54.042764214Z"
-    (re.compile(r"t=(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})"),
-     True),
     # nginx: "2026/08/05 22:50:17"
     (re.compile(r"(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})"), False),
     # SQLMesh: "2026-08-05 22:49:58,688"
@@ -251,7 +247,7 @@ class TestLogTimestamps:
     # The units whose steady-state log carries a second timestamp in a readable format.
     # postgresql's only self-stamped lines spell the zone as a name ("UTC").
     @pytest.mark.parametrize(
-        "unit", ["crudman", "sqlmesh", "grafana", "proxy", "jupyter"]
+        "unit", ["crudman", "sqlmesh", "proxy", "jupyter"]
     )
     def test_a_second_timestamp_shall_not_contradict_the_journal(self, unit):
         compared, disagreeing = 0, []

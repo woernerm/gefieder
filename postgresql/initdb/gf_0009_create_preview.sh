@@ -10,7 +10,7 @@
 # does not touch has no environment copy and points at production, which is what keeps a
 # preview free.
 #
-# Grafana reaches it as a second data source; nothing else connects here.
+# The dashboards service reads a reviewer's dashboards from it; nothing else connects here.
 set -e
 
 # Lowercase, like every other shell variable in these scripts: render.sh substitutes the
@@ -26,13 +26,13 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'db')
 \gexec
 SQL
 
-# The remote end is reached as the read-only Grafana role, so nothing a preview can do
+# The remote end is reached as the read-only dashboards role, so nothing a preview can do
 # reaches production's data. One mapping for everybody: the preview database has no
-# accounts of its own and every reader of it is a Grafana query.
-grafana_password="$(cat "/run/secrets/${SECRET_GRAFANA_PASSWORD}")"
+# accounts of its own and every reader of it is a dashboard.
+dashboards_password="$(cat "/run/secrets/${SECRET_DASHBOARDS_PASSWORD}")"
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$preview_db" \
-  -v source="$database" -v db="$preview_db" -v password="$grafana_password" <<'SQL'
+  -v source="$database" -v db="$preview_db" -v password="$dashboards_password" <<'SQL'
 CREATE EXTENSION IF NOT EXISTS postgres_fdw;
 
 SELECT format(
@@ -51,14 +51,14 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_foreign_server WHERE srvname = 'production')
 SELECT format(
     'CREATE USER MAPPING FOR PUBLIC SERVER production '
     'OPTIONS (user %L, password %L, password_required ''false'')',
-    '${GRAFANA_DB_USER}', :'password'
+    '${DASHBOARDS_DB_USER}', :'password'
 )
 WHERE NOT EXISTS (SELECT 1 FROM pg_user_mappings WHERE srvname = 'production')
 \gexec
 
-GRANT USAGE ON FOREIGN SERVER production TO ${GRAFANA_DB_USER}, ${SQLMESH_DB_USER};
+GRANT USAGE ON FOREIGN SERVER production TO ${DASHBOARDS_DB_USER}, ${SQLMESH_DB_USER};
 
-SELECT format('GRANT CONNECT ON DATABASE %I TO ${GRAFANA_DB_USER}, ${SQLMESH_DB_USER}', :'db')
+SELECT format('GRANT CONNECT ON DATABASE %I TO ${DASHBOARDS_DB_USER}, ${SQLMESH_DB_USER}', :'db')
 \gexec
 
 -- Which schemas production has. A foreign table over its catalog rather than a list kept
@@ -111,9 +111,9 @@ BEGIN
         EXECUTE format(
             'IMPORT FOREIGN SCHEMA %I FROM SERVER production INTO %I', source, target
         );
-        EXECUTE format('GRANT USAGE ON SCHEMA %I TO ${GRAFANA_DB_USER}', target);
+        EXECUTE format('GRANT USAGE ON SCHEMA %I TO ${DASHBOARDS_DB_USER}', target);
         EXECUTE format(
-            'GRANT SELECT ON ALL TABLES IN SCHEMA %I TO ${GRAFANA_DB_USER}', target
+            'GRANT SELECT ON ALL TABLES IN SCHEMA %I TO ${DASHBOARDS_DB_USER}', target
         );
     END LOOP;
 END;

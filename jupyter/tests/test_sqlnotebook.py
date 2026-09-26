@@ -153,9 +153,14 @@ class TestCellRouting:
     def test_a_definition_runs_as_a_model(self, source):
         assert self.magic(source) == "%%model_cell"
 
-    @pytest.mark.parametrize("source", ["SELECT 1", "select * from t", "WITH x AS (SELECT 1)\nSELECT * FROM x"])
+    @pytest.mark.parametrize("source", ["SELECT 1", "select * from t", "WITH x AS (SELECT 1)\nSELECT * FROM x",
+                                        "-- What it counts.\nSELECT 1"])
     def test_a_query_runs_as_a_query(self, source):
         assert self.magic(source) == "%%fetchdf"
+
+    def test_a_dashboards_query_runs_with_its_filters(self):
+        """A :name is a filter, which only the dashboards know how to bind."""
+        assert self.magic("SELECT * FROM t WHERE p = ANY(:project)") == "%%query"
 
     @pytest.mark.parametrize("source", [
         "df.plot()",
@@ -673,3 +678,27 @@ class TestTrimmedMenus:
         names = set(get_export_names(config=config))
         assert {"html", "markdown", "pdf", "script"} <= names
         assert not names & {"asciidoc", "latex", "rst", "slides", "webpdf", "qtpdf", "qtpng"}
+
+
+class TestDashboards:
+    """The seeded dashboards as a notebook sees them: loaded by the same module the
+    dashboards service draws with, and drawn by the admin panel's own script."""
+
+    ROOT = Path(os.environ.get("TEST_DASHBOARDS_DIR", "/dashboards"))
+
+    @pytest.fixture(scope="class")
+    def catalog(self):
+        from dashboards import Catalog
+
+        return Catalog.load(self.ROOT)
+
+    def test_every_seeded_file_loads(self, catalog):
+        assert catalog.dashboards and catalog.problems == {}
+
+    def test_a_chart_draws_itself_with_sample_data(self, catalog, monkeypatch):
+        """What a chart file's last cell shows, loading the scripts a dashboard loads."""
+        monkeypatch.setenv("CRUDMAN_PATH", "admin")
+        html = catalog.charts["bar"]._repr_html_()
+        assert '"/admin/static/dashboards/dashboards.js"' in html
+        assert '"/admin/static/docs/echarts.min.js"' in html
+        assert "Alpha" in html

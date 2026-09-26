@@ -18,7 +18,7 @@ from conftest import (
     CRUDMAN_DB_USER,
     DB_USER_PREFIX,
     ROLE_PREFIX,
-    GRAFANA_DB_USER,
+    DASHBOARDS_DB_USER,
     PG_DATABASE,
     SILVER_SCHEMA,
     SQLMESH_DB_USER,
@@ -219,7 +219,7 @@ def test_delete_db_user_disables_without_dropping(crudman_db, admin_db, cleanup)
 
 # The roles the provisioning functions must refuse. PG_SUPERUSER_ROLE is configurable,
 # which is the case a hardcoded list would miss.
-SERVICE_ROLES = (PG_SUPERUSER_ROLE, CRUDMAN_DB_USER, SQLMESH_DB_USER, GRAFANA_DB_USER)
+SERVICE_ROLES = (PG_SUPERUSER_ROLE, CRUDMAN_DB_USER, SQLMESH_DB_USER, DASHBOARDS_DB_USER)
 
 
 def test_service_roles_are_protected(crudman_db):
@@ -250,8 +250,8 @@ def test_provisioning_functions_are_not_public(connect, cleanup):
     The functions run as their superuser owner, so a default PUBLIC grant would let any
     role mint an admin account.
     """
-    grafana = connect(GRAFANA_DB_USER)
-    with grafana.cursor() as cur:
+    dashboards = connect(DASHBOARDS_DB_USER)
+    with dashboards.cursor() as cur:
         with pytest.raises(psycopg2.errors.InsufficientPrivilege):
             cur.execute("SELECT create_db_user(%s, %s, %s)", (VIEWER, PASSWORD, ADMIN_ROLE))
 
@@ -395,7 +395,7 @@ def test_drop_db_user_refuses_an_unprovisioned_role(crudman_db, admin_db, outsid
 
 def test_dropping_is_not_reachable_by_other_roles(connect, cleanup):
     """As with the other provisioning functions: crudman only."""
-    grafana = connect(GRAFANA_DB_USER)
-    with grafana.cursor() as cur:
+    dashboards = connect(DASHBOARDS_DB_USER)
+    with dashboards.cursor() as cur:
         with pytest.raises(psycopg2.errors.InsufficientPrivilege):
             cur.execute("SELECT drop_db_user(%s)", (VIEWER,))

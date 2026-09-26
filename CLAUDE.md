@@ -14,23 +14,28 @@
 
 - Deployment: Rootless podman (>5.0) quadlets to Ubuntu or Red Hat. Single install cmd:
   `curl -fsSL https://github.com/your-org/your-repo/releases/latest/install.sh | bash`
-- Components: PostgreSQL, Django admin, SQLMesh, Grafana, nginx proxy, dropzone SFTP and
-  Arrow Flight endpoints.
-- Reachable from outside: Grafana and Django admin through the nginx proxy (80/443);
+- Components: PostgreSQL, Django admin, SQLMesh, dashboards (htmx + ECharts, defined as
+  code in the models repository), JupyterHub, nginx proxy, dropzone SFTP and Arrow Flight
+  endpoints.
+- Reachable from outside: Django admin (with the dashboards) and the notebooks through the
+  nginx proxy (80/443);
   PostgreSQL (5432), SFTP (2222) and Flight (8815) publish their own port.
 
 
 ## Where things are
 
 - `crudman/` — Django admin (Unfold); apps in `app/`: system, dropzones, sso, dbusers,
-  docs, notebooks, shell (the bar below every page, framing all three apps), example.
+  docs, dashboards (pages, htmx, `dashboards.js`), notebooks, shell (the bar below every
+  page, framing the apps), example.
 - `sqlmesh/` — SQLMesh project: `config.py`, `macros/`, `models/{bronze,silver,gold}`.
   Not baked into the image: it is the *seed* of the models repository crudman keeps on the
   `models_data` volume, and the engine runs whatever commit is checked out there.
 - `postgresql/` — pgduckdb image; `initdb/gf_000N_*.{sh,sql}` for initialization,
   `render.sh`: substitute the database role names at build time.
-- `grafana/` — `custom.ini`: configuration, `provisioning/`: default dashboards, 
-  `render.sh`: replace template placeholders at build time.
+- `dashboards/` — the seed of the models repository's `dashboards/`: filters, queries,
+  charts, boards. Their building blocks are `sqlmesh/dashboards.py`, drawn by the
+  `dashboards` service (`sqlmesh/dashboards_api.py`, sqlmesh image) and in notebook cells.
+- `jupyter/` — JupyterHub, the per-person notebook servers and the SQL kernel.
 - `proxy/` — nginx; `http.conf.template` and `https.conf.template` (listeners/TLS),
   both including the shared `maps.conf.template` and `locations.conf.template`.
 - `serverstats/` — `collect.sh` plus a systemd service and timer. Runs on target machine

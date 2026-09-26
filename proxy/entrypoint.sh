@@ -9,10 +9,8 @@ set -e
 LOG_DIR=/var/log/app
 mkdir -p "$LOG_DIR"
 
-# Must match CRUDMAN_PATH, GRAFANA_PATH and MCP_PATH of the three services.
+# Must match CRUDMAN_PATH and NOTEBOOK_PATH of the two services.
 export CRUDMAN_PATH="${CRUDMAN_PATH:-crudman}"
-export GRAFANA_PATH="${GRAFANA_PATH:-grafana}"
-export MCP_PATH="${MCP_PATH:-ai/grafana_mcp}"
 export NOTEBOOK_PATH="${NOTEBOOK_PATH:-jupyter}"
 
 # nginx takes the first certificate in fullchain.pem as the server certificate and checks
@@ -118,9 +116,9 @@ fi
 
 # Only our own variables, so nginx's ($host, $scheme, ...) survive. The fragments are
 # rendered beside the templates, where the include lines name them.
-envsubst '${APP_NAME} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${NOTEBOOK_PATH}' < "$template" > /etc/nginx/conf.d/default.conf
+envsubst '${CRUDMAN_PATH} ${NOTEBOOK_PATH}' < "$template" > /etc/nginx/conf.d/default.conf
 for fragment in maps locations; do
-  envsubst '${APP_NAME} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${NOTEBOOK_PATH}' \
+  envsubst '${CRUDMAN_PATH} ${NOTEBOOK_PATH}' \
     < "/etc/nginx/proxy/${fragment}.conf.template" > "/etc/nginx/proxy/${fragment}.conf"
 done
 

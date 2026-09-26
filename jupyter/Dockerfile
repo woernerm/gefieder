@@ -63,8 +63,8 @@ RUN UV_EXTRA_INDEX_URL=${PYTHON_INDEX} uv venv --python 3.13 ${NOTEBOOK_VENV} \
        uv pip install --requirement /opt/notebook-project/requirements.txt \
             "jupyterhub==${JUPYTERHUB_VERSION}"
 
-# The extensions an operator adds in buildtime.env, installed the way the Grafana plugins
-# and DuckDB extensions are: at build time, so the target machine needs no package index.
+# The extensions an operator adds in buildtime.env, installed the way the DuckDB
+# extensions are: at build time, so the target machine needs no package index.
 # Empty is normal -- what the workflow depends on is in requirements.txt above.
 ARG JUPYTER_EXTENSIONS
 RUN if [ -n "${JUPYTER_EXTENSIONS}" ]; then \
@@ -110,9 +110,9 @@ RUN mkdir -p /etc/skel/.ipython/profile_default
 COPY jupyter/ipython_kernel_config.py /etc/skel/.ipython/profile_default/ipython_kernel_config.py
 
 # The system's colours, and the stylesheet that applies them to Lab. Read only when
-# custom_css is enabled, which jupyter_server_config.py does. The palette is Grafana's,
-# kept beside Grafana to say so; every image that themes itself copies it from there.
-COPY grafana/palette.css jupyter/custom/custom.css /etc/skel/.jupyter/custom/
+# custom_css is enabled, which jupyter_server_config.py does. The palette is the admin
+# panel's static file, the one place the system's colours are written down.
+COPY crudman/app/system/static/css/palette.css jupyter/custom/custom.css /etc/skel/.jupyter/custom/
 
 # What a person's working tree must never carry into a commit. Their own global ignore
 # file, so the models repository's .gitignore stays the one this system ships.
@@ -131,6 +131,9 @@ RUN git config --system core.excludesFile "~/.gitignore" \
 # cell routing. On the notebook environment's path rather than installed as a package: it
 # is configuration of this system, not a library anyone imports.
 COPY jupyter/sqlnotebook/ ${NOTEBOOK_VENV}/lib/python3.13/site-packages/sqlnotebook/
+# The dashboards' building blocks, the same module the dashboards service draws with, so a
+# chart run in a cell is the chart the dashboard shows.
+COPY sqlmesh/dashboards.py ${NOTEBOOK_VENV}/lib/python3.13/site-packages/dashboards.py
 COPY jupyter/jupyter_server_config.py /usr/local/etc/jupyter/jupyter_server_config.py
 # Which Lab plugins never load: the menus requirements.md lists as taken out. labconfig/
 # under a config directory is where Lab looks; a list instead of the object here makes
@@ -144,7 +147,8 @@ COPY jupyter/overrides/overrides.json \
 
 # The hub's own configuration and the two modules it imports, its page template, and the
 # palette that template inlines.
-COPY jupyter/jupyterhub_config.py jupyter/crudman.py jupyter/spawn.py grafana/palette.css /etc/jupyterhub/
+COPY jupyter/jupyterhub_config.py jupyter/crudman.py jupyter/spawn.py \
+     crudman/app/system/static/css/palette.css /etc/jupyterhub/
 COPY jupyter/templates/ /etc/jupyterhub/templates/
 COPY jupyter/entrypoint.sh /jupyter/entrypoint.sh
 

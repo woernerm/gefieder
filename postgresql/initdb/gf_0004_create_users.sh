@@ -24,7 +24,7 @@ SQL
 
 create_user '${CRUDMAN_DB_USER}' '${SECRET_CRUDMAN_PASSWORD}'
 create_user '${SQLMESH_DB_USER}' '${SECRET_SQLMESH_PASSWORD}'
-create_user '${GRAFANA_DB_USER}' '${SECRET_GRAFANA_PASSWORD}'
+create_user '${DASHBOARDS_DB_USER}' '${SECRET_DASHBOARDS_PASSWORD}'
 
 # SQLMesh creates and owns its own schemas, so it needs only CREATE on the database.
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \

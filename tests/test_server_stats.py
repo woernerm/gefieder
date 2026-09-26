@@ -2,7 +2,7 @@
 
 These cover the recording side that sizes a future server (CPU, RAM, storage, IOPS,
 throughput, egress) and finds queries worth an index. They assert that the data is
-collected, not how it looks; the dashboard displaying it is checked in test_grafana.py.
+collected, not how it looks; the dashboard displaying it is checked in test_dashboards.py.
 """
 import hashlib
 import os
@@ -15,7 +15,7 @@ import httpx
 import pytest
 
 from conftest import (
-    APP_NAME, BASE_URL, COLLECTOR, CRUDMAN_PATH, GRAFANA_PATH, SERVER_STATS_SCHEMA,
+    APP_NAME, BASE_URL, COLLECTOR, CRUDMAN_PATH, DASHBOARDS, SERVER_STATS_SCHEMA,
     PG_SUPERUSER_ROLE, VERIFY_TLS, denied,
 )
 
@@ -31,7 +31,7 @@ def q(cur, sql, params=None):
 
 
 class TestServerStatsSchema:
-    """The server-statistics schema, tables and rollup function exist with grafana read."""
+    """The server-statistics schema, tables and rollup function exist, readable by the dashboards."""
 
     def test_schema_shall_exist(self, admin_db):
         with admin_db.cursor() as cur:
@@ -79,16 +79,16 @@ class TestQueryStatistics:
         assert "pg_duckdb" in libs and "pg_stat_statements" in libs, libs
 
 
-class TestGrafanaAccess:
-    """grafana reads the server-statistics data (for the later dashboards) but cannot write."""
+class TestDashboardsAccess:
+    """The dashboards role reads the server-statistics data but cannot write it."""
 
-    def test_grafana_shall_read_the_host_samples(self, grafana_db):
-        with grafana_db.cursor() as cur:
+    def test_dashboards_shall_read_the_host_samples(self, dashboards_db):
+        with dashboards_db.cursor() as cur:
             cur.execute(f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.host_sample')
             assert cur.fetchone()[0] >= 0
 
-    def test_grafana_shall_not_write_the_host_samples(self, grafana_db):
-        denied(grafana_db,
+    def test_dashboards_shall_not_write_the_host_samples(self, dashboards_db):
+        denied(dashboards_db,
                f'INSERT INTO {SERVER_STATS_SCHEMA}.host_sample (cpu_usage_usec) VALUES (1)')
 
 
@@ -330,18 +330,18 @@ VISIT_COOKIE = "sess-" + uuid.uuid4().hex
 def visits(admin_db):
     """Generate page visits through the proxy, then drain them with one collector run.
 
-    The proxy logs the request however Grafana or crudman answer it, so the pipeline can
-    be tested without authenticating. Noise requests (API, assets, a POST) are sent too and
-    must NOT appear, proving the nginx filter holds.
+    The proxy logs the request however crudman answers it, so the pipeline can be tested
+    without authenticating. Noise requests (a panel htmx fetches, an asset, a POST) are sent
+    too and must NOT appear, proving the nginx filter holds.
     """
-    nav_dashboard = f"/{GRAFANA_PATH}/d/{VISIT_UID}/probe"
+    nav_dashboard = f"{DASHBOARDS}{VISIT_UID}/"
     with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS, follow_redirects=False,
-                      timeout=10, cookies={"grafana_session": VISIT_COOKIE}) as c:
-        c.get(nav_dashboard)                          # grafana dashboard nav -> logged
-        c.get(f"/{GRAFANA_PATH}/api/dashboards/uid/{VISIT_UID}")  # API -> skipped
-        c.get(f"/{GRAFANA_PATH}/public/build/app.js")            # asset -> skipped
-        c.get(f"/{CRUDMAN_PATH}/")                     # crudman page nav -> logged
-        c.post(f"/{CRUDMAN_PATH}/login/")              # POST -> skipped
+                      timeout=10, cookies={"sessionid": VISIT_COOKIE}) as c:
+        c.get(nav_dashboard)                                    # dashboard nav -> logged
+        c.get(f"{nav_dashboard}0/", headers={"HX-Request": "true"})  # a panel -> skipped
+        c.get(f"/{CRUDMAN_PATH}/static/{VISIT_UID}.js")         # asset -> skipped
+        c.get(f"/{CRUDMAN_PATH}/")                               # crudman page nav -> logged
+        c.post(f"/{CRUDMAN_PATH}/login/")                        # POST -> skipped
 
     # nginx buffers the access log, so a pause lets the lines flush before the collector
     # drains visits.log into dashboard_visit.
@@ -353,13 +353,13 @@ def visits(admin_db):
 class TestDashboardVisits:
     """Page navigations through the proxy are recorded, with noise filtered out."""
 
-    def test_a_grafana_dashboard_visit_shall_be_recorded(self, admin_db, visits):
+    def test_a_dashboard_visit_shall_be_recorded(self, admin_db, visits):
         with admin_db.cursor() as cur:
             row = q(cur,
                 f"SELECT app, dashboard_uid FROM {SERVER_STATS_SCHEMA}.dashboard_visit "
                 f"WHERE dashboard_uid = %s", (VISIT_UID,))
-        assert row is not None, "the grafana dashboard visit was not recorded"
-        assert row[0] == "grafana" and row[1] == VISIT_UID
+        assert row is not None, "the dashboard visit was not recorded"
+        assert row[0] == "dashboards" and row[1] == VISIT_UID
 
     def test_a_crudman_page_visit_shall_be_recorded(self, admin_db, visits):
         # crudman views ride the same pipeline.
@@ -369,16 +369,17 @@ class TestDashboardVisits:
                 f"WHERE app = 'crudman'")[0]
         assert cnt >= 1, "no crudman page visit was recorded"
 
-    def test_api_and_asset_requests_shall_not_be_recorded(self, admin_db, visits):
-        # The noise requests carry the same uid but are API/asset/POST, so the navigation
+    def test_panel_and_asset_requests_shall_not_be_recorded(self, admin_db, visits):
+        # The noise requests carry the same uid but are panel/asset/POST, so the navigation
         # is the only path recorded for it. Asserted over the distinct paths rather than
         # the rows: a later collector run drains the same buffered log lines again, which
         # duplicates the navigation without meaning the filter let anything through.
         with admin_db.cursor() as cur:
+            nav_dashboard = visits
             paths = {r[0] for r in _all(cur,
                 f"SELECT url_path FROM {SERVER_STATS_SCHEMA}.dashboard_visit "
                 f"WHERE url_path LIKE %s", (f"%{VISIT_UID}%",))}
-        assert paths == {f"/{GRAFANA_PATH}/d/{VISIT_UID}/probe"}, \
+        assert paths == {nav_dashboard}, \
             f"noise requests leaked into visits: {sorted(paths)}"
 
     def test_the_session_cookie_shall_be_hashed_not_stored(self, admin_db, visits):
@@ -394,11 +395,11 @@ class TestDashboardVisits:
         assert row[0] == expected, "session_hash is not md5(cookie)"
         assert leaked == 0, "the raw session cookie leaked into the database"
 
-    def test_grafana_shall_read_but_not_write_visits(self, grafana_db):
-        with grafana_db.cursor() as cur:
+    def test_dashboards_shall_read_but_not_write_visits(self, dashboards_db):
+        with dashboards_db.cursor() as cur:
             cur.execute(f"SELECT count(*) FROM {SERVER_STATS_SCHEMA}.dashboard_visit")
             assert cur.fetchone()[0] >= 0
-        denied(grafana_db,
+        denied(dashboards_db,
                f"INSERT INTO {SERVER_STATS_SCHEMA}.dashboard_visit (app) VALUES ('x')")
 
 

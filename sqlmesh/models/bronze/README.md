@@ -53,6 +53,6 @@ harmonizes it into the canonical silver shape.
 
 > Source access: the shared source schemas (`jira`, `sap`, ...) are read by the sqlmesh
 > role only; an admin grants sqlmesh read on a source when attaching it to the project.
-> Grafana never reads a source directly -- it reads the bronze view, which runs as sqlmesh.
+> The dashboards never read a source directly -- they read the bronze view, which runs as sqlmesh.
 > Grant the source access first, then add and plan the bronze model (a model selecting from
 > a source sqlmesh cannot yet read fails the plan).

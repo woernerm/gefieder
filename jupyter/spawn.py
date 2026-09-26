@@ -24,9 +24,6 @@ ORIGIN = os.environ.get("REPO_MODELS", "").strip()
 """What a workspace is cloned from -- the same repository crudman deploys from, so a push
 here is deployed by the ordinary poll and needs no path of its own."""
 
-PROJECT = "sqlmesh"
-"""The SQLMesh project inside the repository, which is what Lab opens on."""
-
 
 class WorkspaceSpawner(LocalProcessSpawner):
     """A JupyterLab per person, on their own clone of the models repository."""
@@ -109,8 +106,7 @@ class WorkspaceSpawner(LocalProcessSpawner):
         workspace = self._clone(account)
         # The repository root, not the SQLMesh project inside it: the git panel looks for
         # .git at or below the server's root directory, and rooting one level down leaves
-        # it reporting no repository at all. Lab still opens on the project, through
-        # default_url below, so the file browser lands where the models are.
+        # it reporting no repository at all. Lab opens there too, on the two halves of the
+        # repository side by side: the models and the dashboards drawn from them.
         self.notebook_dir = str(workspace)
-        self.default_url = f"/lab/tree/{PROJECT}"
         return super().start()

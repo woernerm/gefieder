@@ -8,7 +8,9 @@ mean the cell is no longer the file.
 So an input transformer reads the first words of each cell and routes it:
 
 - a MODEL definition renders and validates that model, and shows a preview of its rows,
-- a bare query is fetched into a dataframe,
+- a dashboard's query -- one reading a filter as ``:name`` -- runs with its filters as a
+  dashboard opens with them (``dashboards.load_ipython_extension``),
+- any other bare query is fetched into a dataframe,
 - anything else is Python, untouched.
 
 Deliberately not ``%%model``'s own behaviour of rewriting the file: the editor is holding
@@ -20,8 +22,11 @@ import re
 MODEL_START = re.compile(r"^\s*(--[^\n]*\n|\s*\n)*\s*MODEL\s*\(", re.IGNORECASE)
 """A model definition: the MODEL block, past any leading comment or blank line."""
 
-QUERY_START = re.compile(r"^\s*(SELECT\b|WITH\s+[A-Za-z_][\w.]*\s+AS\s*\()", re.IGNORECASE)
-"""A bare query, which is worth running and showing rather than executing as Python.
+QUERY_START = re.compile(
+    r"^\s*(--[^\n]*\n|\s*\n)*\s*(SELECT\b|WITH\s+[A-Za-z_][\w.]*\s+AS\s*\()", re.IGNORECASE
+)
+"""A bare query, past any leading comment, which is worth running and showing rather than
+executing as Python.
 
 A CTE is matched by its ``<name> AS (`` rather than by the word alone: Python's ``with``
 statement opens the same way and is far more common in a notebook than a query is rare.
@@ -46,7 +51,9 @@ def route(lines: list[str]) -> list[str]:
     if MODEL_START.match(source):
         return ["%%model_cell\n", *lines]
     if QUERY_START.match(source):
-        return ["%%fetchdf\n", *lines]
+        from dashboards import placeholders
+
+        return ["%%query\n" if placeholders(source) else "%%fetchdf\n", *lines]
     return lines
 
 

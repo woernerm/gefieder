@@ -17,6 +17,15 @@ ARG no_proxy
 # so a broken release fails there.
 RUN python -c "import urllib.request as r; r.urlretrieve('https://unpkg.com/echarts@latest/dist/echarts.min.js', '/echarts.min.js')"
 
+# The dashboards' tables, the same way. Pinned to a major version, its stylesheet being
+# recoloured by dashboards.css selector by selector; tests/test_dashboards.py loads both.
+# Without the reference to a source map, which is not shipped: collectstatic refuses a file
+# pointing at one it cannot find.
+RUN python -c "import re, urllib.request as r; \
+    [open(f'/tabulator.min.{kind}', 'w').write(re.sub(r'\n?/[/*]# sourceMappingURL=.*', '', \
+        r.urlopen(f'https://unpkg.com/tabulator-tables@6/dist/{kind}/tabulator.min.{kind}').read().decode())) \
+     for kind in ('js', 'css')]"
+
 
 FROM ${GHCR_IO_MIRROR}/astral-sh/uv:python3.13-trixie-slim
 
@@ -54,13 +63,11 @@ RUN UV_EXTRA_INDEX_URL=${PYTHON_INDEX} uv sync --project /crudman --no-dev
 # Copy the Django application into the image.
 COPY crudman/app/ /crudman/app/
 
-# Into the docs app's static directory, so collectstatic picks it up and the template
-# reaches it through {% static %}, the storage backend hashing the name.
+# Into the docs app's static directory, so collectstatic picks it up and the templates
+# reach it through {% static %}, the storage backend hashing the name. The dashboards draw
+# with it too, and a notebook loads it from here by its plain name.
 COPY --from=assets /echarts.min.js /crudman/app/docs/static/docs/echarts.min.js
-
-# The system's colours, the same way: Unfold's STYLES setting links it into every page,
-# and its COLORS point into it. Grafana's palette, kept beside Grafana to say so.
-COPY grafana/palette.css /crudman/app/system/static/css/palette.css
+COPY --from=assets /tabulator.min.js /tabulator.min.css /crudman/app/dashboards/static/dashboards/
 
 # What a models repository starts life as, used only when REPO_MODELS names a path that
 # does not exist yet. Shipping the examples as the first commit is what keeps them worth
@@ -71,7 +78,12 @@ COPY grafana/palette.css /crudman/app/system/static/css/palette.css
 # a clone carrying them would invite someone to edit them.
 COPY sqlmesh/ /seed/sqlmesh/
 RUN rm -f /seed/sqlmesh/Dockerfile /seed/sqlmesh/entrypoint.sh /seed/sqlmesh/sqlmesh.sh \
-          /seed/sqlmesh/docs_export.py /seed/sqlmesh/status.py /seed/sqlmesh/preview.py
+          /seed/sqlmesh/docs_export.py /seed/sqlmesh/status.py /seed/sqlmesh/preview.py \
+          /seed/sqlmesh/dashboards.py /seed/sqlmesh/dashboards_api.py
+
+# The example dashboards beside the models, as build.sh rendered them: their queries name
+# the server-statistics schema, a build-time setting SQL cannot read.
+COPY .render/dashboards/ /seed/dashboards/
 
 # What a developer's checkout produces and must never commit. The password lives in
 # sqlmesh/.env for the same reason it does in this repository -- SQLMesh loads that file

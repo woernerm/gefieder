@@ -24,6 +24,8 @@ urlpatterns = [
     # The SQLMesh model documentation, open from the viewer rank up rather than to staff
     # only.
     path(f"{CRUDMAN_PATH}/docs/", include("docs.urls")),
+    # The dashboards, likewise.
+    path(f"{CRUDMAN_PATH}/dashboards/", include("dashboards.urls")),
     # What JupyterHub authenticates its visitors against, so the notebooks have no
     # accounts of their own.
     path(f"{CRUDMAN_PATH}/notebooks/", include("notebooks.urls")),

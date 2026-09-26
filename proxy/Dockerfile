@@ -22,7 +22,6 @@ COPY proxy/entrypoint.sh /etc/nginx/proxy/entrypoint.sh
 
 # Baked as defaults. DEBUG selects HTTP or HTTPS and is passed at runtime.
 ENV CRUDMAN_PATH=crudman
-ENV GRAFANA_PATH=grafana
-ENV MCP_PATH=ai/grafana_mcp
+ENV NOTEBOOK_PATH=jupyter
 
 CMD ["/etc/nginx/proxy/entrypoint.sh"]

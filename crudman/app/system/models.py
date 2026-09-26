@@ -167,8 +167,8 @@ class Approval(models.Model):
         showing them a version nobody is waiting on would strand them off production.
 
         One query rather than two, the newest review being a subquery rather than a
-        lookup: this is asked on every page the bar is drawn on and on every Grafana
-        request, the proxy putting the question about each of them to notebooks/views.py.
+        lookup: this is asked on every page the bar is drawn on and for every panel a
+        dashboard draws, which reads the version its viewer owes a decision on.
         """
         newest_review = Deployment.objects.filter(
             environment=Deployment.PREVIEW

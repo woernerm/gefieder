@@ -117,8 +117,12 @@
         const frames = document.getElementById("frames");
         const bar = document.getElementById("bar");
 
-        // The app a path belongs to, by its first segment: the frame it is shown in.
-        const keyOf = (path) => path.split("/")[1];
+        // The frame a path is shown in: its stage's, so a dashboard stays as it was left
+        // while a visit to the sources shares the same app. A path under no stage goes by
+        // its app, the first segment.
+        const stageOf = (path) => [...bar.querySelectorAll("[data-prefixes]")]
+            .find((stage) => stage.dataset.prefixes.split(" ").some((p) => path.startsWith(p)));
+        const keyOf = (path) => stageOf(path)?.dataset.prefixes ?? path.split("/")[1];
         const visible = () => frames.querySelector("iframe:not([hidden])");
         // A frame's address, or null while it shows another origin's page.
         const where = (frame) => { try { return frame.contentWindow.location; } catch { return null; } };
@@ -156,7 +160,7 @@
         }
 
         function show(key, url) {
-            let frame = frames.querySelector(`iframe[name="${key}"]`);
+            let frame = frames.querySelector(`iframe[name="${CSS.escape(key)}"]`);
             if (!frame) {
                 frame = document.createElement("iframe");
                 frame.name = key;
@@ -170,25 +174,19 @@
             follow();
         }
 
-        // A stage opens in its app's frame, which is only sent elsewhere when what it
-        // shows is not the stage's already: a dashboard or a notebook stays as it was.
-        // What the stage asks of that page -- kiosk mode -- is asked again even so:
-        // Grafana drops the parameter on Escape, and a reload after a link was followed
-        // brings its chrome back. Home always leads home. A modified click keeps its
-        // meaning, a new window.
+        // A stage opens in its own frame, which is only sent elsewhere when what it shows
+        // is not the stage's already: a dashboard or a notebook stays as it was. Home
+        // always leads home. A modified click keeps its meaning, a new window.
         bar.addEventListener("click", (event) => {
             const link = event.target.closest("a[data-prefixes], a[data-home]");
             if (!link || event.ctrlKey || event.metaKey || event.shiftKey) return;
             event.preventDefault();
             const url = new URL(link.href);
             const key = keyOf(url.pathname);
-            const frame = frames.querySelector(`iframe[name="${key}"]`);
+            const frame = frames.querySelector(`iframe[name="${CSS.escape(key)}"]`);
             const here = frame && where(frame);
             const stays = here && link.dataset.prefixes?.split(" ").some((p) => here.pathname.startsWith(p));
-            if (!stays) return show(key, url.pathname + url.search);
-            const params = new URLSearchParams(here.search);
-            const missing = url.search.slice(1).split("&").filter((p) => p && !params.has(p.split("=")[0]));
-            show(key, missing.length ? here.pathname + (here.search ? `${here.search}&` : "?") + missing.join("&") : null);
+            show(key, stays ? null : url.pathname + url.search);
         });
 
         const first = frames.firstElementChild;
@@ -234,11 +232,6 @@
             const theme = themeOf(choice);
             // The hub's pages read this before their own dark-mode script runs.
             localStorage.setItem("jupyterhub-bs-theme", theme);
-            await fetch("{{ grafana }}api/user/preferences", {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ theme }),
-            }).catch(() => {});
             for (const frame of frames.children) {
                 await tellLab(frame, theme);
                 where(frame)?.reload();

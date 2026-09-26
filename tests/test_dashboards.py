@@ -171,6 +171,7 @@ class TestInANotebook:
     """A notebook draws a chart with the same two scripts, fetched by their plain names."""
 
     @pytest.mark.parametrize("script", ["dashboards/dashboards.js", "docs/echarts.min.js",
-                                        "dashboards/dashboards.css"])
+                                        "dashboards/dashboards.css", "dashboards/tabulator.min.js",
+                                        "dashboards/tabulator.min.css"])
     def test_the_scripts_shall_be_served_by_name(self, http, script):
         assert http.get(f"/{CRUDMAN_PATH}/static/{script}").status_code == 200

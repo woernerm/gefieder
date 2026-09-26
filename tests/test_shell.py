@@ -10,7 +10,7 @@ import time
 import pytest
 
 from conftest import (
-    CRUDMAN_LOGIN, CRUDMAN_PATH, GRAFANA_PATH, NOTEBOOK_PATH, SUPERUSER_NAME, django,
+    CRUDMAN_LOGIN, CRUDMAN_PATH, DASHBOARDS, NOTEBOOK_PATH, SUPERUSER_NAME, django,
 )
 
 PAGE = {"Sec-Fetch-Dest": "document"}
@@ -50,7 +50,7 @@ def notebook_server(admin_session):
 class TestAPageOfItsOwn:
     @pytest.mark.parametrize("path", [
         f"/{CRUDMAN_PATH}/",
-        f"/{GRAFANA_PATH}/?kiosk",
+        f"{DASHBOARDS}issues/?project=project_a",
         f"/{NOTEBOOK_PATH}/",
     ])
     def test_shall_be_the_shell_around_that_address(self, admin_session, path):
@@ -70,17 +70,17 @@ class TestAPageOfItsOwn:
     def test_shall_offer_the_dashboards_and_the_user_menu(self, admin_session):
         page = admin_session.get(f"/{CRUDMAN_PATH}/", headers=PAGE).text
 
-        assert f'href="/{GRAFANA_PATH}/?kiosk"' in page
+        assert f'href="{DASHBOARDS}"' in page
         assert "Log out" in page
 
 
 class TestTheFrame:
-    def test_shall_get_grafana(self, admin_session):
-        resp = admin_session.get(f"/{GRAFANA_PATH}/", headers=FRAMED)
+    def test_shall_get_the_dashboards(self, admin_session):
+        resp = admin_session.get(DASHBOARDS, headers=FRAMED)
 
         assert resp.status_code == 200
         assert SHELL_MARK not in resp.text
-        assert "grafana" in resp.text.lower()
+        assert "Server monitoring" in resp.text
 
     def test_shall_get_the_admin_panel(self, admin_session):
         resp = admin_session.get(f"/{CRUDMAN_PATH}/", headers=FRAMED)
@@ -88,10 +88,10 @@ class TestTheFrame:
         assert SHELL_MARK not in resp.text
         assert "nav-sidebar" in resp.text
 
-    @pytest.mark.parametrize("path", [f"/{CRUDMAN_PATH}/", f"/{GRAFANA_PATH}/", f"/{NOTEBOOK_PATH}/hub/"])
+    @pytest.mark.parametrize("path", [f"/{CRUDMAN_PATH}/", DASHBOARDS, f"/{NOTEBOOK_PATH}/hub/"])
     def test_shall_be_allowed_by_every_app(self, admin_session, path):
-        """A frame from the same origin, which Django's, Grafana's and the hub's
-        defaults all refuse."""
+        """A frame from the same origin, which Django's and the hub's defaults both
+        refuse."""
         resp = admin_session.get(path, headers=FRAMED)
 
         assert resp.headers.get("x-frame-options", "sameorigin").lower() == "sameorigin"

@@ -1,7 +1,7 @@
 """What every kernel in this system has already done before the first cell runs.
 
 Run by ``exec_files`` in the IPython configuration (see ``jupyter/ipython_kernel_config.py``). It
-loads SQLMesh's magics and this system's cell routing, opens the project the notebook lives
+loads SQLMesh's magics, the dashboards' and this system's cell routing, opens the project the notebook lives
 in, and says which account and environment the session is working as -- so a new notebook is
 immediately useful and nobody has to remember an incantation to make ``%evaluate`` work.
 
@@ -158,6 +158,7 @@ def _load() -> None:
     # recognises as a notebook.
     register_magics()
     ipython.run_line_magic("load_ext", "sqlnotebook.kernel")
+    ipython.run_line_magic("load_ext", "dashboards")
 
     project = find_project()
     if project is None:
