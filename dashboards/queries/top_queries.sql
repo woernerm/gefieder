@@ -12,7 +12,7 @@ SELECT
   END AS "Avg sec"
 FROM ${SERVER_STATS_SCHEMA}.query_sample
   JOIN ${SERVER_STATS_SCHEMA}.query_dim USING (queryid)
-WHERE sampled_at >= :since
+WHERE sampled_at >= :from AND sampled_at < :to
 GROUP BY queryid, query
 ORDER BY "Runs" DESC NULLS LAST
 LIMIT 20

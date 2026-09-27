@@ -73,13 +73,22 @@ class TestADashboard:
         assert payload["kind"] == "echarts"
         assert set(column(payload, "project")) == {"project_a", "project_b", "project_c"}
 
-    def test_a_filter_shall_narrow_every_panel_reading_it(self, admin_session):
-        payload = panel(admin_session, "issues", 2, project="project_a")
+    def test_a_filter_shall_narrow_every_other_panel_reading_it(self, admin_session):
+        payload = panel(admin_session, "issues", 6, project="project_a")
 
-        assert column(payload, "project") == ["project_a"]
+        project = payload["columns"].index("Project")
+        assert {row[project] for row in payload["rows"]} == {"project_a"}
 
     def test_a_click_shall_name_the_filter_it_sets(self, admin_session):
         assert panel(admin_session, "issues", 2)["click"] == "project"
+
+    def test_the_chart_clicked_shall_highlight_rather_than_leave_out(self, admin_session):
+        """What was picked stands out against the whole, as in Power BI."""
+        payload = panel(admin_session, "issues", 2, project="project_a")
+
+        assert set(column(payload, "project")) == {"project_a", "project_b", "project_c"}
+        highlighted = dict(zip(column(payload, "project"), column(payload, "highlighted")))
+        assert highlighted == {"project_a": 1, "project_b": 0, "project_c": 0}
 
     def test_one_query_shall_feed_differently_shaped_panels(self, admin_session):
         """The stat and the chart read the same query, the stat through a transform."""
@@ -134,14 +143,29 @@ class TestServerMonitoring:
         assert payload["unit"] == "bytes"
         assert column(payload, "Memory used")
 
-    def test_the_time_range_shall_be_a_filter_of_its_own(self, admin_session):
+    def test_the_time_range_shall_open_as_the_dashboard_says(self, admin_session):
         page = admin_session.get(f"{DASHBOARDS}server/").text
 
-        assert '<select name="since">' in page
-        assert "<option selected>6 hours</option>" in page
+        assert '<input type="hidden" name="from" value="now-6h">' in page
+        assert '<option value="1m" selected>' in page
 
-    def test_shall_refresh_itself(self, admin_session):
-        assert "every 60s" in admin_session.get(f"{DASHBOARDS}server/").text
+    def test_the_address_shall_carry_the_time_range(self, admin_session):
+        page = admin_session.get(f"{DASHBOARDS}server/", params={"from": "now-24h", "refresh": "off"}).text
+
+        assert '<input type="hidden" name="from" value="now-24h">' in page
+        assert '<option value="off" selected>' in page
+
+    def test_an_absolute_time_range_shall_be_read(self, admin_session):
+        payload = panel(admin_session, "server", 5, **{"from": "2000-01-01 00:00", "to": "2000-01-02 00:00"})
+
+        assert column(payload, "Memory used") == []
+
+    def test_a_download_of_times_shall_open_in_excel(self, admin_session):
+        """Excel knows no time zones, so the service writes the times in the server's."""
+        resp = admin_session.get(f"{DASHBOARDS}server/5.xlsx")
+
+        assert resp.status_code == 200
+        assert resp.content[:2] == b"PK"
 
 
 class TestTheService:

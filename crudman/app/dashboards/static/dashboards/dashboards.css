@@ -8,6 +8,7 @@
     --dashboards-panel: var(--app-light-bg-1);
     --dashboards-raised: var(--app-light-bg-2);
     --dashboards-hover: var(--app-light-hover);
+    --dashboards-accent: var(--app-light-accent-text);
     --dashboards-error: var(--app-light-error-text);
 }
 
@@ -18,6 +19,7 @@ html.dark, [data-jp-theme-light="false"] {
     --dashboards-panel: var(--app-dark-bg-1);
     --dashboards-raised: var(--app-dark-bg-2);
     --dashboards-hover: var(--app-dark-hover);
+    --dashboards-accent: var(--app-dark-accent-text);
     --dashboards-error: var(--app-dark-error-text);
 }
 
@@ -39,7 +41,9 @@ html.dark, [data-jp-theme-light="false"] {
     min-width: 0;
     padding: .75rem 1rem;
 }
-.dashboards-panel.stat { flex-basis: 10rem; }
+/* The kind is an attribute rather than a class: a class named "table" is Unfold's display:
+   table, which sizes a panel by its content. */
+.dashboards-panel[data-kind="stat"] { flex-basis: 10rem; }
 .dashboards-panel.wide { flex-basis: 100%; }
 
 .dashboards-panel header { align-items: center; display: flex; gap: .5rem; justify-content: space-between; }
@@ -83,14 +87,7 @@ html.dark, [data-jp-theme-light="false"] {
     border-bottom-color: var(--dashboards-text) !important;
     border-top-color: var(--dashboards-text) !important;
 }
-.dashboards-panel .tabulator .tabulator-header .tabulator-header-filter input {
-    background: transparent;
-    border: 1px solid var(--dashboards-line);
-    border-radius: 4px;
-    color: inherit;
-    font-weight: normal;
-    padding: 0 .25rem;
-}
+.dashboards-panel .tabulator .tabulator-col.filtered .tabulator-header-popup-button { color: var(--dashboards-accent); }
 .dashboards-panel .tabulator .tabulator-tableholder .tabulator-table,
 .dashboards-panel .tabulator .tabulator-row,
 .dashboards-panel .tabulator .tabulator-row.tabulator-row-even {
@@ -109,15 +106,51 @@ html.dark .dashboards-panel .tabulator, [data-jp-theme-light="false"] .dashboard
     color-scheme: dark;
 }
 
-/* The filters above a dashboard. */
-.dashboards-filters { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin-bottom: 1rem; }
+/* The filters above a dashboard, the time picker and the refresh interval at the right. */
+.dashboards-filters { display: grid; gap: .75rem 1rem; grid-template-columns: 1fr auto; margin-bottom: 1rem; }
+.dashboards-choices { display: flex; flex-wrap: wrap; gap: .5rem 1rem; grid-column: 1 / -1; grid-row: 2; }
 .dashboards-filters label { align-items: center; display: flex; gap: .5rem; }
-.dashboards-filters select {
+.dashboards-toolbar { align-items: start; display: flex; gap: .5rem; }
+.dashboards-time { position: relative; }
+
+/* Every control drawn alike: the filters, the picker's fields, a column's filter menu. */
+.dashboards-filters select, .dashboards-button, .dashboards-menu input, .dashboards-filter input,
+.dashboards-filter select, .dashboards-filter button {
     background: var(--dashboards-panel);
     border: 1px solid var(--dashboards-line);
     border-radius: 4px;
     color: var(--dashboards-text);
     padding: .25rem .5rem;
+}
+.dashboards-button { cursor: pointer; display: inline-flex; gap: .25rem; }
+.dashboards-button select { border: 0; padding: 0; }
+
+/* Menus open over the page: the time picker's, and Tabulator's for a column's filter. The
+   latter lives at the end of the page rather than in the panel, so it is not prefixed. */
+.dashboards-menu, html .tabulator-popup-container {
+    background: var(--dashboards-raised);
+    border: 1px solid var(--dashboards-line);
+    border-radius: 6px;
+    box-shadow: 0 .5rem 1.5rem rgb(0 0 0 / .25);
+    color: var(--dashboards-text);
+}
+.dashboards-menu { display: flex; gap: .75rem; padding: .75rem; position: absolute; right: 0; top: calc(100% + .25rem); z-index: 20; }
+.dashboards-range { display: flex; flex-direction: column; gap: .5rem; }
+.dashboards-range label { align-items: stretch; flex-direction: column; gap: .25rem; }
+.dashboards-range span { display: flex; gap: .25rem; position: relative; }
+/* The browser's own calendar, opened by the button beside a field; the field itself stays
+   free text, so it takes now-6h as well as a date. */
+.dashboards-picker { bottom: 0; height: 1px; opacity: 0; pointer-events: none; position: absolute; right: 0; width: 1px; }
+.dashboards-quick { border-left: 1px solid var(--dashboards-line); display: flex; flex-direction: column; padding-left: .75rem; }
+.dashboards-quick button { border-radius: 4px; padding: .25rem .5rem; text-align: left; white-space: nowrap; }
+.dashboards-quick button:hover, .dashboards-filter button:hover { background: var(--dashboards-hover); }
+.dashboards-filter { display: flex; flex-direction: column; font-size: .8125rem; gap: .5rem; min-width: 15rem; padding: .5rem; }
+.dashboards-filter > div { display: flex; gap: .5rem; }
+.dashboards-filter input:not([type]) { flex: 1; min-width: 0; }
+.dashboards-values { display: flex; flex-direction: column; max-height: 14rem; overflow: auto; }
+.dashboards-values label { align-items: center; display: flex; gap: .5rem; }
+html.dark .dashboards-menu, html.dark .tabulator-popup-container, [data-jp-theme-light="false"] .tabulator-popup-container {
+    color-scheme: dark;
 }
 
 /* A panel still asking for its data. */

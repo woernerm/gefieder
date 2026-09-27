@@ -16,8 +16,8 @@ SELECT time, "Database", "All volumes", "Temp/spill" FROM (
       count(temp_size_bytes)   OVER (ORDER BY sampled_at) AS temp_group
     FROM ${SERVER_STATS_SCHEMA}.host_sample
     -- Far enough back to include the size probe before the range starts.
-    WHERE sampled_at >= :since - interval '1 hour'
+    WHERE sampled_at >= :from - interval '1 hour' AND sampled_at < :to
   ) filled
 ) sizes
-WHERE time >= :since
+WHERE time >= :from
 ORDER BY time

@@ -20,7 +20,7 @@ LISTING = {"dashboards": [{"name": "issues", "title": "Issues", "description": "
            "problems": {"broken": "boards/broken.py defines no dashboard"}}
 
 LAYOUT = {
-    "title": "Issues", "description": "Open ones.", "refresh": None,
+    "title": "Issues", "description": "Open ones.", "time": None, "refresh": "off",
     "filters": [{"name": "project", "label": "Project", "everything": True,
                  "choices": ["project_a", "project_b"], "picked": ["project_b"]}],
     "panels": [{"index": 0, "title": "Per project", "wide": False, "filters": ["project"], "kind": "echarts"}],

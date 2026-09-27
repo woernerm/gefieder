@@ -5,6 +5,16 @@ from pathlib import Path
 PROJECT = "sqlmesh"
 """The SQLMesh project inside the models repository."""
 
+LOG_DIR = Path.home() / ".cache" / "sqlmesh" / "logs"
+"""Where SQLMesh writes its log files from a kernel. Its default is "logs" in the working
+directory -- the folder of whatever file was opened, which then grows a folder nobody asked
+for as soon as the kernel starts."""
+
+
+def context_magic(project: Path) -> str:
+    """The ``%context`` line that opens a project with its logs out of the workspace."""
+    return f"{project} --log-file-dir {LOG_DIR}"
+
 
 def find_project() -> Path | None:
     """The SQLMesh project this kernel belongs to.

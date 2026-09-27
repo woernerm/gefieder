@@ -19,14 +19,16 @@ A query may instead return three columns with one named `series`, one row per x 
 
 ## Filters
 
-A query reads a filter as `:name`, and what it gets depends on the kind of filter:
+A query reads a filter as `:name`. A `Select` binds a list, so write
+`column = ANY(:name)`; nothing picked means everything.
 
-- `Select`: a list, so write `column = ANY(:name)`. Nothing picked means everything.
-- `Since`: the moment the chosen period starts, so write `time >= :name`.
+Every dashboard has a time range too: write `time >= :from AND time < :to`, and the
+dashboard shows a time picker (last hours or days, or from and to a date) with a refresh
+interval. `Dashboard(..., time="now-7d", refresh="1m")` sets what it opens with.
 
 A dashboard shows the filters its queries read, and the address bar carries what is picked:
 a link opens the same view. `Panel(..., click="name")` sets a filter to the bar or slice
-clicked, and every panel reading it follows.
+clicked: every other panel reading it follows, and the clicked chart highlights it.
 
 ## Charts
 

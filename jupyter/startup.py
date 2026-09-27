@@ -150,7 +150,7 @@ def _load() -> None:
     _explore_columns()
 
     from sqlmesh.magics import register_magics
-    from sqlnotebook.project import find_project
+    from sqlnotebook.project import context_magic, find_project
 
     ipython = get_ipython()  # noqa: F821 -- IPython provides this in the namespace.
     # Called rather than loaded as an extension: SQLMesh registers no IPython extension
@@ -164,7 +164,7 @@ def _load() -> None:
     if project is None:
         return
 
-    ipython.run_line_magic("context", str(project))
+    ipython.run_line_magic("context", context_magic(project))
     context = ipython.user_ns.get("context")
     if context is None:
         return

@@ -18,7 +18,8 @@ dashboard = Dashboard(
     Panel("Top monitored tables", "top_tables", "table", wide=True),
     Panel("Top query runs and cost", "top_queries", "table", wide=True),
     description="CPU, memory, disk, network and storage, sampled every minute.",
-    refresh=60,
+    time="now-6h",
+    refresh="1m",
 )
 
 # %% Run this cell to see the dashboard, its filters at their defaults.

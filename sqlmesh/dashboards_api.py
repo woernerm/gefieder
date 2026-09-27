@@ -21,18 +21,24 @@ filters as the address bar has them.
 import io
 import json
 import os
+import traceback
 from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+import polars.selectors as cs
 import psycopg2
 
-from dashboards import Catalog
+from dashboards import TIME, Catalog, placeholders
 
 MODELS_DIR = Path(os.environ.get("MODELS_DIR", "/var/lib/app/models"))
 PORT = int(os.environ.get("DASHBOARDS_PORT", "8002"))
 PASSWORD = Path("/run/secrets", os.environ.get("SECRET_DASHBOARDS_PASSWORD", "dashboards_password"))
+
+LOCAL_ZONE = str(Path("/etc/localtime").resolve()).partition("zoneinfo/")[2] or "UTC"
+"""The time zone a download's times are written in, Excel knowing none: the host's, which
+the container runs on."""
 
 STATEMENT_TIMEOUT = 60_000
 """Milliseconds a panel's query may run. A dashboard is looked at, not waited for, and a
@@ -97,8 +103,10 @@ def layout(dashboards: Catalog, name: str, picked: dict, cursor) -> dict:
          "kind": getattr(dashboards.charts.get(panel.chart), "kind", "text")}
         for index, panel in enumerate(board.panels)
     ]
-    return {"title": board.title, "description": board.description, "refresh": board.refresh,
-            "filters": filters, "panels": panels}
+    timed = any(name in TIME for sql in dashboards.sqls(board) for name in placeholders(sql))
+    return {"title": board.title, "description": board.description, "filters": filters, "panels": panels,
+            "time": {name: picked.get(name, [TIME[name]])[0] for name in TIME} if timed else None,
+            "refresh": picked.get("refresh", [board.refresh or "off"])[0]}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -112,7 +120,7 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, status: int, value):
         self._answer(status, json.dumps(value, default=str).encode())
 
-    def do_GET(self):  # noqa: N802 -- the name http.server calls.
+    def _get(self):
         url = urlsplit(self.path)
         picked = parse_qs(url.query)
         environment = picked.pop("environment", ["prod"])[0]
@@ -133,6 +141,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(404, {"detail": f"There is no dashboard {name!r}."})
 
         board = dashboards.dashboards[name]
+        picked.setdefault("from", [board.time])
         with closing(connect(environment)) as connection, connection.cursor() as cursor:
             if len(parts) == 2:
                 return self._json(200, layout(dashboards, name, picked, cursor))
@@ -141,14 +150,26 @@ class Handler(BaseHTTPRequestHandler):
             if not index.isdigit() or int(index) >= len(board.panels) or suffix not in ("", "xlsx"):
                 return self._json(404, {"detail": "no such panel"})
             panel = board.panels[int(index)]
-            bindings = dashboards.bindings(dashboards.sqls(board), picked, cursor)
             if not suffix:
-                return self._json(200, dashboards.draw(panel, bindings, cursor))
+                return self._json(200, dashboards.draw(panel, picked, cursor))
 
             buffer = io.BytesIO()
-            panel.frame(dashboards, bindings, cursor).write_excel(buffer, worksheet=panel.title[:31])
+            bindings = dashboards.panel_bindings(panel, picked, cursor)
+            frame = panel.frame(dashboards, bindings, cursor).with_columns(
+                cs.datetime(time_zone="*").dt.convert_time_zone(LOCAL_ZONE).dt.replace_time_zone(None)
+            )
+            frame.write_excel(buffer, worksheet=panel.title[:31])
             self._answer(200, buffer.getvalue(),
                          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    def do_GET(self):  # noqa: N802 -- the name http.server calls.
+        # An answer however a request fails: a dropped connection tells the admin panel,
+        # and the reader, nothing.
+        try:
+            self._get()
+        except Exception as error:  # noqa: BLE001 -- reported, and logged with its cause.
+            traceback.print_exc()
+            self._json(500, {"detail": f"The dashboards could not answer: {error}"})
 
     def log_request(self, code="-", size="-"):
         # Failures only: every panel of every page view would otherwise be a line.

@@ -15,9 +15,9 @@ SELECT * FROM (
     FROM ${SERVER_STATS_SCHEMA}.host_sample
     -- One sample before the range, so lag() gives the first point shown a real
     -- predecessor instead of a NULL rate; the outer filter then clips to the range.
-    WHERE sampled_at >= :since - interval '1 hour'
+    WHERE sampled_at >= :from - interval '1 hour' AND sampled_at < :to
   ) samples
   WINDOW w AS (ORDER BY sampled_at)
 ) rates
-WHERE time >= :since
+WHERE time >= :from
 ORDER BY time

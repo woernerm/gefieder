@@ -4,7 +4,8 @@ A dashboard is put together from four kinds of thing, each defined once and refe
 name everywhere else::
 
     filters.py          the controls a viewer narrows the data with
-    queries/<name>.sql  SQL, in which :name is the value of a filter
+    queries/<name>.sql  SQL, in which :name is the value of a filter, and :from and :to
+                        the dashboard's time range
     charts/<name>.py    how data looks: an ECharts option, without data
     boards/<name>.py    the dashboards: which query is shown in which chart
 
@@ -61,11 +62,27 @@ their names from the first column and their values from the second, and one of t
 per chart is all there is room for."""
 
 
-def _duration(text: str) -> timedelta:
-    """``"6 hours"`` as a timedelta; months and years in 30 and 365 days."""
-    count, unit = text.split()
-    days = {"minute": 1 / 1440, "hour": 1 / 24, "day": 1, "week": 7, "month": 30, "year": 365}
-    return timedelta(days=int(count) * days[unit.rstrip("s")])
+TIME = {"from": "now-6h", "to": "now"}
+"""The time range every dashboard has, and what it is when nothing was picked. A query reads
+it as ``time >= :from AND time < :to``; the dashboard shows the time picker when one does."""
+
+UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800, "M": 2592000, "y": 31536000}
+"""Seconds per unit of a relative time, as Grafana writes them: now-15m, now-7d, now-1y."""
+
+
+def moment(text: str) -> datetime:
+    """A point in time as the time picker writes it: ``now``, ``now-6h``, or a date and time,
+    which without a zone is the server's own.
+
+    Raises:
+        ValueError: The text is none of these.
+    """
+    now = datetime.now(timezone.utc)
+    if text == "now":
+        return now
+    if relative := re.fullmatch(r"now-(\d+)([smhdwMy])", text):
+        return now - timedelta(seconds=int(relative[1]) * UNITS[relative[2]])
+    return datetime.fromisoformat(text).astimezone()
 
 
 class Filter:
@@ -114,34 +131,6 @@ class Select(Filter):
         # ignored rather than reaching the database as something nobody offered.
         known = {str(choice): choice for choice in choices}
         return [known[value] for value in picked if value in known] or choices
-
-
-class Since(Filter):
-    """How far back to look. Binds the moment that starts, so a query writes
-    ``time >= :name``.
-
-    Args:
-        default: The choice a dashboard opens with.
-        options: What is offered, each a number and a unit.
-    """
-
-    def __init__(
-        self,
-        default: str = "7 days",
-        label: str | None = None,
-        options: tuple[str, ...] = (
-            "1 hour", "6 hours", "24 hours", "7 days", "30 days", "90 days", "1 year",
-        ),
-    ):
-        super().__init__(label, default)
-        self.options = options
-
-    def choices(self, cursor) -> list:
-        return list(self.options)
-
-    def bind(self, picked, choices):
-        chosen = next((value for value in picked if value in choices), self.default)
-        return datetime.now(timezone.utc) - _duration(chosen)
 
 
 def statement(sql: str, bindings: dict) -> tuple[str, dict]:
@@ -265,9 +254,21 @@ class Chart:
             option.setdefault("grid", {"left": 8, "right": 8, "top": 16, "bottom": 32, "containLabel": True})
         return {"kind": self.kind, "option": option}
 
-    def payload(self, frame: pl.DataFrame) -> dict:
+    def payload(self, frame: pl.DataFrame, highlight: list[str] = ()) -> dict:
+        """What the browser draws, the x values in ``highlight`` standing out: the rest is
+        faded rather than left out, so what was clicked is seen against the whole."""
         frame = wide(frame)
-        return self.draw(self.prepare(frame) if self.prepare else frame)
+        payload = self.draw(self.prepare(frame) if self.prepare else frame)
+        if highlight and "option" in payload:
+            dataset = payload["option"]["dataset"]
+            dataset["dimensions"].append("highlighted")
+            for row in dataset["source"]:
+                row.append(int(str(row[0]) in highlight))
+            payload["option"]["visualMap"] = {
+                "show": False, "type": "piecewise", "dimension": len(dataset["dimensions"]) - 1,
+                "pieces": [{"value": 1, "opacity": 1}, {"value": 0, "opacity": 0.25}],
+            }
+        return payload
 
     def _repr_html_(self) -> str:
         return html([self.payload(self._sample())])
@@ -323,9 +324,10 @@ class Panel:
         frame = fetch(cursor, catalog.queries[self.query], bindings)
         return self.transform(frame) if self.transform else frame
 
-    def payload(self, catalog, bindings: dict, cursor) -> dict:
+    def payload(self, catalog, bindings: dict, cursor, highlight: list[str] = ()) -> dict:
         chart = catalog.charts[self.chart]
-        return {**chart.payload(self.frame(catalog, bindings, cursor)), "unit": self.unit, "click": self.click}
+        frame = self.frame(catalog, bindings, cursor)
+        return {**chart.payload(frame, highlight), "unit": self.unit, "click": self.click}
 
     def _repr_html_(self) -> str:
         return Dashboard(self.title, self)._repr_html_()
@@ -341,14 +343,14 @@ class Text(Panel):
     def filters(self, catalog):
         return []
 
-    def payload(self, catalog, bindings, cursor):
+    def payload(self, catalog, bindings, cursor, highlight=()):
         return {"kind": "text", "text": self.text}
 
 
 class Video(Text):
     """A video on a dashboard: a file the browser plays, or a page that embeds one."""
 
-    def payload(self, catalog, bindings, cursor):
+    def payload(self, catalog, bindings, cursor, highlight=()):
         return {"kind": "video", "url": self.text}
 
 
@@ -359,17 +361,19 @@ class Dashboard:
         title: The dashboard's name, as the list of dashboards shows it.
         *panels: What it shows.
         description: A sentence under the title.
-        refresh: Seconds after which the panels draw themselves again, or None.
+        time: The time range it opens with, as the time picker writes it: ``now-6h``.
+        refresh: How often it draws itself again, as the picker offers it: ``1m``, or None.
     """
 
-    def __init__(self, title: str, *panels: Panel, description: str = "", refresh: int | None = None):
-        self.title, self.panels, self.description, self.refresh = title, panels, description, refresh
+    def __init__(self, title: str, *panels: Panel, description: str = "", time: str = TIME["from"],
+                 refresh: str | None = None):
+        self.title, self.panels, self.description = title, panels, description
+        self.time, self.refresh = time, refresh
 
     def _repr_html_(self) -> str:
         catalog = Catalog.load(workspace())
         with closing(connect()) as connection, connection.cursor() as cursor:
-            bindings = catalog.bindings(catalog.sqls(self), {}, cursor)
-            return html([catalog.draw(panel, bindings, cursor) for panel in self.panels])
+            return html([catalog.draw(panel, {"from": [self.time]}, cursor) for panel in self.panels])
 
 
 class Catalog:
@@ -428,7 +432,7 @@ class Catalog:
             if isinstance(panel, Text):
                 continue
             wanted = {"query": [panel.query], "chart": [panel.chart],
-                      "filter": [*panel.filters(self), *([panel.click] if panel.click else [])]}
+                      "filter": [name for name in [*panel.filters(self), panel.click] if name and name not in TIME]}
             known = {"query": self.queries, "chart": self.charts, "filter": self.filters}
             missing = [f"{kind} {name!r}" for kind, names in wanted.items()
                        for name in names if name not in known[kind]]
@@ -447,14 +451,26 @@ class Catalog:
 
     def bindings(self, sqls: list[str], picked: dict[str, list[str]], cursor) -> dict:
         """What every placeholder of some queries is bound to, given what was picked."""
-        return {
-            f.name: f.bind(picked.get(f.name, []), f.choices(cursor)) for f in self.filters_of(sqls)
-        }
+        bound = {f.name: f.bind(picked.get(f.name, []), f.choices(cursor)) for f in self.filters_of(sqls)}
+        used = {name for sql in sqls for name in placeholders(sql)}
+        for name in TIME.keys() & used:
+            try:
+                bound[name] = moment(picked.get(name, [TIME[name]])[0])
+            except ValueError:
+                bound[name] = moment(TIME[name])
+        return bound
 
-    def draw(self, panel: Panel, bindings: dict, cursor) -> dict:
+    def panel_bindings(self, panel: Panel, picked: dict[str, list[str]], cursor) -> dict:
+        """A panel's bindings, but for the filter a click on it sets: that one it shows by
+        highlighting what was picked, not by leaving the rest out."""
+        own = {name: values for name, values in picked.items() if name != panel.click}
+        return self.bindings([self.queries[panel.query]] if panel.query in self.queries else [], own, cursor)
+
+    def draw(self, panel: Panel, picked: dict[str, list[str]], cursor) -> dict:
         """A panel's payload, or what went wrong drawing it."""
         try:
-            payload = panel.payload(self, bindings, cursor)
+            bindings = self.panel_bindings(panel, picked, cursor)
+            payload = panel.payload(self, bindings, cursor, picked.get(panel.click, []))
         except Exception as error:  # noqa: BLE001 -- one broken panel is shown as such.
             cursor.connection.rollback()
             payload = {"kind": "error", "message": str(error).strip()}

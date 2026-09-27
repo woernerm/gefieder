@@ -10,7 +10,7 @@ SELECT
   max(heap_blks_read) - min(heap_blks_read) AS "Heap blocks read",
   max(idx_blks_read) - min(idx_blks_read) AS "Index blocks read"
 FROM ${SERVER_STATS_SCHEMA}.table_sample
-WHERE sampled_at >= :since
+WHERE sampled_at >= :from AND sampled_at < :to
 GROUP BY schemaname, relname
 ORDER BY "Total scans" DESC NULLS LAST
 LIMIT 20

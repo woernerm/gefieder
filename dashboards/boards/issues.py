@@ -16,9 +16,10 @@ dashboard = Dashboard(
     Panel("Issues", "issues", "table", wide=True),
     Text(
         "Reading this dashboard",
-        "Click a bar or a slice to show only what it stands for; click it again to show "
-        "everything. The filters above say what is shown, and the address carries them, "
-        "so a link sent to someone opens the same view.",
+        "Click a bar or a slice to pick what it stands for: the chart highlights it and the "
+        "other panels show only that; click it again to show everything. The filters above "
+        "say what is shown, and the address carries them, so a link sent to someone opens "
+        "the same view.",
     ),
     # A video explains a metric better than a paragraph can:
     # Video("How the effort is estimated", "https://example.com/effort.mp4"),

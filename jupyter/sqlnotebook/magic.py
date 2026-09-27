@@ -12,7 +12,7 @@ when it has not.
 from IPython.core.magic import Magics, cell_magic, magics_class
 from IPython.display import display
 
-from .project import find_project
+from .project import context_magic, find_project
 
 PREVIEW_LIMIT = 20
 """Rows shown under a model cell. Enough to see the shape of the result; ``%evaluate`` in a
@@ -50,7 +50,7 @@ class ModelMagics(Magics):
                     "No SQLMesh project is loaded. Open this notebook from inside the "
                     "models workspace, or run %context <path> first."
                 )
-            shell.run_line_magic("context", str(project))
+            shell.run_line_magic("context", context_magic(project))
             context = shell.user_ns["context"]
         return context
 

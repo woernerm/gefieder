@@ -1,6 +1,7 @@
 {# One panel: its title, its download, and the box that fetches its drawing -- once when #}
-{# the page loads, again whenever a filter its query reads changes. #}
-<section class="dashboards-panel {{ panel.kind }}{% if panel.wide %} wide{% endif %}">
+{# the page loads, again whenever a filter its query reads changes, the time range with it, #}
+{# and at every refresh. #}
+<section class="dashboards-panel{% if panel.wide %} wide{% endif %}" data-kind="{{ panel.kind }}">
     <header>
         <h2>{{ panel.title }}</h2>
         {% if panel.kind != "text" %}
@@ -9,5 +10,5 @@
         {% endif %}
     </header>
     <div hx-get="{% url 'dashboards:panel' name panel.index %}" hx-include="#filters"
-         hx-trigger="load{% for filter in panel.filters %}, change from:[name='{{ filter }}']{% endfor %}{% if board.refresh %}, every {{ board.refresh }}s{% endif %}"></div>
+         hx-trigger="load, dashboards:refresh from:body{% for filter in panel.filters %}{% if filter == 'from' %}, dashboards:time from:body{% elif filter != 'to' %}, change from:[name='{{ filter }}']{% endif %}{% endfor %}"></div>
 </section>

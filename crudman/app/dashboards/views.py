@@ -38,8 +38,21 @@ class IndexView(DashboardsView):
         return {**super().get_context_data(**kwargs), "title": "Dashboards"}
 
 
+QUICK_RANGES = [
+    ("now-5m", "Last 5 minutes"), ("now-15m", "Last 15 minutes"), ("now-1h", "Last hour"),
+    ("now-6h", "Last 6 hours"), ("now-24h", "Last 24 hours"), ("now-7d", "Last 7 days"),
+    ("now-30d", "Last 30 days"), ("now-90d", "Last 90 days"), ("now-1y", "Last year"),
+]
+"""The time picker's quick choices, written as the time range is: Grafana's way."""
+
+REFRESH_INTERVALS = ["off", "10s", "30s", "1m", "5m", "15m", "1h"]
+"""What the refresh picker offers. "off" is a value of its own rather than an empty one, which
+the address bar would drop -- and a reload fall back to the dashboard's own interval."""
+
+
 class DashboardView(DashboardsView):
     template_name = "dashboards/dashboard.html"
+    extra_context = {"quick_ranges": QUICK_RANGES, "refresh_intervals": REFRESH_INTERVALS}
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
