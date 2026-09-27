@@ -27,6 +27,7 @@ import runpy
 import traceback
 import uuid
 from contextlib import closing
+from functools import partial
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -77,7 +78,11 @@ def moment(text: str) -> datetime:
     Raises:
         ValueError: The text is none of these.
     """
-    now = datetime.now(timezone.utc)
+    # Up to the next ten seconds: panels asking at almost the same moment ask the same
+    # question, which the dashboards service then answers once -- and "to now" still takes in
+    # what was sampled a moment ago.
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    now += timedelta(seconds=10 - now.second % 10)
     if text == "now":
         return now
     if relative := re.fullmatch(r"now-(\d+)([smhdwMy])", text):
@@ -120,11 +125,10 @@ class Select(Filter):
         super().__init__(label)
         self.options = options
 
-    def choices(self, cursor) -> list:
+    def choices(self, read) -> list:
         if not isinstance(self.options, str):
             return list(self.options)
-        cursor.execute(*statement(self.options, {}))
-        return [row[0] for row in cursor.fetchall()]
+        return read(self.options, {}).to_series().to_list()
 
     def bind(self, picked, choices):
         # Matched as text, the way a value arrives from the address bar; an unknown one is
@@ -319,14 +323,14 @@ class Panel:
     def filters(self, catalog) -> list[str]:
         return placeholders(catalog.queries[self.query]) if self.query in catalog.queries else []
 
-    def frame(self, catalog, bindings: dict, cursor) -> pl.DataFrame:
+    def frame(self, catalog, bindings: dict, read) -> pl.DataFrame:
         """The query's data as this panel shows it, before the chart's own preparation."""
-        frame = fetch(cursor, catalog.queries[self.query], bindings)
+        frame = read(catalog.queries[self.query], bindings)
         return self.transform(frame) if self.transform else frame
 
-    def payload(self, catalog, bindings: dict, cursor, highlight: list[str] = ()) -> dict:
+    def payload(self, catalog, bindings: dict, read, highlight: list[str] = ()) -> dict:
         chart = catalog.charts[self.chart]
-        frame = self.frame(catalog, bindings, cursor)
+        frame = self.frame(catalog, bindings, read)
         return {**chart.payload(frame, highlight), "unit": self.unit, "click": self.click}
 
     def _repr_html_(self) -> str:
@@ -343,14 +347,14 @@ class Text(Panel):
     def filters(self, catalog):
         return []
 
-    def payload(self, catalog, bindings, cursor, highlight=()):
+    def payload(self, catalog, bindings, read, highlight=()):
         return {"kind": "text", "text": self.text}
 
 
 class Video(Text):
     """A video on a dashboard: a file the browser plays, or a page that embeds one."""
 
-    def payload(self, catalog, bindings, cursor, highlight=()):
+    def payload(self, catalog, bindings, read, highlight=()):
         return {"kind": "video", "url": self.text}
 
 
@@ -372,8 +376,9 @@ class Dashboard:
 
     def _repr_html_(self) -> str:
         catalog = Catalog.load(workspace())
-        with closing(connect()) as connection, connection.cursor() as cursor:
-            return html([catalog.draw(panel, {"from": [self.time]}, cursor) for panel in self.panels])
+        with closing(connect()) as connection:
+            read = partial(fetch, connection.cursor())
+            return html([catalog.draw(panel, {"from": [self.time]}, read) for panel in self.panels])
 
 
 class Catalog:
@@ -449,9 +454,9 @@ class Catalog:
         names = dict.fromkeys(name for sql in sqls for name in placeholders(sql))
         return [self.filters[name] for name in names if name in self.filters]
 
-    def bindings(self, sqls: list[str], picked: dict[str, list[str]], cursor) -> dict:
+    def bindings(self, sqls: list[str], picked: dict[str, list[str]], read) -> dict:
         """What every placeholder of some queries is bound to, given what was picked."""
-        bound = {f.name: f.bind(picked.get(f.name, []), f.choices(cursor)) for f in self.filters_of(sqls)}
+        bound = {f.name: f.bind(picked.get(f.name, []), f.choices(read)) for f in self.filters_of(sqls)}
         used = {name for sql in sqls for name in placeholders(sql)}
         for name in TIME.keys() & used:
             try:
@@ -460,19 +465,23 @@ class Catalog:
                 bound[name] = moment(TIME[name])
         return bound
 
-    def panel_bindings(self, panel: Panel, picked: dict[str, list[str]], cursor) -> dict:
+    def panel_bindings(self, panel: Panel, picked: dict[str, list[str]], read) -> dict:
         """A panel's bindings, but for the filter a click on it sets: that one it shows by
         highlighting what was picked, not by leaving the rest out."""
         own = {name: values for name, values in picked.items() if name != panel.click}
-        return self.bindings([self.queries[panel.query]] if panel.query in self.queries else [], own, cursor)
+        return self.bindings([self.queries[panel.query]] if panel.query in self.queries else [], own, read)
 
-    def draw(self, panel: Panel, picked: dict[str, list[str]], cursor) -> dict:
-        """A panel's payload, or what went wrong drawing it."""
+    def draw(self, panel: Panel, picked: dict[str, list[str]], read) -> dict:
+        """A panel's payload, or what went wrong drawing it.
+
+        Args:
+            read: How a query is run: a function of the SQL and its bindings, returning a
+                DataFrame -- ``fetch`` on a connection, or the service's remembering one.
+        """
         try:
-            bindings = self.panel_bindings(panel, picked, cursor)
-            payload = panel.payload(self, bindings, cursor, picked.get(panel.click, []))
+            bindings = self.panel_bindings(panel, picked, read)
+            payload = panel.payload(self, bindings, read, picked.get(panel.click, []))
         except Exception as error:  # noqa: BLE001 -- one broken panel is shown as such.
-            cursor.connection.rollback()
             payload = {"kind": "error", "message": str(error).strip()}
         return {**payload, "title": panel.title, "wide": panel.wide}
 
@@ -494,13 +503,16 @@ def connect():
     """A connection as the person the notebook runs for, as sqlmesh/config.py makes it."""
     import psycopg2
 
-    return psycopg2.connect(
+    connection = psycopg2.connect(
         host=os.environ.get("SQLMESH_HOST", "localhost"),
         port=os.environ.get("SQLMESH_PORT", "5432"),
         dbname=os.environ.get("SQLMESH_DATABASE", "postgres"),
         user=os.environ.get("SQLMESH_USER"),
         password=os.environ.get("SQLMESH_PASSWORD"),
     )
+    # Every query a transaction of its own, so one panel's failing does not fail the next.
+    connection.autocommit = True
+    return connection
 
 
 def html(payloads: list[dict]) -> str:
@@ -545,5 +557,6 @@ def load_ipython_extension(ipython):
     @register_cell_magic
     def query(line, cell):
         catalog = Catalog.load(workspace())
-        with closing(connect()) as connection, connection.cursor() as cursor:
-            return fetch(cursor, cell, catalog.bindings([cell], {}, cursor))
+        with closing(connect()) as connection:
+            read = partial(fetch, connection.cursor())
+            return read(cell, catalog.bindings([cell], {}, read))

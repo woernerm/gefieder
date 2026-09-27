@@ -21,8 +21,11 @@ filters as the address bar has them.
 import io
 import json
 import os
+import threading
+import time
 import traceback
-from contextlib import closing
+from concurrent.futures import Future
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -30,7 +33,7 @@ from urllib.parse import parse_qs, urlsplit
 import polars.selectors as cs
 import psycopg2
 
-from dashboards import TIME, Catalog, placeholders
+from dashboards import TIME, Catalog, fetch, placeholders
 
 MODELS_DIR = Path(os.environ.get("MODELS_DIR", "/var/lib/app/models"))
 PORT = int(os.environ.get("DASHBOARDS_PORT", "8002"))
@@ -43,6 +46,14 @@ the container runs on."""
 STATEMENT_TIMEOUT = 60_000
 """Milliseconds a panel's query may run. A dashboard is looked at, not waited for, and a
 query that runs longer holds a connection while its viewer has long moved on."""
+
+REMEMBERED = 10
+"""Seconds a query's answer is reused. What a page load asks at once -- several panels over
+one query, every panel over the same filter's choices -- then runs once; shorter than the
+shortest refresh interval, so a refresh asks afresh."""
+
+_answers: dict[tuple, tuple[float, Future]] = {}
+_answers_lock = threading.Lock()
 
 _catalogs: dict[str, tuple[str, Catalog]] = {}
 """The loaded dashboards of each environment, with the commit they were loaded from."""
@@ -69,7 +80,7 @@ def connect(environment: str):
     under the production name (postgresql/initdb/gf_0009) -- so a query is the same in both.
     """
     database = os.environ.get("POSTGRES_DB", "postgres")
-    return psycopg2.connect(
+    connection = psycopg2.connect(
         host=os.environ.get("POSTGRES_HOST", "localhost"),
         port=os.environ.get("POSTGRES_PORT", "5432"),
         dbname=database if environment == "prod" else f"{database}_{environment}",
@@ -77,6 +88,52 @@ def connect(environment: str):
         password=PASSWORD.read_text().strip(),
         options=f"-c statement_timeout={STATEMENT_TIMEOUT}",
     )
+    # Every query a transaction of its own, so one panel's failing does not fail the next.
+    connection.autocommit = True
+    return connection
+
+
+def remembered(key: tuple, compute):
+    """What ``compute()`` answers, computed once for everybody asking the same within
+    REMEMBERED seconds: whoever asks while it runs waits for that answer. A failure is not
+    remembered, so the next to ask tries again."""
+    with _answers_lock:
+        now = time.monotonic()
+        for stale in [key for key, (until, _) in _answers.items() if until < now]:
+            del _answers[stale]
+        mine = key not in _answers
+        if mine:
+            _answers[key] = (now + REMEMBERED, Future())
+        answer = _answers[key][1]
+    if mine:
+        try:
+            answer.set_result(compute())
+        except Exception as error:  # noqa: BLE001 -- handed to everybody waiting on it.
+            answer.set_exception(error)
+            with _answers_lock:
+                _answers.pop(key, None)
+    return answer.result()
+
+
+@contextmanager
+def reading(environment: str):
+    """How one request reads the database: through the remembered answers, with a connection
+    opened only once a query has to run after all -- so a panel whose query another panel
+    just ran needs none."""
+    connection = None
+
+    def run(sql: str, bindings: dict):
+        nonlocal connection
+        connection = connection or connect(environment)
+        return fetch(connection.cursor(), sql, bindings)
+
+    try:
+        yield lambda sql, bindings: remembered(
+            (environment, sql, repr(sorted(bindings.items()))), lambda: run(sql, bindings)
+        )
+    finally:
+        if connection:
+            connection.close()
 
 
 def listing(dashboards: Catalog) -> dict:
@@ -90,11 +147,11 @@ def listing(dashboards: Catalog) -> dict:
     }
 
 
-def layout(dashboards: Catalog, name: str, picked: dict, cursor) -> dict:
+def layout(dashboards: Catalog, name: str, picked: dict, read) -> dict:
     board = dashboards.dashboards[name]
     filters = [
         {"name": f.name, "label": f.label, "everything": f.everything,
-         "choices": [str(choice) for choice in f.choices(cursor)],
+         "choices": [str(choice) for choice in f.choices(read)],
          "picked": picked.get(f.name, [f.default] if f.default else [])}
         for f in dashboards.filters_of(dashboards.sqls(board))
     ]
@@ -142,20 +199,20 @@ class Handler(BaseHTTPRequestHandler):
 
         board = dashboards.dashboards[name]
         picked.setdefault("from", [board.time])
-        with closing(connect(environment)) as connection, connection.cursor() as cursor:
+        with reading(environment) as read:
             if len(parts) == 2:
-                return self._json(200, layout(dashboards, name, picked, cursor))
+                return self._json(200, layout(dashboards, name, picked, read))
 
             index, _, suffix = parts[2].partition(".")
             if not index.isdigit() or int(index) >= len(board.panels) or suffix not in ("", "xlsx"):
                 return self._json(404, {"detail": "no such panel"})
             panel = board.panels[int(index)]
             if not suffix:
-                return self._json(200, dashboards.draw(panel, picked, cursor))
+                return self._json(200, dashboards.draw(panel, picked, read))
 
             buffer = io.BytesIO()
-            bindings = dashboards.panel_bindings(panel, picked, cursor)
-            frame = panel.frame(dashboards, bindings, cursor).with_columns(
+            bindings = dashboards.panel_bindings(panel, picked, read)
+            frame = panel.frame(dashboards, bindings, read).with_columns(
                 cs.datetime(time_zone="*").dt.convert_time_zone(LOCAL_ZONE).dt.replace_time_zone(None)
             )
             frame.write_excel(buffer, worksheet=panel.title[:31])
