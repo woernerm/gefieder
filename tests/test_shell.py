@@ -5,12 +5,11 @@ names: the proxy tells that request (Sec-Fetch-Dest: document) from the one the 
 frame then makes for the same path (iframe), which reaches the app. So every address
 lands inside the bar, and each app has to allow being framed from its own origin.
 """
-import time
 
 import pytest
 
 from conftest import (
-    CRUDMAN_LOGIN, CRUDMAN_PATH, GRAFANA_PATH, NOTEBOOK_PATH, SUPERUSER_NAME, django,
+    CRUDMAN_LOGIN, CRUDMAN_PATH, GRAFANA_PATH, NOTEBOOK_PATH, SUPERUSER_NAME, django, poll,
 )
 
 PAGE = {"Sec-Fetch-Dest": "document"}
@@ -35,13 +34,10 @@ def notebook_server(admin_session):
     # address that does. The hub answers with its "starting" page until the server is up.
     admin_session.get(f"/{NOTEBOOK_PATH}/hub/spawn/{SUPERUSER_NAME}")
     path = f"/{NOTEBOOK_PATH}/user/{SUPERUSER_NAME}/lab"
-    deadline = time.time() + 120
-    while time.time() < deadline:
+    def answered():
         resp = admin_session.get(path, headers=FRAMED)
-        if resp.status_code == 200 and f"/user/{SUPERUSER_NAME}/" in str(resp.url):
-            break
-        time.sleep(3)
-    else:
+        return resp.status_code == 200 and f"/user/{SUPERUSER_NAME}/" in str(resp.url)
+    if not poll(answered, 120, interval=3):
         raise AssertionError(f"the notebook server never answered on {path}")
     yield path
     django(account.format("remove"))

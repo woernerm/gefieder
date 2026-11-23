@@ -3,12 +3,12 @@
 import json
 from unittest.mock import patch
 
-from django.contrib.auth.models import Group, User
+from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
 
 from system.models import Approval, Deployment
-from sso.roles import GROUP_FOR_RANK
+from sso.testing import make_user
 
 from . import lineage, views
 
@@ -70,38 +70,31 @@ class DocumentationPagesTest(TestCase):
         self.index = reverse("docs:index")
         self.layer = reverse("docs:layer", args=["bronze"])
 
-    def _user(self, name, rank=None, **flags):
-        user = User.objects.create_user(name, password="x", **flags)
-        if rank:
-            group, _ = Group.objects.get_or_create(name=GROUP_FOR_RANK[rank])
-            user.groups.add(group)
-        return user
-
     def test_an_anonymous_visitor_is_sent_to_the_login_page(self):
         response = self.client.get(self.index)
         self.assertEqual(response.status_code, 302)
         self.assertIn("login", response["Location"])
 
     def test_a_user_without_a_rank_is_refused(self):
-        self._user("nobody")
+        make_user("nobody")
         self.client.login(username="nobody", password="x")
         self.assertEqual(self.client.get(self.index).status_code, 403)
 
     def test_every_rank_from_viewer_upwards_may_read(self):
         for rank in ("viewer", "editor", "admin"):
             with self.subTest(rank=rank):
-                self._user(rank, rank=rank)
+                make_user(rank, rank=rank)
                 self.client.login(username=rank, password="x")
                 self.assertEqual(self.client.get(self.index).status_code, 200)
                 self.assertEqual(self.client.get(self.layer).status_code, 200)
 
     def test_staff_may_read_without_a_rank(self):
-        self._user("staffer", is_staff=True)
+        make_user("staffer", is_staff=True)
         self.client.login(username="staffer", password="x")
         self.assertEqual(self.client.get(self.index).status_code, 200)
 
     def test_a_layer_page_shows_the_model_and_its_columns(self):
-        self._user("viewer", rank="viewer")
+        make_user("viewer", rank="viewer")
         self.client.login(username="viewer", password="x")
         page = self.client.get(self.layer).content.decode()
         self.assertIn("bronze_project_a.issues", page)
@@ -111,13 +104,13 @@ class DocumentationPagesTest(TestCase):
         self.assertIn('<span class="k">SELECT</span>', page)
 
     def test_an_unknown_layer_is_not_found(self):
-        self._user("viewer", rank="viewer")
+        make_user("viewer", rank="viewer")
         self.client.login(username="viewer", password="x")
         url = reverse("docs:layer", args=["platinum"])
         self.assertEqual(self.client.get(url).status_code, 404)
 
     def test_the_sidebar_lists_the_models_and_not_the_admin(self):
-        self._user("viewer", rank="viewer")
+        make_user("viewer", rank="viewer")
         self.client.login(username="viewer", password="x")
         page = self.client.get(self.index).content.decode()
         self.assertIn("nav-sidebar-inner", page)
@@ -271,9 +264,7 @@ class LineageTest(TestCase):
         self.assertIsNone(lineage.chart([], lambda model: "/docs/"))
 
     def test_the_index_shows_the_graph(self):
-        user = User.objects.create_user("viewer", password="x")
-        group, _ = Group.objects.get_or_create(name=GROUP_FOR_RANK["viewer"])
-        user.groups.add(group)
+        make_user("viewer", "viewer")
         self.client.login(username="viewer", password="x")
         with patch.object(views, "documentation", lambda user=None: DOCS):
             page = self.client.get(reverse("docs:index")).content.decode()

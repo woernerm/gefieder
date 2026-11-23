@@ -171,11 +171,7 @@ QUADLET_DIR="$HOME/.config/containers/systemd"
 SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 mkdir -p "$QUADLET_DIR"
 
-UNITS="postgresql crudman sftp flight sqlmesh grafana grafana_mcp jupyter proxy"
-# The volumes the current deployment uses, plus crudman_data/sqlmesh_data, which held the
-# logs that now go to journald and linger on an older installation.
-VOLUMES="postgresql_data grafana_data sftp_data proxy_data uploads_data models_data \
-  jupyter_data crudman_data sqlmesh_data"
+VOLUMES="$(basename -s .volume quadlets/*.volume)"
 
 # Stop the services and drop the pod, volumes and unit files. Shared by our own teardown
 # and by the removal of a pre-existing deployment, both living under the same names.
@@ -227,11 +223,8 @@ if [ -e "$QUADLET_DIR/main.pod" ]; then
   esac
 fi
 
-# As the release workflow does: only the known tokens, so nginx's $host and Grafana's
-# %(domain)s survive.
-VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${NOTEBOOK_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${PG_SUPERUSER_ROLE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_USER_PREFIX} ${ROLE_PREFIX} ${SECRET_SUPERUSER_PASSWORD} ${SECRET_PG_SUPERUSER_PASSWORD} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD} ${SECRET_DJANGO_KEY} ${SECRET_OIDC_CLIENT} ${SECRET_JUPYTER} ${REPO_MODELS}'
 for f in quadlets/*; do
-  envsubst "$VARS" < "$f" > "$QUADLET_DIR/$(basename "$f")"
+  envsubst "$QUADLET_VARS" < "$f" > "$QUADLET_DIR/$(basename "$f")"
 done
 
 # The isolated ports arrive by the path a deployment's do: envsubst leaves the ${*_PORT}
@@ -256,7 +249,7 @@ UNIT_SECRET_DIR=""
 APP_CONFIG_DIR="$HOME/.config/${APP_NAME}"
 mkdir -p "$SYSTEMD_USER_DIR" "$APP_CONFIG_DIR/serverstats"
 for u in serverstats/server-stats.service serverstats/server-stats.timer; do
-  envsubst "$VARS" < "$u" > "$SYSTEMD_USER_DIR/$(basename "$u")"
+  envsubst "$QUADLET_VARS" < "$u" > "$SYSTEMD_USER_DIR/$(basename "$u")"
 done
 install -m 0755 serverstats/collect.sh "$APP_CONFIG_DIR/serverstats/collect.sh"
 # The quadlets read SERVER_NAME and DEBUG from here, so the profile's values are written

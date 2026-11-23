@@ -14,18 +14,17 @@ a different data source uid -- which the proxy does, from the admin panel's answ
 who is asking.
 """
 
-from pathlib import Path
 
 import psycopg2
 import pytest
 
 from conftest import (
+    connect_as,
+    REPO,
     BRONZE_SCHEMA_PREFIX,
-    DB_PASSWORDS,
     GOLD_SCHEMA,
     GRAFANA_DB_USER,
     PG_DATABASE,
-    PG_PORT,
     SILVER_SCHEMA,
     SQLMESH_DB_USER,
 )
@@ -33,18 +32,13 @@ from conftest import (
 PREVIEW_ENV = "preview"
 """One review at a time, so one environment; gf_0009 names the database after it."""
 
-REPO = Path(__file__).resolve().parents[1]
 """For the class below, which compares files rather than the running stack."""
 
 
 @pytest.fixture(scope="module")
 def preview_db():
     """A connection to the preview database as the read-only Grafana role."""
-    conn = psycopg2.connect(
-        host="localhost", port=PG_PORT, dbname=f"{PG_DATABASE}_{PREVIEW_ENV}",
-        user=GRAFANA_DB_USER, password=DB_PASSWORDS[GRAFANA_DB_USER],
-    )
-    conn.autocommit = True
+    conn = connect_as(GRAFANA_DB_USER, dbname=f"{PG_DATABASE}_{PREVIEW_ENV}")
     yield conn
     conn.close()
 
@@ -52,11 +46,7 @@ def preview_db():
 @pytest.fixture(scope="module")
 def published(preview_db):
     """The names published, as the engine publishes them after planning a review."""
-    conn = psycopg2.connect(
-        host="localhost", port=PG_PORT, dbname=f"{PG_DATABASE}_{PREVIEW_ENV}",
-        user=SQLMESH_DB_USER, password=DB_PASSWORDS[SQLMESH_DB_USER],
-    )
-    conn.autocommit = True
+    conn = connect_as(SQLMESH_DB_USER, dbname=f"{PG_DATABASE}_{PREVIEW_ENV}")
     with conn.cursor() as cur:
         cur.execute("SELECT refresh_preview(%s)", (PREVIEW_ENV,))
     conn.close()

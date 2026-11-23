@@ -31,23 +31,10 @@ MARKER="${MODELS_DIR}/deployed.sha"
 # and nothing else, every step below already taking the environment as an argument.
 PREVIEW="preview"
 
-# Only for the psycopg2 call below; config.py reads the secret file itself.
-SQLMESH_PASSWORD="$(cat "/run/secrets/${SECRET_SQLMESH_PASSWORD:-sqlmesh_password}")"
-export SQLMESH_PASSWORD
-
 # The containers in the pod start without ordering, so this one can come up while the
 # database is still initializing. Tested with psycopg2 directly, "sqlmesh info" exiting 0
 # even when the warehouse connection fails.
-until $PYTHON -c "
-import os, psycopg2
-psycopg2.connect(
-    host=os.environ.get('POSTGRES_HOST', 'localhost'),
-    port=os.environ.get('POSTGRES_PORT', '5432'),
-    dbname=os.environ.get('POSTGRES_DB', 'postgres'),
-    user='sqlmesh',
-    password=os.environ['SQLMESH_PASSWORD'],
-).close()
-" >/dev/null 2>&1; do
+until $PYTHON -c "import status; status.connect().close()" >/dev/null 2>&1; do
   echo "Waiting for the database to become available..."
   sleep 2
 done

@@ -15,11 +15,11 @@ import psycopg2
 import pytest
 
 from conftest import (
+    connect_as,
     CRUDMAN_DB_USER,
     DB_USER_PREFIX,
     ROLE_PREFIX,
     GRAFANA_DB_USER,
-    PG_DATABASE,
     SILVER_SCHEMA,
     SQLMESH_DB_USER,
     PG_SUPERUSER_ROLE,
@@ -73,19 +73,6 @@ def memberships(conn, name):
             (name,),
         )
         return {row[0] for row in cur.fetchall()}
-
-
-def connect_as(admin_db, user):
-    """A connection as a throwaway account, on the port admin_db reached the server."""
-    conn = psycopg2.connect(
-        host="localhost",
-        port=admin_db.get_dsn_parameters()["port"],
-        dbname=PG_DATABASE,
-        user=user,
-        password=PASSWORD,
-    )
-    conn.autocommit = True
-    return conn
 
 
 @pytest.fixture
@@ -258,7 +245,7 @@ def test_editor_can_read_analytics(crudman_db, admin_db, cleanup):
     with crudman_db.cursor() as cur:
         cur.execute("SELECT create_db_user(%s, %s, %s)", (EDITOR, PASSWORD, EDITOR_ROLE))
 
-    conn = connect_as(admin_db, EDITOR)
+    conn = connect_as(EDITOR, PASSWORD)
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT has_schema_privilege(%s, 'USAGE')", (SILVER_SCHEMA,))
@@ -302,7 +289,7 @@ def test_issuing_the_password_makes_the_account_usable(crudman_db, admin_db, cle
 
     assert has_password(admin_db, VIEWER)
 
-    connect_as(admin_db, VIEWER).close()
+    connect_as(VIEWER, PASSWORD).close()
 
 
 def test_clearing_a_password_locks_the_account_immediately(crudman_db, admin_db, cleanup):
@@ -317,13 +304,7 @@ def test_clearing_a_password_locks_the_account_immediately(crudman_db, admin_db,
     assert not has_password(admin_db, VIEWER)
 
     with pytest.raises(psycopg2.OperationalError):
-        psycopg2.connect(
-            host="localhost",
-            port=admin_db.get_dsn_parameters()["port"],
-            dbname=PG_DATABASE,
-            user=VIEWER,
-            password=PASSWORD,
-        )
+        connect_as(VIEWER, PASSWORD)
 
 
 def test_drop_db_user_removes_the_role(crudman_db, admin_db, cleanup):

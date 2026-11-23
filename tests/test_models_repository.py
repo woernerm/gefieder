@@ -13,7 +13,7 @@ import time
 
 import pytest
 
-from conftest import CRUDMAN_PATH, crudman, django
+from conftest import CRUDMAN_PATH, crudman, django, poll
 
 MODELS_DIR = "/var/lib/app/models"
 PROJECT = "sqlmesh"
@@ -101,14 +101,12 @@ def wait_for(conn, sha, status):
     Raises:
         AssertionError: It did not happen within DEADLINE seconds.
     """
-    deadline = time.time() + DEADLINE
-    row = {}
-    while time.time() < deadline:
+    def reached():
         row = latest(conn)
-        if row.get("sha") == sha and row.get("status") == status:
-            return row
-        time.sleep(3)
-    raise AssertionError(f"{sha[:8]} never reached {status!r}: {row}")
+        return row if (row.get("sha"), row.get("status")) == (sha, status) else None
+    if row := poll(reached, DEADLINE, interval=3):
+        return row
+    raise AssertionError(f"{sha[:8]} never reached {status!r}: {latest(conn)}")
 
 
 def pin(sha):

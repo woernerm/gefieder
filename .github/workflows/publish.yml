@@ -71,14 +71,14 @@ jobs:
       - name: Stage the release assets
         run: |
           mkdir -p dist
-          for svc in postgresql crudman sqlmesh proxy grafana grafana_mcp jupyter; do
+          # SERVICES, UNITS and QUADLET_VARS.
+          . ./build-lib.sh
+          for svc in $SERVICES; do
             docker save "${REGISTRY}/${svc}:${IMAGE_TAG}" -o "dist/${svc}.tar"
           done
 
-          # Only the known tokens, so nginx's $host and Grafana's %(domain)s survive.
-          VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${NOTEBOOK_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${PG_SUPERUSER_ROLE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_USER_PREFIX} ${ROLE_PREFIX} ${SECRET_SUPERUSER_PASSWORD} ${SECRET_PG_SUPERUSER_PASSWORD} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD} ${SECRET_DJANGO_KEY} ${SECRET_OIDC_CLIENT} ${SECRET_JUPYTER} ${REPO_MODELS}'
           for f in quadlets/* serverstats/server-stats.service serverstats/server-stats.timer; do
-            envsubst "$VARS" < "$f" > "dist/$(basename "$f")"
+            envsubst "$QUADLET_VARS" < "$f" > "dist/$(basename "$f")"
           done
 
           # These ship verbatim, next to the rendered units.
@@ -88,6 +88,9 @@ jobs:
           # What the installer sources for the values baked into the images.
           {
             echo "APP_NAME=${APP_NAME}"
+            echo "IMAGES=\"${SERVICES}\""
+            echo "UNITS=\"${UNITS}\""
+            echo "QUADLETS=\"$(cd quadlets && echo *.pod *.container *.volume)\""
             echo "SUPERUSER_NAME=${SUPERUSER_NAME}"
             echo "SUPERUSER_DEFAULT_PASSWORD=${SUPERUSER_DEFAULT_PASSWORD}"
             echo "CRUDMAN_PATH=${CRUDMAN_PATH}"

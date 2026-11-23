@@ -14,14 +14,13 @@ That the ports work is covered by the rest of the suite; these are the static ch
 a *changed* port would not be quietly ignored.
 """
 import re
-from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
+from conftest import REPO, allowlisted, declared
 
 POD = (REPO / "quadlets" / "main.pod").read_text()
 
-# The envsubst allowlists that render the quadlets, in both places carrying a copy.
-ALLOWLIST_SCRIPTS = ["run-tests.sh", ".github/workflows/publish.yml"]
+# The envsubst allowlist that renders the quadlets.
+ALLOWLIST_SCRIPTS = ["build-lib.sh"]
 
 
 def pod_port_tokens():
@@ -31,27 +30,13 @@ def pod_port_tokens():
     return set(re.findall(r"\$\{([A-Z_][A-Z0-9_]*)\}", "\n".join(lines)))
 
 
-def runtime_settings():
-    """The names declared in runtime.env."""
-    text = (REPO / "runtime.env").read_text()
-    return set(re.findall(r"^([A-Z_][A-Z0-9_]*)=", text, re.MULTILINE))
-
-
-def allowlisted(script):
-    """The names in a VARS='${A} ${B}' envsubst allowlist."""
-    text = (REPO / script).read_text()
-    line = re.search(r"^\s*VARS='([^']*)'", text, re.MULTILINE)
-    assert line, f"{script} has no VARS allowlist"
-    return set(re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", line.group(1)))
-
-
 def test_the_pod_shall_publish_its_ports_by_variable():
     # A literal port would mean editing the installed unit file to move one.
     assert pod_port_tokens(), "main.pod publishes literal ports, not runtime.env settings"
 
 
 def test_every_published_port_shall_be_declared_in_runtime_env():
-    missing = pod_port_tokens() - runtime_settings()
+    missing = pod_port_tokens() - declared("runtime.env")
     assert not missing, f"main.pod expands settings runtime.env does not declare: {sorted(missing)}"
 
 

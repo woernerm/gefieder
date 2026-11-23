@@ -26,94 +26,59 @@ from django.core.exceptions import ImproperlyConfigured
 FUNCTIONS_PACKAGE = "dropzones.functions"
 """Dotted path of the package holding all check and convert functions."""
 
-_checkers = {}
-_converters = {}
-# Dropdown labels, keyed like the function tables; without one, the name is used.
-_checker_labels = {}
-_converter_labels = {}
+
+class Registry:
+    """The functions of one kind, each under its own name, with optional dropdown labels."""
+
+    def get(self, name):
+        try:
+            return self.functions[name]
+        except KeyError:
+            raise LookupError(
+                f"No {self.kind} function named '{name}' is registered."
+            ) from None
+
+    def names(self):
+        return sorted(self.functions)
+
+    def choices(self):
+        """``(name, label)`` pairs for form dropdowns, sorted by what the user sees."""
+        pairs = ((name, self.labels.get(name, name)) for name in self.functions)
+        return sorted(pairs, key=lambda pair: pair[1].lower())
+
+    def register(self, func, label=None):
+        name = func.__name__
+        registered = self.functions.get(name)
+        if registered is not None and registered is not func:
+            raise ImproperlyConfigured(f"Duplicate {self.kind} function name '{name}'.")
+        self.functions[name] = func
+        if label is not None:
+            self.labels[name] = label
+        return func
+
+    def __init__(self, kind):
+        self.kind = kind
+        self.functions = {}
+        # Without a label, the dropdown shows the function name.
+        self.labels = {}
+
+    def __call__(self, label=None):
+        """Register the decorated function, named after itself.
+
+        Args:
+            label: Dropdown label for the admin, or the decorated function when used bare.
+                Defaults to the function name.
+
+        Returns:
+            The decorator, or the registered function when used bare.
+        """
+        if callable(label):
+            return self.register(label)
+        return lambda func: self.register(func, label)
 
 
-def _register(table, labels, kind, label, func):
-    # Re-registering one function is harmless, but two under one name would make a
-    # dropzone ambiguous.
-    name = func.__name__
-    registered = table.get(name)
-    if registered is not None and registered is not func:
-        raise ImproperlyConfigured(f"Duplicate {kind} function name '{name}'.")
-    table[name] = func
-    if label is not None:
-        labels[name] = label
-    return func
-
-
-def checker(label=None):
-    """Register the decorated function as a file checker, named after itself.
-
-    Args:
-        label: Dropdown label for the admin, or the decorated function when used bare as
-            ``@checker``. Defaults to the function name.
-
-    Returns:
-        The decorator, or the registered function when used bare.
-    """
-    if callable(label):
-        return _register(_checkers, _checker_labels, "checker", None, label)
-    return lambda func: _register(_checkers, _checker_labels, "checker", label, func)
-
-
-def converter(label=None):
-    """Register the decorated function as a file converter, named after itself.
-
-    Args:
-        label: Dropdown label for the admin, or the decorated function when used bare as
-            ``@converter``. Defaults to the function name.
-
-    Returns:
-        The decorator, or the registered function when used bare.
-    """
-    if callable(label):
-        return _register(_converters, _converter_labels, "converter", None, label)
-    return lambda func: _register(
-        _converters, _converter_labels, "converter", label, func
-    )
-
-
-def get_checker(name):
-    try:
-        return _checkers[name]
-    except KeyError:
-        raise LookupError(f"No checker function named '{name}' is registered.") from None
-
-
-def get_converter(name):
-    try:
-        return _converters[name]
-    except KeyError:
-        raise LookupError(
-            f"No converter function named '{name}' is registered."
-        ) from None
-
-
-def checker_names():
-    return sorted(_checkers)
-
-
-def converter_names():
-    return sorted(_converters)
-
-
-def _choices(table, labels):
-    """``(name, label)`` pairs for form dropdowns, sorted by what the user sees."""
-    pairs = ((name, labels.get(name, name)) for name in table)
-    return sorted(pairs, key=lambda pair: pair[1].lower())
-
-
-def checker_choices():
-    return _choices(_checkers, _checker_labels)
-
-
-def converter_choices():
-    return _choices(_converters, _converter_labels)
+checker = Registry("checker")
+converter = Registry("converter")
 
 
 def autodiscover():

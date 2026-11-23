@@ -12,11 +12,10 @@ These read the scripts rather than the rendered output, so a missing name is cau
 when the value happens to equal the default the repository ships.
 """
 import re
-from pathlib import Path
 
 import pytest
 
-REPO = Path(__file__).resolve().parents[1]
+from conftest import REPO, allowlisted, declared
 
 # Each render step: the script carrying the allowlist, what it renders, what to skip
 # inside it, and whether the source is ours.
@@ -29,20 +28,6 @@ RENDERERS = [
     ("grafana/render.sh", "grafana/custom.ini", (), False),
     ("postgresql/render.sh", "postgresql/initdb", (), True),
 ]
-
-
-def allowlisted(script):
-    """The names in the script's VARS='${A} ${B}' allowlist."""
-    text = (REPO / script).read_text()
-    line = re.search(r"^\s*VARS='([^']*)'", text, re.MULTILINE)
-    assert line, f"{script} has no VARS allowlist"
-    return set(re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", line.group(1)))
-
-
-def declared_settings():
-    """The names buildtime.env declares, which is what makes a token one of ours."""
-    return set(re.findall(r"^([A-Z_][A-Z0-9_]*)=",
-                          (REPO / "buildtime.env").read_text(), re.MULTILINE))
 
 
 def referenced(tree, skip):
@@ -61,7 +46,7 @@ def referenced(tree, skip):
 def test_every_referenced_token_shall_be_substituted(script, tree, skip, ours):
     names = allowlisted(script)
     if not ours:
-        names |= referenced(tree, skip).keys() - declared_settings()
+        names |= referenced(tree, skip).keys() - declared("buildtime.env")
     unlisted = {n: sorted(f) for n, f in referenced(tree, skip).items() if n not in names}
     assert not unlisted, f"{script} does not substitute: {unlisted}"
 
@@ -71,25 +56,19 @@ def test_every_substituted_token_shall_be_declared(script, tree, skip, ours):
     # A listed name buildtime.env does not declare renders as empty: the same silent
     # failure from the other direction. A name the script derives itself counts too.
     derived = set(re.findall(r"^([A-Z_][A-Z0-9_]*)=", (REPO / script).read_text(), re.MULTILINE))
-    missing = allowlisted(script) - declared_settings() - derived
+    missing = allowlisted(script) - declared("buildtime.env") - derived
     assert not missing, f"{script} substitutes settings buildtime.env lacks: {sorted(missing)}"
 
 
-# The third render step, and the only one whose allowlist exists twice: run-tests.sh
-# renders the quadlets and serverstats units for the test stack, publish.yml the same files
-# for the release. serverstats/collect.sh ships verbatim, its own shell variables surviving.
+# The third render step, its allowlist in build-lib.sh: run-tests.sh renders the quadlets
+# and serverstats units for the test stack, publish.yml the same files for the release.
+# serverstats/collect.sh ships verbatim, its own shell variables surviving.
 #
 # One token may legitimately be unlisted here: the pod's ports are left for systemd to
 # expand from the operator's runtime.env at start.
 UNIT_TREES = ["quadlets", "serverstats"]
 UNIT_SUFFIXES = (".pod", ".container", ".volume", ".service", ".timer")
-UNIT_ALLOWLISTS = ["run-tests.sh", ".github/workflows/publish.yml"]
-
-
-def runtime_settings():
-    """The names runtime.env declares, which systemd expands in the installed unit."""
-    return set(re.findall(r"^([A-Z_][A-Z0-9_]*)=",
-                          (REPO / "runtime.env").read_text(), re.MULTILINE))
+UNIT_ALLOWLISTS = ["build-lib.sh"]
 
 
 def unit_tokens():
@@ -112,23 +91,14 @@ def test_the_unit_tokens_shall_be_discovered():
 def test_every_unit_token_shall_be_substituted_or_expanded(script):
     # Neither one nor the other leaves the token literal on the target machine:
     # "Environment=POSTGRES_DB=${PG_DATABASE}", and the service connects to that name.
-    resolved = allowlisted(script) | runtime_settings()
+    resolved = allowlisted(script) | declared("runtime.env")
     unlisted = {n: sorted(f) for n, f in unit_tokens().items() if n not in resolved}
     assert not unlisted, f"{script} leaves these as literal text: {unlisted}"
 
 
-def test_the_two_unit_allowlists_shall_agree():
-    # Two copies of one list: a name added to only one would pass and ship broken.
-    first, second = (allowlisted(s) for s in UNIT_ALLOWLISTS)
-    assert first == second, (
-        f"only in {UNIT_ALLOWLISTS[0]}: {sorted(first - second)}; "
-        f"only in {UNIT_ALLOWLISTS[1]}: {sorted(second - first)}"
-    )
-
-
 @pytest.mark.parametrize("script", UNIT_ALLOWLISTS)
 def test_every_substituted_unit_token_shall_be_declared(script):
-    missing = allowlisted(script) - declared_settings()
+    missing = allowlisted(script) - declared("buildtime.env")
     assert not missing, f"{script} substitutes settings buildtime.env lacks: {sorted(missing)}"
 
 

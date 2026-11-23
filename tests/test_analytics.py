@@ -13,10 +13,9 @@ with the @temporal_join macro, project_b's by DuckDB with a native ASOF JOIN. Bo
 against PostgreSQL, which the SQLMesh unit tests cannot cover: those run on DuckDB.
 """
 import subprocess
-import time
 
 import pytest
-from conftest import GOLD_SCHEMA, SILVER_SCHEMA
+from conftest import GOLD_SCHEMA, SILVER_SCHEMA, poll
 
 DEPLOYED_PROJECT = "/var/lib/app/models/deployed/sqlmesh"
 """Where the engine finds the project: a checkout on the models volume, not the image."""
@@ -34,26 +33,17 @@ def wait_for_backfill(grafana_db):
     unrelated branches of the DAG.
     """
     tables = (f"{GOLD_SCHEMA}.issue_metrics", f"{SILVER_SCHEMA}.issue_risk_history")
-    deadline = time.time() + 180
-    while True:
-        try:
-            with grafana_db.cursor() as cur:
-                filled = 0
-                for table in tables:
-                    cur.execute("SELECT to_regclass(%s)", (table,))
-                    if cur.fetchone()[0] is None:
-                        break
-                    cur.execute(f"SELECT count(*) FROM {table}")
-                    if cur.fetchone()[0] == 0:
-                        break
-                    filled += 1
-                if filled == len(tables):
-                    return
-        except Exception:
-            pass
-        if time.time() > deadline:
-            pytest.fail(f"SQLMesh did not backfill {', '.join(tables)} in time")
-        time.sleep(2)
+
+    def filled(table):
+        with grafana_db.cursor() as cur:
+            cur.execute("SELECT to_regclass(%s)", (table,))
+            if cur.fetchone()[0] is None:
+                return False
+            cur.execute(f"SELECT count(*) FROM {table}")
+            return cur.fetchone()[0] > 0
+
+    if not poll(lambda: all(filled(t) for t in tables), 180, errors=(Exception,)):
+        pytest.fail(f"SQLMesh did not backfill {', '.join(tables)} in time")
 
 
 def projects_in(conn, table):

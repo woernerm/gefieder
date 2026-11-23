@@ -10,9 +10,9 @@ EnvironmentFile= starts fine in the built-in default.
 These read the sources rather than the built images, as tests/test_build_args.py does.
 """
 import re
-from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
+from conftest import REPO
+
 PALETTE = REPO / "grafana" / "palette.css"
 
 # Every Dockerfile that themes its image from the palette.

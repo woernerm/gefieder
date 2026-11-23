@@ -7,35 +7,25 @@ server connects with has to be the person's own role, bounded in time -- a passw
 never expired would be a standing credential in a process environment, and one issued on
 some other role would break the ownership every plan depends on.
 """
-from pathlib import Path
 
 import psycopg2
 import pytest
 
 from conftest import (
+    connect_as,
+    REPO,
     CRUDMAN_PATH,
     DB_USER_PREFIX,
     NOTEBOOK_PATH,
-    PG_DATABASE,
-    PG_PORT,
     ROLE_PREFIX,
     SQLMESH_DB_USER,
     podman,
 )
 
-REPO = Path(__file__).resolve().parents[1]
 
 PERSON = f"{DB_USER_PREFIX}itest_notebook"
 PASSWORD = "itest-notebook-password"
 EDITOR_ROLE = f"{ROLE_PREFIX}editor"
-
-
-def connect(user, password):
-    """A connection as one database role, for asserting a credential works or does not."""
-    return psycopg2.connect(
-        host="localhost", port=PG_PORT, dbname=PG_DATABASE,
-        user=user, password=password,
-    )
 
 
 @pytest.fixture
@@ -119,7 +109,7 @@ def test_a_notebook_connects_as_the_person(crudman_db, person):
             (person, PASSWORD + "-issued", "12 hours"),
         )
 
-    conn = connect(person, PASSWORD + "-issued")
+    conn = connect_as(person, PASSWORD + "-issued")
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT current_user, session_user")
@@ -139,7 +129,7 @@ def test_the_rank_reaches_a_notebook_session(crudman_db, person):
             (person, PASSWORD + "-issued", "12 hours"),
         )
 
-    conn = connect(person, PASSWORD + "-issued")
+    conn = connect_as(person, PASSWORD + "-issued")
     try:
         with conn.cursor() as cur:
             cur.execute(f"SELECT pg_has_role(current_user, '{EDITOR_ROLE}', 'USAGE')")
@@ -160,7 +150,7 @@ def test_issuing_replaces_the_previous_password(crudman_db, person):
         )
 
     with pytest.raises(psycopg2.OperationalError):
-        connect(person, PASSWORD + "-a")
+        connect_as(person, PASSWORD + "-a")
 
 
 def test_an_expired_password_stops_working(crudman_db, person):
@@ -173,7 +163,7 @@ def test_an_expired_password_stops_working(crudman_db, person):
         )
 
     with pytest.raises(psycopg2.OperationalError):
-        connect(person, PASSWORD + "-expired")
+        connect_as(person, PASSWORD + "-expired")
 
 
 def test_the_expiry_is_reported(crudman_db, person):

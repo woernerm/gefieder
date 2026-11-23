@@ -15,14 +15,13 @@ be tried by hand.
 """
 import os
 import subprocess
-import time
 
 import httpx
 import pytest
 
 from conftest import (
     APP_CONFIG_DIR, BASE_URL, CRUDMAN_LOGIN, CRUDMAN_PATH, GRAFANA_PATH, OIDC_ISSUER,
-    RESTART_TIMEOUT, SECRETS, ROLE_PREFIX, VERIFY_TLS, inspect_container, podman,
+    RESTART_TIMEOUT, SECRETS, ROLE_PREFIX, VERIFY_TLS, inspect_container, podman, poll,
 )
 
 # Grafana has to be told the host name: its default is "localhost", out of which it
@@ -68,16 +67,11 @@ def _set_single_sign_on(enabled):
     # the hub taking the person it signed in from it.
     subprocess.run(["systemctl", "--user", "restart", "crudman.service"], check=True)
 
-    deadline = time.time() + RESTART_TIMEOUT
     with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS, trust_env=False,
                       follow_redirects=False, timeout=10) as client:
-        while time.time() < deadline:
-            try:
-                if client.get(CRUDMAN_LOGIN).status_code < 500:
-                    return
-            except httpx.HTTPError:
-                pass
-            time.sleep(2)
+        if poll(lambda: client.get(CRUDMAN_LOGIN).status_code < 500, RESTART_TIMEOUT,
+                errors=(httpx.HTTPError,)):
+            return
     raise AssertionError("the admin panel did not come back after the restart")
 
 

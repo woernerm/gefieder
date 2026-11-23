@@ -11,9 +11,9 @@ These read the scripts rather than the built images, because a mismatch only app
 the setting is changed away from its default, and the default is what CI runs.
 """
 import re
-from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
+from conftest import REPO
+
 
 BUILDERS_PODMAN = ["run-tests.sh", "dev.sh"]
 BUILDER_DOCKER = "build.sh"

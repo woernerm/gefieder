@@ -107,7 +107,7 @@ def _run_checker(dropzone, in_paths):
     if not dropzone.checker:
         return
     try:
-        check = registry.get_checker(dropzone.checker)
+        check = registry.checker.get(dropzone.checker)
     except LookupError as error:
         raise UploadError(str(error)) from error
     try:
@@ -122,7 +122,7 @@ def _run_converter(dropzone, in_paths, out_dir):
     if not dropzone.converter:
         return in_paths
     try:
-        convert = registry.get_converter(dropzone.converter)
+        convert = registry.converter.get(dropzone.converter)
     except LookupError as error:
         raise UploadError(str(error)) from error
     try:

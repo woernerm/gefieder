@@ -14,30 +14,26 @@ from sso.scopes import scopes_for
 APP_NAME = os.environ.get("APP_NAME", "app").capitalize()
 
 
-def secret_path(setting, default):
-    """The file podman mounts one of our secrets at.
+def read_secret(setting, default, fallback):
+    """One of our secrets, from the file podman mounts it at.
 
     Args:
         setting: Environment variable naming the secret, which buildtime.env may rename.
         default: The name this repository ships, used when the variable is unset.
+        fallback: The value when the secret is not mounted, as in a checkout.
 
     Returns:
-        The path to read the secret from.
+        The secret's value.
     """
-    return Path("/run/secrets") / os.environ.get(setting, default)
+    path = Path("/run/secrets") / os.environ.get(setting, default)
+    return path.read_text().strip() if path.exists() else fallback
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY_FILE = secret_path("SECRET_DJANGO_KEY", "django_secret_key")
-
 # A throwaway key when the secret is missing: it keeps a checkout runnable and
 # invalidates every session on restart, rather than shipping a known key.
-SECRET_KEY = (
-    SECRET_KEY_FILE.read_text().strip()
-    if SECRET_KEY_FILE.exists()
-    else secrets.token_hex(100)
-)
+SECRET_KEY = read_secret("SECRET_DJANGO_KEY", "django_secret_key", secrets.token_hex(100))
 
 DEBUG = os.environ.get("DEBUG", "false").strip().lower() == "true"
 
@@ -187,13 +183,7 @@ WSGI_APPLICATION = 'crudman.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-PG_PASSWORD_FILE = secret_path("SECRET_CRUDMAN_PASSWORD", "crudman_password")
-
-PG_PASSWORD = (
-    PG_PASSWORD_FILE.read_text().strip()
-    if PG_PASSWORD_FILE.exists()
-    else secrets.token_hex(100)
-)
+PG_PASSWORD = read_secret("SECRET_CRUDMAN_PASSWORD", "crudman_password", secrets.token_hex(100))
 
 DATABASES = {
     'default': {
@@ -314,13 +304,7 @@ OIDC_PROVIDER_ID = "sso"
 OIDC_SCOPES = scopes_for(OIDC_ISSUER, os.environ.get("OIDC_SCOPES", ""))
 
 # The placeholder the installer creates is inert while OIDC_ENABLED is false.
-OIDC_CLIENT_SECRET_FILE = secret_path("SECRET_OIDC_CLIENT", "oidc_client_secret")
-
-OIDC_CLIENT_SECRET = (
-    OIDC_CLIENT_SECRET_FILE.read_text().strip()
-    if OIDC_CLIENT_SECRET_FILE.exists()
-    else ""
-)
+OIDC_CLIENT_SECRET = read_secret("SECRET_OIDC_CLIENT", "oidc_client_secret", "")
 
 if OIDC_ENABLED:
     INSTALLED_APPS += [

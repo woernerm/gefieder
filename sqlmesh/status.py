@@ -45,6 +45,21 @@ colour.
 """
 
 
+def connect(database: str = ""):
+    """A connection as the engine's role, to the warehouse unless another database is named.
+
+    Shared with preview.py and the entrypoint's wait for the database.
+    """
+    secret = Path("/run/secrets", os.environ.get("SECRET_SQLMESH_PASSWORD", "sqlmesh_password"))
+    return psycopg2.connect(
+        host=os.environ.get("POSTGRES_HOST", "localhost"),
+        port=os.environ.get("POSTGRES_PORT", "5432"),
+        dbname=database or os.environ.get("POSTGRES_DB", "postgres"),
+        user=os.environ.get("POSTGRES_USER", "sqlmesh"),
+        password=secret.read_text().strip(),
+    )
+
+
 def failure_message(log: str) -> str:
     """What to show a person about a plan that did not work.
 
@@ -65,14 +80,7 @@ def main() -> int:
     # input nobody is writing would wait for the container's own.
     message = failure_message(sys.stdin.read()) if status == FAILED else ""
 
-    secret = Path("/run/secrets", os.environ.get("SECRET_SQLMESH_PASSWORD", "sqlmesh_password"))
-    connection = psycopg2.connect(
-        host=os.environ.get("POSTGRES_HOST", "localhost"),
-        port=os.environ.get("POSTGRES_PORT", "5432"),
-        dbname=os.environ.get("POSTGRES_DB", "postgres"),
-        user=os.environ.get("POSTGRES_USER", "sqlmesh"),
-        password=secret.read_text().strip(),
-    )
+    connection = connect()
 
     # The newest unfinished row for this commit: deploying the same commit again creates a
     # new row, and this must advance that one rather than an older attempt.

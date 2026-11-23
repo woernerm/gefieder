@@ -8,13 +8,9 @@ rather than from the repository files. The plugins likewise: they are installed 
 import os
 import re
 
-import httpx
 import pytest
 
-from conftest import (
-    APP_NAME, BASE_URL, GRAFANA_PATH, MCP_PATH, SUPERUSER_NAME, SUPERUSER_PASSWORD,
-    VERIFY_TLS,
-)
+from conftest import APP_NAME, BASE_URL, GRAFANA_PATH, MCP_PATH
 
 # Straight from GRAFANA_PLUGINS in buildtime.env, so trimming that list does not leave
 # these tests asserting on plugins the image no longer contains.
@@ -23,19 +19,6 @@ PLUGINS = [
     for plugin in os.environ.get("GRAFANA_PLUGINS", "").split(",")
     if plugin.strip()
 ]
-
-
-@pytest.fixture(scope="module")
-def grafana_api():
-    """An HTTP client for Grafana's API, authenticated as the admin (the superuser).
-
-    The quadlet sets GF_SECURITY_ADMIN_USER and its password from the superuser secret,
-    so the database superuser's credentials log in here too.
-    """
-    with httpx.Client(base_url=f"{BASE_URL}/{GRAFANA_PATH}", verify=VERIFY_TLS,
-                      auth=(SUPERUSER_NAME, SUPERUSER_PASSWORD),
-                      follow_redirects=True, timeout=10) as client:
-        yield client
 
 
 class TestDashboardProvisioning:

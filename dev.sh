@@ -163,8 +163,7 @@ printf '%s' "$SUPERUSER_DEFAULT_PASSWORD" | podman secret create "$SECRET_PG_SUP
 
 # --- volumes --------------------------------------------------------------------------
 # Created up front so the rootless user owns their contents, as install.sh does.
-for vol in postgresql_data grafana_data sftp_data proxy_data uploads_data models_data \
-           jupyter_data; do
+for vol in $(basename -s .volume quadlets/*.volume); do
   podman volume exists "$vol" || podman volume create "$vol" >/dev/null
 done
 

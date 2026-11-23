@@ -16,6 +16,15 @@
 # The services with a Dockerfile. Each builds independently, so the order is arbitrary.
 SERVICES="postgresql crudman sqlmesh proxy grafana grafana_mcp jupyter"
 
+# The containers, each a quadlet of the same name, in start order: the database first.
+UNITS="postgresql crudman sftp flight sqlmesh grafana grafana_mcp jupyter proxy"
+
+# What envsubst bakes into the quadlets and the server-stats units, for the release
+# (publish.yml) and the test stack (run-tests.sh). Only the known tokens, so nginx's $host
+# and Grafana's %(domain)s survive, and the pod's ports stay for systemd to expand from
+# runtime.env.
+QUADLET_VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${NOTEBOOK_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${PG_SUPERUSER_ROLE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_USER_PREFIX} ${ROLE_PREFIX} ${SECRET_SUPERUSER_PASSWORD} ${SECRET_PG_SUPERUSER_PASSWORD} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD} ${SECRET_DJANGO_KEY} ${SECRET_OIDC_CLIENT} ${SECRET_JUPYTER} ${REPO_MODELS}'
+
 # The templated parts of the two images whose Dockerfiles COPY them in: Grafana's dashboard
 # JSON, which Grafana cannot interpolate, and the psql init scripts, whose role names sit
 # inside function bodies. Deterministic, so an unchanged dashboard keeps its layer cached.

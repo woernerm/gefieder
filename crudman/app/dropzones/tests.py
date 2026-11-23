@@ -71,22 +71,22 @@ def upload_file(name="data.csv", content=b"a,b\n1,2\n"):
 
 class RegistryTests(SimpleTestCase):
     def test_checker_decorator_registers_under_the_function_name(self):
-        with patch.dict(registry._checkers):
+        with patch.dict(registry.checker.functions):
             @registry.checker
             def test_check(files):
                 pass
 
-            self.assertIs(registry.get_checker("test_check"), test_check)
-            self.assertIn("test_check", registry.checker_names())
+            self.assertIs(registry.checker.get("test_check"), test_check)
+            self.assertIn("test_check", registry.checker.names())
 
     def test_converter_decorator_registers_under_the_function_name(self):
-        with patch.dict(registry._converters):
+        with patch.dict(registry.converter.functions):
             @registry.converter
             def test_convert(files, out_dir):
                 pass
 
-            self.assertIs(registry.get_converter("test_convert"), test_convert)
-            self.assertIn("test_convert", registry.converter_names())
+            self.assertIs(registry.converter.get("test_convert"), test_convert)
+            self.assertIn("test_convert", registry.converter.names())
 
     def test_duplicate_name_raises(self):
         # Two different functions under one name would make a dropzone ambiguous.
@@ -96,29 +96,29 @@ class RegistryTests(SimpleTestCase):
 
             return test_dup
 
-        with patch.dict(registry._checkers):
+        with patch.dict(registry.checker.functions):
             registry.checker(make_test_dup())
             with self.assertRaises(ImproperlyConfigured):
                 registry.checker(make_test_dup())
 
     def test_reregistering_same_function_is_tolerated(self):
         # A module imported twice re-runs its decorators.
-        with patch.dict(registry._checkers):
+        with patch.dict(registry.checker.functions):
             def test_again(files):
                 pass
 
             registry.checker(test_again)
             registry.checker(test_again)
-            self.assertIs(registry.get_checker("test_again"), test_again)
+            self.assertIs(registry.checker.get("test_again"), test_again)
 
     def test_unknown_names_raise_lookup_error(self):
         with self.assertRaises(LookupError):
-            registry.get_checker("no_such_checker")
+            registry.checker.get("no_such_checker")
         with self.assertRaises(LookupError):
-            registry.get_converter("no_such_converter")
+            registry.converter.get("no_such_converter")
 
     def test_labels_show_in_choices_and_default_to_the_name(self):
-        with patch.dict(registry._checkers), patch.dict(registry._checker_labels):
+        with patch.dict(registry.checker.functions), patch.dict(registry.checker.labels):
 
             @registry.checker
             def test_plain(files):
@@ -128,16 +128,16 @@ class RegistryTests(SimpleTestCase):
             def test_labeled(files):
                 pass
 
-            choices = dict(registry.checker_choices())
+            choices = dict(registry.checker.choices())
             self.assertEqual(choices["test_plain"], "test_plain")
             self.assertEqual(choices["test_labeled"], "A nice label")
 
     def test_autodiscover_registered_the_default_functions(self):
         # DropzonesConfig.ready ran autodiscover at startup, so the shipped defaults
         # must be selectable.
-        self.assertIn("reject_empty_files", registry.checker_names())
+        self.assertIn("reject_empty_files", registry.checker.names())
         for name in ("csv_to_parquet", "excel_to_parquet", "json_to_parquet"):
-            self.assertIn(name, registry.converter_names())
+            self.assertIn(name, registry.converter.names())
 
 
 class DropzoneModelTests(TestCase):
@@ -390,7 +390,7 @@ class ProcessUploadTests(TempMediaMixin, TestCase):
             raise ValueError("Column 'amount' is missing.")
 
         zone = Dropzone.objects.create(name="checked", checker="test_angry")
-        with patch.dict(registry._checkers, {"test_angry": angry}):
+        with patch.dict(registry.checker.functions, {"test_angry": angry}):
             with self.assertRaisesMessage(UploadError, "Column 'amount' is missing."):
                 process_upload(zone, [upload_file()])
         self.assertEqual(Upload.objects.count(), 0)
@@ -403,7 +403,7 @@ class ProcessUploadTests(TempMediaMixin, TestCase):
             seen.extend(files)
 
         zone = Dropzone.objects.create(name="checked", checker="test_collect")
-        with patch.dict(registry._checkers, {"test_collect": collect}):
+        with patch.dict(registry.checker.functions, {"test_collect": collect}):
             process_upload(zone, [upload_file("a.csv", b"a"), upload_file("b.csv", b"b")])
         self.assertEqual([p.name for p in seen], ["a.csv", "b.csv"])
 
@@ -419,7 +419,7 @@ class ProcessUploadTests(TempMediaMixin, TestCase):
             (out_dir / "combined.parquet").write_bytes(b"parquet")
 
         zone = Dropzone.objects.create(name="converted", converter="test_convert")
-        with patch.dict(registry._converters, {"test_convert": convert}):
+        with patch.dict(registry.converter.functions, {"test_convert": convert}):
             upload = process_upload(zone, [upload_file("a.csv"), upload_file("b.csv")])
         self.assertEqual(
             [f.file.name for f in upload.files.all()],
@@ -433,7 +433,7 @@ class ProcessUploadTests(TempMediaMixin, TestCase):
             raise RuntimeError("Sheet 'Mapping' not found.")
 
         zone = Dropzone.objects.create(name="converted", converter="test_broken")
-        with patch.dict(registry._converters, {"test_broken": broken}):
+        with patch.dict(registry.converter.functions, {"test_broken": broken}):
             with self.assertRaisesMessage(UploadError, "Sheet 'Mapping' not found."):
                 process_upload(zone, [upload_file()])
         self.assertEqual(Upload.objects.count(), 0)
@@ -441,7 +441,7 @@ class ProcessUploadTests(TempMediaMixin, TestCase):
 
     def test_converter_producing_nothing_is_rejected(self):
         zone = Dropzone.objects.create(name="converted", converter="test_empty")
-        with patch.dict(registry._converters, {"test_empty": lambda f, o: None}):
+        with patch.dict(registry.converter.functions, {"test_empty": lambda f, o: None}):
             with self.assertRaises(UploadError):
                 process_upload(zone, [upload_file()])
         self.assertEqual(Upload.objects.count(), 0)
@@ -779,7 +779,7 @@ class UploadViewTests(TempMediaMixin, TestCase):
         zone = Dropzone.objects.create(
             name="strict", require_login=False, checker="test_angry"
         )
-        with patch.dict(registry._checkers, {"test_angry": angry}):
+        with patch.dict(registry.checker.functions, {"test_angry": angry}):
             response = self.client.post(
                 self.url(zone),
                 {"files": upload_file(), "validity": UploadForm.ALWAYS},
@@ -890,7 +890,7 @@ class EndpointTestsMixin:
             raise ValueError("Bad header row.")
 
         zone = self.zone_with("strict", checker="test_angry")
-        with patch.dict(registry._checkers, {"test_angry": angry}):
+        with patch.dict(registry.checker.functions, {"test_angry": angry}):
             response = self.send(zone)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["error"], "Bad header row.")
@@ -1231,7 +1231,7 @@ class SftpTests(TempMediaMixin, TestCase):
             checker="test_angry",
         )
         directory = self.session_dir({"a.csv": b"1\n"})
-        with patch.dict(registry._checkers, {"test_angry": angry}):
+        with patch.dict(registry.checker.functions, {"test_angry": angry}):
             with self.assertRaisesMessage(UploadError, "Bad header row."):
                 endpoint.store_session(zone.pk, sftp._session_files(directory))
         self.assertEqual(Upload.objects.count(), 0)
@@ -1436,7 +1436,7 @@ class FlightTests(TempMediaMixin, TransactionTestCase):
         client, options = self.connect()
         # An empty table still writes a parquet file with a header, so the rejection
         # needs a checker that refuses everything.
-        with patch.dict(registry._checkers):
+        with patch.dict(registry.checker.functions):
             @registry.checker
             def flight_reject(files):
                 raise ValueError("not the agreed columns")
@@ -1809,8 +1809,8 @@ class AdminTests(TempMediaMixin, TestCase):
         self.client.force_login(self.admin)
 
     def test_function_dropdowns_follow_the_registry(self):
-        with patch.dict(registry._checkers, {"test_zz_check": lambda f: None}):
-            with patch.dict(registry._converters, {"test_zz_conv": lambda f, o: None}):
+        with patch.dict(registry.checker.functions, {"test_zz_check": lambda f: None}):
+            with patch.dict(registry.converter.functions, {"test_zz_conv": lambda f, o: None}):
                 form = DropzoneForm()
                 self.assertIn(
                     ("test_zz_check", "test_zz_check"), form.fields["checker"].choices

@@ -1,25 +1,5 @@
 {
     "__comment": "Server monitoring dashboard shipped with the system, provisioned from grafana/provisioning/dashboards. It charts the host counters the server-stats collector writes into the ${SERVER_STATS_SCHEMA} schema (see postgresql/initdb/gf_0007_create_server_stats.sh) to help size a future server. Layout: a top row of stat numbers (available CPU cores and memory, plus the network traffic sent/received totalled over the selected window), then time-series trends for CPU, memory, disk throughput, network throughput and storage. The ${APP_NAME}-postgresql datasource uid and the schema name are substituted at build time by grafana/render.sh, so this file is a template: do not load it into Grafana directly.",
-    "annotations": {
-        "list": [
-            {
-                "builtIn": 1,
-                "datasource": {
-                    "type": "grafana",
-                    "uid": "-- Grafana --"
-                },
-                "enable": true,
-                "hide": true,
-                "iconColor": "rgba(0, 211, 255, 1)",
-                "name": "Annotations & Alerts",
-                "type": "dashboard"
-            }
-        ]
-    },
-    "editable": true,
-    "fiscalYearStartMonth": 0,
-    "graphTooltip": 0,
-    "links": [],
     "panels": [
         {
             "datasource": {
@@ -28,9 +8,6 @@
             },
             "fieldConfig": {
                 "defaults": {
-                    "color": {
-                        "mode": "thresholds"
-                    },
                     "thresholds": {
                         "mode": "absolute",
                         "steps": [
@@ -41,8 +18,7 @@
                         ]
                     },
                     "unit": "none"
-                },
-                "overrides": []
+                }
             },
             "gridPos": {
                 "h": 4,
@@ -54,22 +30,10 @@
             "options": {
                 "colorMode": "none",
                 "graphMode": "none",
-                "justifyMode": "auto",
-                "reduceOptions": {
-                    "calcs": [
-                        "lastNotNull"
-                    ],
-                    "fields": "",
-                    "values": false
-                },
                 "textMode": "value"
             },
             "targets": [
                 {
-                    "datasource": {
-                        "type": "postgres",
-                        "uid": "${APP_NAME}-postgresql"
-                    },
                     "editorMode": "code",
                     "format": "table",
                     "rawQuery": true,
@@ -87,9 +51,6 @@
             },
             "fieldConfig": {
                 "defaults": {
-                    "color": {
-                        "mode": "thresholds"
-                    },
                     "thresholds": {
                         "mode": "absolute",
                         "steps": [
@@ -100,8 +61,7 @@
                         ]
                     },
                     "unit": "bytes"
-                },
-                "overrides": []
+                }
             },
             "gridPos": {
                 "h": 4,
@@ -113,22 +73,10 @@
             "options": {
                 "colorMode": "none",
                 "graphMode": "none",
-                "justifyMode": "auto",
-                "reduceOptions": {
-                    "calcs": [
-                        "lastNotNull"
-                    ],
-                    "fields": "",
-                    "values": false
-                },
                 "textMode": "value"
             },
             "targets": [
                 {
-                    "datasource": {
-                        "type": "postgres",
-                        "uid": "${APP_NAME}-postgresql"
-                    },
                     "editorMode": "code",
                     "format": "table",
                     "rawQuery": true,
@@ -146,9 +94,6 @@
             },
             "fieldConfig": {
                 "defaults": {
-                    "color": {
-                        "mode": "thresholds"
-                    },
                     "thresholds": {
                         "mode": "absolute",
                         "steps": [
@@ -159,8 +104,7 @@
                         ]
                     },
                     "unit": "bytes"
-                },
-                "overrides": []
+                }
             },
             "gridPos": {
                 "h": 4,
@@ -172,22 +116,10 @@
             "options": {
                 "colorMode": "none",
                 "graphMode": "none",
-                "justifyMode": "auto",
-                "reduceOptions": {
-                    "calcs": [
-                        "lastNotNull"
-                    ],
-                    "fields": "",
-                    "values": false
-                },
                 "textMode": "value"
             },
             "targets": [
                 {
-                    "datasource": {
-                        "type": "postgres",
-                        "uid": "${APP_NAME}-postgresql"
-                    },
                     "editorMode": "code",
                     "format": "table",
                     "rawQuery": true,
@@ -205,9 +137,6 @@
             },
             "fieldConfig": {
                 "defaults": {
-                    "color": {
-                        "mode": "thresholds"
-                    },
                     "thresholds": {
                         "mode": "absolute",
                         "steps": [
@@ -218,8 +147,7 @@
                         ]
                     },
                     "unit": "bytes"
-                },
-                "overrides": []
+                }
             },
             "gridPos": {
                 "h": 4,
@@ -231,22 +159,10 @@
             "options": {
                 "colorMode": "none",
                 "graphMode": "none",
-                "justifyMode": "auto",
-                "reduceOptions": {
-                    "calcs": [
-                        "lastNotNull"
-                    ],
-                    "fields": "",
-                    "values": false
-                },
                 "textMode": "value"
             },
             "targets": [
                 {
-                    "datasource": {
-                        "type": "postgres",
-                        "uid": "${APP_NAME}-postgresql"
-                    },
                     "editorMode": "code",
                     "format": "table",
                     "rawQuery": true,
@@ -264,18 +180,12 @@
             },
             "fieldConfig": {
                 "defaults": {
-                    "color": {
-                        "mode": "palette-classic"
-                    },
                     "custom": {
-                        "drawStyle": "line",
                         "fillOpacity": 10,
-                        "lineWidth": 1,
                         "showPoints": "never"
                     },
                     "unit": "none"
-                },
-                "overrides": []
+                }
             },
             "gridPos": {
                 "h": 8,
@@ -285,20 +195,12 @@
             },
             "id": 1,
             "options": {
-                "legend": {
-                    "displayMode": "list",
-                    "placement": "bottom"
-                },
                 "tooltip": {
                     "mode": "multi"
                 }
             },
             "targets": [
                 {
-                    "datasource": {
-                        "type": "postgres",
-                        "uid": "${APP_NAME}-postgresql"
-                    },
                     "editorMode": "code",
                     "format": "time_series",
                     "rawQuery": true,
@@ -316,18 +218,12 @@
             },
             "fieldConfig": {
                 "defaults": {
-                    "color": {
-                        "mode": "palette-classic"
-                    },
                     "custom": {
-                        "drawStyle": "line",
                         "fillOpacity": 10,
-                        "lineWidth": 1,
                         "showPoints": "never"
                     },
                     "unit": "bytes"
-                },
-                "overrides": []
+                }
             },
             "gridPos": {
                 "h": 8,
@@ -337,20 +233,12 @@
             },
             "id": 2,
             "options": {
-                "legend": {
-                    "displayMode": "list",
-                    "placement": "bottom"
-                },
                 "tooltip": {
                     "mode": "multi"
                 }
             },
             "targets": [
                 {
-                    "datasource": {
-                        "type": "postgres",
-                        "uid": "${APP_NAME}-postgresql"
-                    },
                     "editorMode": "code",
                     "format": "time_series",
                     "rawQuery": true,
@@ -368,18 +256,12 @@
             },
             "fieldConfig": {
                 "defaults": {
-                    "color": {
-                        "mode": "palette-classic"
-                    },
                     "custom": {
-                        "drawStyle": "line",
                         "fillOpacity": 10,
-                        "lineWidth": 1,
                         "showPoints": "never"
                     },
                     "unit": "Bps"
-                },
-                "overrides": []
+                }
             },
             "gridPos": {
                 "h": 8,
@@ -389,20 +271,12 @@
             },
             "id": 3,
             "options": {
-                "legend": {
-                    "displayMode": "list",
-                    "placement": "bottom"
-                },
                 "tooltip": {
                     "mode": "multi"
                 }
             },
             "targets": [
                 {
-                    "datasource": {
-                        "type": "postgres",
-                        "uid": "${APP_NAME}-postgresql"
-                    },
                     "editorMode": "code",
                     "format": "time_series",
                     "rawQuery": true,
@@ -420,18 +294,12 @@
             },
             "fieldConfig": {
                 "defaults": {
-                    "color": {
-                        "mode": "palette-classic"
-                    },
                     "custom": {
-                        "drawStyle": "line",
                         "fillOpacity": 10,
-                        "lineWidth": 1,
                         "showPoints": "never"
                     },
                     "unit": "Bps"
-                },
-                "overrides": []
+                }
             },
             "gridPos": {
                 "h": 8,
@@ -441,20 +309,12 @@
             },
             "id": 9,
             "options": {
-                "legend": {
-                    "displayMode": "list",
-                    "placement": "bottom"
-                },
                 "tooltip": {
                     "mode": "multi"
                 }
             },
             "targets": [
                 {
-                    "datasource": {
-                        "type": "postgres",
-                        "uid": "${APP_NAME}-postgresql"
-                    },
                     "editorMode": "code",
                     "format": "time_series",
                     "rawQuery": true,
@@ -472,18 +332,12 @@
             },
             "fieldConfig": {
                 "defaults": {
-                    "color": {
-                        "mode": "palette-classic"
-                    },
                     "custom": {
-                        "drawStyle": "line",
                         "fillOpacity": 10,
-                        "lineWidth": 1,
                         "showPoints": "never"
                     },
                     "unit": "bytes"
-                },
-                "overrides": []
+                }
             },
             "gridPos": {
                 "h": 8,
@@ -493,20 +347,12 @@
             },
             "id": 4,
             "options": {
-                "legend": {
-                    "displayMode": "list",
-                    "placement": "bottom"
-                },
                 "tooltip": {
                     "mode": "multi"
                 }
             },
             "targets": [
                 {
-                    "datasource": {
-                        "type": "postgres",
-                        "uid": "${APP_NAME}-postgresql"
-                    },
                     "editorMode": "code",
                     "format": "time_series",
                     "rawQuery": true,
@@ -524,9 +370,6 @@
             },
             "fieldConfig": {
                 "defaults": {
-                    "color": {
-                        "mode": "thresholds"
-                    },
                     "thresholds": {
                         "mode": "absolute",
                         "steps": [
@@ -537,8 +380,7 @@
                         ]
                     },
                     "unit": "none"
-                },
-                "overrides": []
+                }
             },
             "gridPos": {
                 "h": 8,
@@ -548,7 +390,6 @@
             },
             "id": 10,
             "options": {
-                "showHeader": true,
                 "sortBy": [
                     {
                         "displayName": "Total scans",
@@ -558,10 +399,6 @@
             },
             "targets": [
                 {
-                    "datasource": {
-                        "type": "postgres",
-                        "uid": "${APP_NAME}-postgresql"
-                    },
                     "editorMode": "code",
                     "format": "table",
                     "rawQuery": true,
@@ -579,9 +416,6 @@
             },
             "fieldConfig": {
                 "defaults": {
-                    "color": {
-                        "mode": "thresholds"
-                    },
                     "thresholds": {
                         "mode": "absolute",
                         "steps": [
@@ -592,8 +426,7 @@
                         ]
                     },
                     "unit": "none"
-                },
-                "overrides": []
+                }
             },
             "gridPos": {
                 "h": 8,
@@ -603,7 +436,6 @@
             },
             "id": 11,
             "options": {
-                "showHeader": true,
                 "sortBy": [
                     {
                         "displayName": "Runs",
@@ -613,10 +445,6 @@
             },
             "targets": [
                 {
-                    "datasource": {
-                        "type": "postgres",
-                        "uid": "${APP_NAME}-postgresql"
-                    },
                     "editorMode": "code",
                     "format": "table",
                     "rawQuery": true,
@@ -634,17 +462,10 @@
         "${APP_NAME}",
         "server"
     ],
-    "templating": {
-        "list": []
-    },
     "time": {
         "from": "now-6h",
         "to": "now"
     },
-    "timepicker": {},
-    "timezone": "",
     "title": "Server monitoring",
-    "uid": "${APP_NAME}-server-monitoring",
-    "version": 1,
-    "weekStart": ""
+    "uid": "${APP_NAME}-server-monitoring"
 }

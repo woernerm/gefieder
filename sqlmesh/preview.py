@@ -17,25 +17,15 @@ to create schemas there. This is the call: the engine is what knows a plan has f
 
 import os
 import sys
-from pathlib import Path
 
-import psycopg2
+from status import connect
 
 
 def main() -> int:
     environment = sys.argv[1]
-
-    secret = Path("/run/secrets", os.environ.get("SECRET_SQLMESH_PASSWORD", "sqlmesh_password"))
-    database = os.environ.get("POSTGRES_DB", "postgres")
-    connection = psycopg2.connect(
-        host=os.environ.get("POSTGRES_HOST", "localhost"),
-        port=os.environ.get("POSTGRES_PORT", "5432"),
-        # Named after the environment it serves, so a second review is a second database
-        # and no new rule.
-        dbname=f"{database}_{environment}",
-        user=os.environ.get("POSTGRES_USER", "sqlmesh"),
-        password=secret.read_text().strip(),
-    )
+    # Named after the environment it serves, so a second review is a second database
+    # and no new rule.
+    connection = connect(f"{os.environ.get('POSTGRES_DB', 'postgres')}_{environment}")
 
     with connection, connection.cursor() as cursor:
         cursor.execute("SELECT refresh_preview(%s)", (environment,))

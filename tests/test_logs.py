@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from conftest import CRUDMAN_PATH, LOGGING_UNITS
+from conftest import CRUDMAN_PATH, LOGGING_UNITS, poll
 
 # A line counts as timestamped if it carries a date and clock time anywhere: journald's
 # own ISO-8601 stamp as well as grafana's "t=2026-06-25T22:31:05", gunicorn's
@@ -173,15 +173,17 @@ def _journal_lines(unit, *args, timeout=60):
     Polled: some services emit their first line only after the readiness the suite waits
     for.
     """
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        lines = [ln for ln in journal(unit, *args).splitlines() if ln.strip()]
-        # journalctl prints "-- No entries --" when the unit logged nothing.
-        lines = [ln for ln in lines if not ln.startswith("-- ")]
-        if lines:
-            return lines
-        time.sleep(2)
-    return []
+    # journalctl prints "-- No entries --" when the unit logged nothing.
+    return poll(lambda: [ln for ln in journal(unit, *args).splitlines()
+                         if ln.strip() and not ln.startswith("-- ")], timeout)
+
+
+def _crudman_journal_with(*needles):
+    """crudman's journal once it holds every needle, or None after a minute."""
+    def probe():
+        log = journal("crudman")
+        return log if all(needle in log for needle in needles) else None
+    return poll(probe, 60)
 
 
 class TestPersistentLogs:
@@ -198,9 +200,7 @@ class TestPersistentLogs:
         subprocess.run(
             ["systemctl", "--user", "restart", "crudman.service"], check=True,
         )
-        deadline = time.time() + 60
-        while time.time() < deadline and len(_journal_lines("crudman")) <= before:
-            time.sleep(2)
+        poll(lambda: len(_journal_lines("crudman")) > before, 60)
         after = len(_journal_lines("crudman"))
         assert after >= before, "the journal lost lines across the restart"
         assert after > before, "the restart appended nothing to the journal"
@@ -315,13 +315,8 @@ class TestApplicationErrors:
             "for this stack, so the test would pass without testing anything"
         )
 
-        deadline = time.time() + 60
-        while time.time() < deadline:
-            log = journal("crudman")
-            if marker in log:
-                break
-            time.sleep(2)
-        else:
+        log = _crudman_journal_with(marker)
+        if not log:
             pytest.fail(
                 f"crudman's journal has no record of the 500 raised for {marker}; the "
                 "traceback is being discarded"
@@ -342,12 +337,8 @@ class TestApplicationErrors:
         marker = f"gf-access-probe-{int(time.time())}"
         http.get(f"/{CRUDMAN_PATH}/error-logging-probe/", params={"marker": marker})
 
-        deadline = time.time() + 60
-        while time.time() < deadline:
-            log = journal("crudman")
-            if "error-logging-probe" in log and " 500 " in log:
-                return
-            time.sleep(2)
+        if _crudman_journal_with("error-logging-probe", " 500 "):
+            return
         pytest.fail(
             "crudman's journal has no access-log line for the failing request, so a "
             "reported error cannot be tied to the request that caused it"

@@ -3,11 +3,14 @@ from django.contrib.auth.models import User
 from django.shortcuts import redirect
 from django.template.response import TemplateResponse
 from django.core.exceptions import PermissionDenied
-from django.urls import path, reverse
+from django.urls import path
 from unfold.admin import ModelAdmin
 
 from . import repo
 from .models import Deployment
+
+CHANGELIST = "admin:system_deployment_changelist"
+NOT_ON_BRANCH = "That commit is not on the branch and was not deployed."
 
 
 @admin.register(Deployment)
@@ -38,6 +41,30 @@ class DeploymentAdmin(ModelAdmin):
         """
         if request.method != "POST" or not request.user.has_perm("system.add_deployment"):
             raise PermissionDenied
+
+    def _refuse(self, request, reason):
+        """Back to the versions page, saying why nothing was done."""
+        messages.error(request, reason)
+        return redirect(CHANGELIST)
+
+    def _apply(self, request, action, failure, success):
+        """Run what a button asked for and report how it went on the versions page.
+
+        Args:
+            request: The POST the button sent.
+            action: Returns the Deployment it recorded, or raises repo.GitError.
+            failure: What could not be done to the commit, for a git error.
+            success: The message for a deployment that did not fail; ``{sha}`` is
+                replaced by its short sha.
+        """
+        try:
+            deployment = action()
+        except repo.GitError as error:
+            return self._refuse(request, f"The commit could not be {failure}: {error}")
+        if deployment.status == Deployment.FAILED:
+            return self._refuse(request, deployment.message)
+        messages.success(request, success.format(sha=deployment.short_sha))
+        return redirect(CHANGELIST)
 
     # A deployment is made by pressing the button below, and an existing one is a record of
     # something that already happened. So there is nothing to add, edit or delete by hand.
@@ -118,35 +145,20 @@ class DeploymentAdmin(ModelAdmin):
         asked about, rather than choosing between several.
         """
         self._require_rank(request)
-        changelist = reverse("admin:system_deployment_changelist")
-
         sha = request.POST.get("sha", "").strip()
         stakeholders = User.objects.filter(pk__in=request.POST.getlist("approvers"))
 
         if not repo.is_on_branch(sha):
-            messages.error(request, "That commit is not on the branch and was not deployed.")
-            return redirect(changelist)
-
+            return self._refuse(request, NOT_ON_BRANCH)
         if not stakeholders:
-            messages.error(request, "Name at least one person to approve this version.")
-            return redirect(changelist)
-
-        try:
-            deployment = repo.review(sha, stakeholders, user=request.user)
-        except repo.GitError as error:
-            messages.error(request, f"The commit could not be previewed: {error}")
-            return redirect(changelist)
-
-        if deployment.status == Deployment.FAILED:
-            messages.error(request, deployment.message)
-        else:
-            messages.success(
-                request,
-                f"Version {deployment.short_sha} is being prepared for review. "
-                f"{len(stakeholders)} person(s) will see it in place of production the "
-                "next time they sign in.",
-            )
-        return redirect(changelist)
+            return self._refuse(request, "Name at least one person to approve this version.")
+        return self._apply(
+            request,
+            lambda: repo.review(sha, stakeholders, user=request.user),
+            "previewed",
+            f"Version {{sha}} is being prepared for review. {len(stakeholders)} person(s) "
+            "will see it in place of production the next time they sign in.",
+        )
 
     def deploy(self, request):
         """Put the chosen commit into production.
@@ -155,14 +167,10 @@ class DeploymentAdmin(ModelAdmin):
         it, which is why nothing here has to be un-pinned later.
         """
         self._require_rank(request)
-        changelist = reverse("admin:system_deployment_changelist")
-
         sha = request.POST.get("sha", "").strip()
 
         if not repo.is_on_branch(sha):
-            messages.error(request, "That commit is not on the branch and was not deployed.")
-            return redirect(changelist)
-
+            return self._refuse(request, NOT_ON_BRANCH)
         # A version that was put up for review goes live when the review says so. One that
         # never was is deployed as it always has been -- the page asks first, and the poll
         # keeps deploying what is pushed, so review is a control an operator reaches for
@@ -171,25 +179,15 @@ class DeploymentAdmin(ModelAdmin):
             environment=Deployment.PREVIEW, sha=sha
         ).first()
         if review and not review.is_approved:
-            messages.error(
+            return self._refuse(
                 request,
                 f"Version {review.short_sha} is under review and not everyone has "
                 "approved it yet.",
             )
-            return redirect(changelist)
-
-        try:
-            deployment = repo.deploy(sha, pinned=True, user=request.user)
-        except repo.GitError as error:
-            messages.error(request, f"The commit could not be deployed: {error}")
-            return redirect(changelist)
-
-        if deployment.status == Deployment.FAILED:
-            messages.error(request, deployment.message)
-        else:
-            messages.success(
-                request,
-                f"Version {deployment.short_sha} is being applied. The engine picks it up "
-                f"within a few seconds; this page shows the result.",
-            )
-        return redirect(changelist)
+        return self._apply(
+            request,
+            lambda: repo.deploy(sha, pinned=True, user=request.user),
+            "deployed",
+            "Version {sha} is being applied. The engine picks it up within a few seconds; "
+            "this page shows the result.",
+        )

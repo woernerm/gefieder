@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import requests
 from dbusers.models import DatabaseUser
+from dbusers.testing import MockedConnectionMixin
 from dbusers.utils import enroll
 from django.conf import settings
 from django.contrib import admin
@@ -35,6 +36,7 @@ from .roles import (
     highest_role,
 )
 from .scopes import scopes_for
+from .testing import make_user
 from unfold.widgets import UnfoldBooleanSwitchWidget
 
 # Built the way roles.py builds it, so these tests follow ROLE_PREFIX rather than
@@ -980,7 +982,7 @@ class AvatarInTheSidebarTests(TestCase):
         self.assertNotContains(self.client.get(reverse("admin:index")), "background-image")
 
 
-class DatabaseAccessSwitchTests(TestCase):
+class DatabaseAccessSwitchTests(MockedConnectionMixin, TestCase):
     """The switch on the user page, which is how a database account is given and taken.
 
     Everything below it -- the role name, the rank, the credential handover -- is covered
@@ -989,13 +991,13 @@ class DatabaseAccessSwitchTests(TestCase):
     """
 
     def setUp(self):
+        super().setUp()
         for name in (VIEWER, EDITOR, ADMIN):
             Group.objects.get_or_create(name=name)
         self.client.force_login(User.objects.create_superuser("root"))
         # Staff, because the switch is read-only without it: the password is handed over
         # at sign-in here.
-        self.user = User.objects.create_user("jdoe", password="x", is_staff=True)
-        self.user.groups.add(Group.objects.get(name=EDITOR))
+        self.user = make_user("jdoe", "editor", is_staff=True)
 
     def _post(self, **overrides):
         """Save the user's change page with the switch in a given position.
@@ -1031,32 +1033,28 @@ class DatabaseAccessSwitchTests(TestCase):
         )
 
     def test_switching_it_on_enrolls(self):
-        with patch("dbusers.utils.connection"):
-            self._post(database_access="on")
+        self._post(database_access="on")
 
         self.assertTrue(DatabaseUser.objects.filter(user=self.user).exists())
 
     def test_switching_it_off_removes(self):
-        with patch("dbusers.utils.connection"):
-            enroll(self.user)
-            self._post()
+        enroll(self.user)
+        self._post()
 
         self.assertFalse(DatabaseUser.objects.filter(user=self.user).exists())
 
     def test_saving_without_touching_it_leaves_the_account_alone(self):
-        with patch("dbusers.utils.connection"):
-            enroll(self.user)
+        enroll(self.user)
 
-        with patch("dbusers.utils.connection") as conn:
-            self._post(database_access="on")
+        self.connection.reset_mock()
+        self._post(database_access="on")
 
         # Re-enrolling would rewrite the role the person already has.
-        conn.cursor.assert_not_called()
+        self.connection.cursor.assert_not_called()
         self.assertTrue(DatabaseUser.objects.filter(user=self.user).exists())
 
     def test_the_switch_shows_the_account_that_exists(self):
-        with patch("dbusers.utils.connection"):
-            enroll(self.user)
+        enroll(self.user)
 
         page = self.client.get(reverse("admin:auth_user_change", args=[self.user.pk]))
         self.assertTrue(page.context["adminform"].form["database_access"].value())
@@ -1074,8 +1072,7 @@ class DatabaseAccessSwitchTests(TestCase):
         self.user.is_superuser = True
         self.user.save()
 
-        with patch("dbusers.utils.connection"):
-            self._post(database_access="on", groups=[], is_superuser="on")
+        self._post(database_access="on", groups=[], is_superuser="on")
 
         self.assertTrue(DatabaseUser.objects.filter(user=self.user).exists())
 
@@ -1083,10 +1080,9 @@ class DatabaseAccessSwitchTests(TestCase):
         """Without a rank there is nothing to grant, so the switch is disabled."""
         self.user.groups.clear()
 
-        with patch("dbusers.utils.connection") as conn:
-            self._post(database_access="on", groups=[])
+        self._post(database_access="on", groups=[])
 
-        conn.cursor.assert_not_called()
+        self.connection.cursor.assert_not_called()
         self.assertFalse(DatabaseUser.objects.filter(user=self.user).exists())
 
     def test_a_user_without_staff_status_cannot_be_switched_on(self):
@@ -1094,19 +1090,17 @@ class DatabaseAccessSwitchTests(TestCase):
         self.user.is_staff = False
         self.user.save()
 
-        with patch("dbusers.utils.connection") as conn:
-            self._post(database_access="on", is_staff="")
+        self._post(database_access="on", is_staff="")
 
-        conn.cursor.assert_not_called()
+        self.connection.cursor.assert_not_called()
         self.assertFalse(DatabaseUser.objects.filter(user=self.user).exists())
 
     def test_granting_staff_status_opens_the_switch_on_the_next_save(self):
         self.user.is_staff = False
         self.user.save()
 
-        with patch("dbusers.utils.connection"):
-            self._post()
-            self._post(database_access="on")
+        self._post()
+        self._post(database_access="on")
 
         self.assertTrue(DatabaseUser.objects.filter(user=self.user).exists())
 
@@ -1127,10 +1121,8 @@ class DatabaseAccessColumnTests(TestCase):
     """The user list, where an operator asks who may reach the database."""
 
     def setUp(self):
-        Group.objects.get_or_create(name=EDITOR)
         self.client.force_login(User.objects.create_superuser("root"))
-        self.with_access = User.objects.create_user("jdoe")
-        self.with_access.groups.add(Group.objects.get(name=EDITOR))
+        self.with_access = make_user("jdoe", "editor")
         with patch("dbusers.utils.connection"):
             enroll(self.with_access)
         self.without = User.objects.create_user("someone_else")

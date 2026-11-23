@@ -18,7 +18,7 @@ import uuid
 import httpx
 import pytest
 
-from conftest import BASE_URL, GRAFANA_PATH, MCP_PATH, SUPERUSER_NAME, SUPERUSER_PASSWORD, VERIFY_TLS
+from conftest import BASE_URL, MCP_PATH, SUPERUSER_NAME, VERIFY_TLS
 
 # The endpoint the streamable-http transport serves, below the prefix the proxy strips.
 MCP_URL = f"{BASE_URL}/{MCP_PATH}/mcp"
@@ -110,15 +110,6 @@ class McpClient:
         result = reply["result"]
         text = "".join(part.get("text", "") for part in result.get("content", []))
         return text, result.get("isError", False)
-
-
-@pytest.fixture(scope="module")
-def grafana_api():
-    """Grafana's API as the admin, used to mint the tokens the MCP calls then carry."""
-    with httpx.Client(base_url=f"{BASE_URL}/{GRAFANA_PATH}", verify=VERIFY_TLS,
-                      auth=(SUPERUSER_NAME, SUPERUSER_PASSWORD),
-                      follow_redirects=True, timeout=30) as client:
-        yield client
 
 
 def service_account_token(grafana_api, role):

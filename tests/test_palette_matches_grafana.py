@@ -15,11 +15,11 @@ classes (``page:o``), or build a colour from the mode's base tint
 """
 import re
 import subprocess
-from pathlib import Path
 
 import pytest
 
-REPO = Path(__file__).resolve().parents[1]
+from conftest import REPO
+
 PALETTE = REPO / "grafana" / "palette.css"
 
 # What each palette variable transcribes: the mode, and the theme field, spelled as

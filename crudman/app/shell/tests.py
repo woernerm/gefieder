@@ -9,9 +9,8 @@ from django.core.cache import cache
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
-from notebooks.tests import enrolled
-from notebooks.tests import make_user as _make_user
-from sso.roles import GROUP_FOR_RANK
+from dbusers.testing import enrolled
+from sso.testing import make_user as _make_user
 
 from .models import ONLINE, RECENT, Presence, lately, seen
 from .stages import stage_of
@@ -23,7 +22,7 @@ FRAMED = {**PAGE, "HTTP_SEC_FETCH_DEST": "iframe"}
 
 def make_user(username, rank=None, **flags):
     """A staff user of one rank: every rank is staff, or the admin would turn them away."""
-    return _make_user(username, rank and GROUP_FOR_RANK[rank], is_staff=True, **flags)
+    return _make_user(username, rank, is_staff=True, **flags)
 
 
 class PageRequestTests(TestCase):

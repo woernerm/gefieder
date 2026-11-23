@@ -9,11 +9,11 @@ from .models import Dropzone, Upload, UploadFile
 
 
 def _checker_choices():
-    return [("", "No file check")] + registry.checker_choices()
+    return [("", "No file check")] + registry.checker.choices()
 
 
 def _converter_choices():
-    return [("", "No conversion")] + registry.converter_choices()
+    return [("", "No conversion")] + registry.converter.choices()
 
 
 class DropzoneForm(forms.ModelForm):
@@ -98,11 +98,11 @@ class DropzoneAdmin(ModelAdmin):
     # As in the dropdowns; a name whose function left the image stays visible as it is.
     @admin.display(description="checker", ordering="checker")
     def checker_label(self, obj):
-        return dict(registry.checker_choices()).get(obj.checker, obj.checker)
+        return dict(registry.checker.choices()).get(obj.checker, obj.checker)
 
     @admin.display(description="converter", ordering="converter")
     def converter_label(self, obj):
-        return dict(registry.converter_choices()).get(obj.converter, obj.converter)
+        return dict(registry.converter.choices()).get(obj.converter, obj.converter)
 
     @admin.display(description="secret upload link")
     def upload_link(self, obj):

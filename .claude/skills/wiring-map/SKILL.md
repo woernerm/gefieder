@@ -176,7 +176,7 @@ quadlets' `Secret=` lines, so it needs nothing. A quadlet naming it needs `Secre
 `dev.sh` turns into `--secret` by itself.
 
 Whatever reads the file back out of `/run/secrets/` needs the name as well, which is what
-the `Environment=SECRET_*=` lines in the quadlets are for: `settings.py` (`secret_path()`),
+the `Environment=SECRET_*=` lines in the quadlets are for: `settings.py` (`read_secret()`),
 `crudman/entrypoint.sh`, `sqlmesh/entrypoint.sh` and `sqlmesh/config.py` each take it from
 the environment with the shipped name as the fallback. `postgresql/Dockerfile` takes it as an
 `ARG` instead, because its `ENV POSTGRES_PASSWORD_FILE` is baked in; `gf_0004` and the two

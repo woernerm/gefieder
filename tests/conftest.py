@@ -5,9 +5,13 @@ its published ports. Which ports and protocol depend on the profile (dev = plain
 production = HTTPS), passed in through the environment.
 """
 import json
+from contextlib import closing
 import os
+import re
 import subprocess
 import time
+import uuid
+from pathlib import Path
 
 import httpx
 import psycopg2
@@ -48,6 +52,48 @@ def inspect_container(name):
     if result.returncode != 0:
         return None
     return json.loads(result.stdout)[0]
+
+
+REPO = Path(__file__).resolve().parents[1]
+
+
+def declared(env_file):
+    """The names an env file of the repository declares, e.g. runtime.env."""
+    return set(re.findall(r"^([A-Z_][A-Z0-9_]*)=", (REPO / env_file).read_text(), re.MULTILINE))
+
+
+def allowlisted(script):
+    """The names in a script's VARS='${A} ${B}' envsubst allowlist."""
+    text = (REPO / script).read_text()
+    line = re.search(r"^\s*(?:QUADLET_)?VARS='([^']*)'", text, re.MULTILINE)
+    assert line, f"{script} has no VARS allowlist"
+    return set(re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", line.group(1)))
+
+
+def poll(probe, timeout, interval=2, errors=()):
+    """Call probe until it returns something truthy or timeout seconds have passed.
+
+    A deadline rather than an attempt count, so the budget stays a wall-clock allowance on
+    a slow machine, where each failing attempt itself takes longer.
+
+    Args:
+        probe: Called without arguments.
+        timeout: Seconds to keep trying.
+        interval: Seconds between attempts.
+        errors: Exceptions that count as "not yet" rather than failing.
+
+    Returns:
+        The first truthy result, or the last one once the time is up.
+    """
+    deadline = time.time() + timeout
+    while True:
+        try:
+            result = probe()
+        except errors:
+            result = None
+        if result or time.time() >= deadline:
+            return result
+        time.sleep(interval)
 
 
 def volume_mountpoint(volume):
@@ -235,10 +281,11 @@ def admin_session():
     client.close()
 
 
-def _connect(user):
+def connect_as(user, password=None, dbname=PG_DATABASE):
+    """An autocommit connection as a role, with its secret unless a password is given."""
     conn = psycopg2.connect(
-        host="localhost", port=PG_PORT, dbname=PG_DATABASE,
-        user=user, password=DB_PASSWORDS[user],
+        host="localhost", port=PG_PORT, dbname=dbname, user=user,
+        password=DB_PASSWORDS[user] if password is None else password,
     )
     conn.autocommit = True
     return conn
@@ -254,7 +301,7 @@ class _ReconnectingConnection:
 
     def __init__(self, user):
         self._user = user
-        self._conn = _connect(user)
+        self._conn = connect_as(user)
 
     def _ensure_alive(self):
         # psycopg2 sets .closed once it notices the backend is gone; a still-open handle
@@ -269,16 +316,10 @@ class _ReconnectingConnection:
             self._reconnect()
 
     def _reconnect(self):
-        # A deadline rather than an attempt count, so the budget stays a wall-clock
-        # allowance on a slow machine, where each failing attempt itself takes longer.
-        deadline = time.time() + RESTART_TIMEOUT
-        while time.time() < deadline:
-            try:
-                self._conn = _connect(self._user)
-                return
-            except psycopg2.OperationalError:
-                time.sleep(2)
-        self._conn = _connect(self._user)  # last attempt, surfacing the error if it fails
+        # The last attempt outside poll, surfacing the error if it fails.
+        self._conn = poll(
+            lambda: connect_as(self._user), RESTART_TIMEOUT, errors=(psycopg2.OperationalError,)
+        ) or connect_as(self._user)
 
     def cursor(self, *args, **kwargs):
         self._ensure_alive()
@@ -317,6 +358,15 @@ def db(connect):
     return connect(GRAFANA_DB_USER)
 
 
+@pytest.fixture(scope="module")
+def grafana_api():
+    """Grafana's API, authenticated as the admin: the superuser's credentials log in here."""
+    with httpx.Client(base_url=f"{BASE_URL}/{GRAFANA_PATH}", verify=VERIFY_TLS,
+                      auth=(SUPERUSER_NAME, SUPERUSER_PASSWORD),
+                      follow_redirects=True, timeout=30) as client:
+        yield client
+
+
 @pytest.fixture(scope="session")
 def admin_db(connect):
     """A superuser connection, used by tests that must create objects."""
@@ -341,6 +391,68 @@ def grafana_db(connect):
     return connect(GRAFANA_DB_USER)
 
 
+@pytest.fixture(scope="module")
+def make_dropzones(crudman_db):
+    """Factory creating a module's dropzones directly in the database, removed afterwards.
+
+    Called with the upload method, the secret and name -> (checker, converter). Each call
+    also creates "<method>-suite-browser", a browser dropzone whose name must not work as a
+    login on the method's endpoint. Returns name -> id.
+    """
+    created = []
+
+    def _make(method, secret, dropzones):
+        rows = [(name, method, *functions) for name, functions in dropzones.items()]
+        rows.append((f"{method}-suite-browser", "browser", "", ""))
+        ids = {}
+        with crudman_db.cursor() as cur:
+            for name, upload_method, checker, converter in rows:
+                cur.execute(
+                    """
+                    INSERT INTO crudman.dropzones_dropzone
+                        (name, description, upload_method, file_format, checker,
+                         converter, default_validity, token, secret, require_login,
+                         enabled, created_at)
+                    VALUES (%s, '', %s, '', %s, %s, 'until_replaced', %s, %s, true,
+                            true, now())
+                    RETURNING id
+                    """,
+                    (name, upload_method, checker, converter, str(uuid.uuid4()), secret),
+                )
+                ids[name] = cur.fetchone()[0]
+        created.extend(ids.values())
+        return ids
+
+    yield _make
+    # Raw cleanup, no Django signals: the stack and its volumes are throwaway.
+    with crudman_db.cursor() as cur:
+        cur.execute(
+            "DELETE FROM crudman.dropzones_uploadfile WHERE upload_id IN "
+            "(SELECT id FROM crudman.dropzones_upload WHERE dropzone_id = ANY(%s))",
+            (created,),
+        )
+        cur.execute(
+            "DELETE FROM crudman.dropzones_upload WHERE dropzone_id = ANY(%s)", (created,)
+        )
+        cur.execute("DELETE FROM crudman.dropzones_dropzone WHERE id = ANY(%s)", (created,))
+
+
+def dropzone_uploads(db, dropzone_id):
+    """The (upload id, stored file paths) pairs recorded for a dropzone."""
+    with db.cursor() as cur:
+        cur.execute(
+            """
+            SELECT u.id, array_agg(f.file ORDER BY f.file)
+            FROM crudman.dropzones_upload u
+            JOIN crudman.dropzones_uploadfile f ON f.upload_id = u.id
+            WHERE u.dropzone_id = %s
+            GROUP BY u.id ORDER BY u.id
+            """,
+            (dropzone_id,),
+        )
+        return cur.fetchall()
+
+
 @pytest.fixture(scope="session", autouse=True)
 def wait_for_stack():
     """Block until both apps respond and sqlmesh has created its schema.
@@ -349,31 +461,17 @@ def wait_for_stack():
     database init, so the schema and access-control tests would otherwise race it.
     """
     deadline = time.time() + STARTUP_TIMEOUT
-    targets = [CRUDMAN_LOGIN, GRAFANA_PROBE]
     with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS, trust_env=False,
                       follow_redirects=True, timeout=5) as client:
-        for target in targets:
-            while True:
-                try:
-                    if client.get(target).status_code == 200:
-                        break
-                except httpx.HTTPError:
-                    pass
-                if time.time() > deadline:
-                    pytest.fail(f"stack did not become ready: {target} unreachable")
-                time.sleep(2)
+        for target in [CRUDMAN_LOGIN, GRAFANA_PROBE]:
+            if not poll(lambda: client.get(target).status_code == 200,
+                        deadline - time.time(), errors=(httpx.HTTPError,)):
+                pytest.fail(f"stack did not become ready: {target} unreachable")
 
-    while True:
-        try:
-            conn = _connect(PG_SUPERUSER_ROLE)
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1 FROM pg_namespace WHERE nspname = 'sqlmesh'")
-                ready = cur.fetchone() is not None
-            conn.close()
-            if ready:
-                break
-        except psycopg2.Error:
-            pass
-        if time.time() > deadline:
-            pytest.fail("stack did not become ready: sqlmesh schema not created")
-        time.sleep(2)
+    def sqlmesh_schema():
+        with closing(connect_as(PG_SUPERUSER_ROLE)) as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM pg_namespace WHERE nspname = 'sqlmesh'")
+            return cur.fetchone() is not None
+
+    if not poll(sqlmesh_schema, deadline - time.time(), errors=(psycopg2.Error,)):
+        pytest.fail("stack did not become ready: sqlmesh schema not created")

@@ -3,11 +3,9 @@
 Asserted positively -- containers reach running and healthy, none restarts -- rather than
 by grepping logs for "error", which the database, Grafana and Django all emit harmlessly.
 """
-import time
-
 import pytest
 
-from conftest import CONTAINERS, RESTART_TIMEOUT, inspect_container
+from conftest import CONTAINERS, RESTART_TIMEOUT, inspect_container, poll
 
 
 def _inspect(container):
@@ -34,10 +32,8 @@ class TestStartup:
     def test_all_containers_shall_pass_their_healthchecks(self, container):
         # These two gate the rest of the pod. A container may still be within its
         # start_period when the apps already answer, so poll until it settles.
-        deadline = time.time() + RESTART_TIMEOUT
-        while True:
-            health = _inspect(container)["State"].get("Health", {}).get("Status")
-            if health == "healthy" or time.time() > deadline:
-                break
-            time.sleep(2)
-        assert health == "healthy", f"{container} health is {health!r}"
+        def health():
+            return _inspect(container)["State"].get("Health", {}).get("Status")
+        assert poll(lambda: health() == "healthy", RESTART_TIMEOUT), (
+            f"{container} health is {health()!r}"
+        )

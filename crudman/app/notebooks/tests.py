@@ -4,13 +4,10 @@ What matters here is the boundary: which ranks reach the notebooks at all, and t
 credential is only ever issued for the caller's own account. The database function behind it
 is covered against the live stack in tests/test_notebooks.py.
 """
-from unittest.mock import patch
-
-from dbusers.models import DatabaseUser
-from django.contrib.auth.models import Group, User
+from dbusers.testing import MockedConnectionMixin, enrolled
 from django.test import TestCase
 from django.urls import reverse
-from sso.roles import GROUP_FOR_RANK
+from sso.testing import make_user
 from system.models import Approval, Deployment
 
 from .views import PREVIEW_DATASOURCE
@@ -23,24 +20,6 @@ from .utils import (
 )
 
 
-def make_user(username, group=None, **flags):
-    """A Django user in one rank group."""
-    user = User.objects.create_user(username=username, password="x", **flags)
-    if group:
-        user.groups.add(Group.objects.get_or_create(name=group)[0])
-    return user
-
-
-def enrolled(user):
-    """The database account row a person needs before a notebook credential exists."""
-    return DatabaseUser.objects.create(
-        user=user,
-        role_name=f"gf_{user.username}",
-        group_role=GROUP_FOR_RANK["editor"],
-        is_enabled=True,
-    )
-
-
 class RankTests(TestCase):
     """Who may open a notebook.
 
@@ -51,17 +30,17 @@ class RankTests(TestCase):
     """
 
     def test_editor_with_an_account_may(self):
-        user = make_user("editor", GROUP_FOR_RANK["editor"])
+        user = make_user("editor", "editor")
         enrolled(user)
         self.assertTrue(may_use_notebooks(user))
 
     def test_admin_with_an_account_may(self):
-        user = make_user("admin_user", GROUP_FOR_RANK["admin"])
+        user = make_user("admin_user", "admin")
         enrolled(user)
         self.assertTrue(may_use_notebooks(user))
 
     def test_viewer_may_not(self):
-        user = make_user("viewer", GROUP_FOR_RANK["viewer"])
+        user = make_user("viewer", "viewer")
         enrolled(user)
         self.assertFalse(may_use_notebooks(user))
 
@@ -77,12 +56,12 @@ class RankTests(TestCase):
     def test_an_editor_without_a_database_account_may_not(self):
         """The rank alone is not enough: the credential is issued on a role that has to
         exist. Offering a link that then fails to spawn is worse than offering none."""
-        self.assertFalse(may_use_notebooks(make_user("editor", GROUP_FOR_RANK["editor"])))
+        self.assertFalse(may_use_notebooks(make_user("editor", "editor")))
 
     def test_deactivated_editor_may_not(self):
         """Losing every role in the provider deactivates the account; it must close this
         door too, not only the admin's."""
-        user = make_user("gone", GROUP_FOR_RANK["editor"])
+        user = make_user("gone", "editor")
         enrolled(user)
         user.is_active = False
         self.assertFalse(may_use_notebooks(user))
@@ -95,28 +74,25 @@ class RefusalTests(TestCase):
     """
 
     def test_a_viewer_is_told_about_the_rank(self):
-        self.assertIn("editor", refusal(make_user("viewer", GROUP_FOR_RANK["viewer"])))
+        self.assertIn("editor", refusal(make_user("viewer", "viewer")))
 
     def test_an_editor_without_an_account_is_told_to_ask(self):
-        message = refusal(make_user("editor", GROUP_FOR_RANK["editor"]))
+        message = refusal(make_user("editor", "editor"))
         self.assertIn("Database access", message)
 
 
-class CredentialTests(TestCase):
+class CredentialTests(MockedConnectionMixin, TestCase):
     """Rotating the login a notebook server connects with."""
 
     def test_issues_on_the_persons_own_role(self):
         """There is no second account: the notebook connects as the person, so what a
         plan creates is owned by them."""
-        user = make_user("editor", GROUP_FOR_RANK["editor"])
+        user = make_user("editor", "editor")
         record = enrolled(user)
+        self.cursor.fetchone.return_value = (None,)
+        role, password = issue_notebook_credential(user)
 
-        with patch("dbusers.utils.connection") as connection:
-            cursor = connection.cursor.return_value.__enter__.return_value
-            cursor.fetchone.return_value = (None,)
-            role, password = issue_notebook_credential(user)
-
-        sql, args = cursor.execute.call_args[0]
+        sql, args = self.cursor.execute.call_args[0]
         self.assertIn("issue_db_user_password", sql)
         self.assertEqual(args[0], record.role_name)
         self.assertEqual(args[1], password)
@@ -124,46 +100,43 @@ class CredentialTests(TestCase):
 
     def test_the_password_expires(self):
         """A credential in a process environment is acceptable because it is bounded."""
-        user = make_user("editor", GROUP_FOR_RANK["editor"])
+        user = make_user("editor", "editor")
         enrolled(user)
+        self.cursor.fetchone.return_value = (None,)
+        issue_notebook_credential(user)
 
-        with patch("dbusers.utils.connection") as connection:
-            cursor = connection.cursor.return_value.__enter__.return_value
-            cursor.fetchone.return_value = (None,)
-            issue_notebook_credential(user)
-
-        self.assertEqual(cursor.execute.call_args[0][1][2], CREDENTIAL_LIFETIME)
+        self.assertEqual(self.cursor.execute.call_args[0][1][2], CREDENTIAL_LIFETIME)
 
     def test_password_is_new_every_time(self):
         """Rotated at every spawn, so the previous one stops working."""
-        user = make_user("editor", GROUP_FOR_RANK["editor"])
+        user = make_user("editor", "editor")
         enrolled(user)
 
-        with patch("dbusers.utils.connection") as connection:
-            connection.cursor.return_value.__enter__.return_value.fetchone.return_value = (None,)
-            first = issue_notebook_credential(user)[1]
-            second = issue_notebook_credential(user)[1]
+        self.cursor.fetchone.return_value = (None,)
+        first = issue_notebook_credential(user)[1]
+        second = issue_notebook_credential(user)[1]
 
         self.assertNotEqual(first, second)
 
     def test_refuses_without_a_database_account(self):
         """Provisioning one is an administrator's deliberate act, so this reports."""
-        user = make_user("editor", GROUP_FOR_RANK["editor"])
+        user = make_user("editor", "editor")
         with self.assertRaises(ValueError):
             issue_notebook_credential(user)
 
 
-class WhoamiTests(TestCase):
+class WhoamiTests(MockedConnectionMixin, TestCase):
     """The endpoint the hub authenticates against."""
 
     def setUp(self):
+        super().setUp()
         self.url = reverse("notebooks:whoami")
 
     def test_a_request_through_the_proxy_is_not_answered(self):
         """A browser reaches this path too, and a page on another site could make one
         rotate somebody's credential through their cookie. Only the hub, which calls
         Django directly and so sets no forwarding header, gets an answer."""
-        enrolled(make_user("editor", GROUP_FOR_RANK["editor"]))
+        enrolled(make_user("editor", "editor"))
         self.client.login(username="editor", password="x")
 
         response = self.client.post(self.url, headers={"x-forwarded-for": "203.0.113.7"})
@@ -174,12 +147,12 @@ class WhoamiTests(TestCase):
         self.assertEqual(self.client.get(self.url).status_code, 401)
 
     def test_viewer_is_refused(self):
-        make_user("viewer", GROUP_FOR_RANK["viewer"])
+        make_user("viewer", "viewer")
         self.client.login(username="viewer", password="x")
         self.assertEqual(self.client.get(self.url).status_code, 403)
 
     def test_editor_is_identified(self):
-        user = make_user("editor", GROUP_FOR_RANK["editor"])
+        user = make_user("editor", "editor")
         user.email = "editor@example.com"
         user.save()
         enrolled(user)
@@ -193,19 +166,18 @@ class WhoamiTests(TestCase):
 
     def test_get_issues_no_credential(self):
         """Only a spawn rotates it; a page view must not invalidate a running server."""
-        enrolled(make_user("editor", GROUP_FOR_RANK["editor"]))
+        enrolled(make_user("editor", "editor"))
         self.client.login(username="editor", password="x")
 
         self.assertNotIn("db_password", self.client.get(self.url).json())
 
     def test_post_issues_the_credential_of_the_caller(self):
-        user = make_user("editor", GROUP_FOR_RANK["editor"])
+        user = make_user("editor", "editor")
         enrolled(user)
         self.client.login(username="editor", password="x")
 
-        with patch("dbusers.utils.connection") as connection:
-            connection.cursor.return_value.__enter__.return_value.fetchone.return_value = (None,)
-            answer = self.client.post(self.url).json()
+        self.cursor.fetchone.return_value = (None,)
+        answer = self.client.post(self.url).json()
 
         self.assertEqual(answer["db_user"], "gf_editor")
         self.assertTrue(answer["db_password"])
@@ -214,7 +186,7 @@ class WhoamiTests(TestCase):
         """Refused before the credential is even attempted, since a database account is
         half of what may_use_notebooks requires. The hub shows this to the person, so it
         has to name the next step rather than the rule."""
-        make_user("editor", GROUP_FOR_RANK["editor"])
+        make_user("editor", "editor")
         self.client.login(username="editor", password="x")
 
         response = self.client.post(self.url)
@@ -223,13 +195,12 @@ class WhoamiTests(TestCase):
         self.assertIn("Database access", response.json()["detail"])
 
     def test_the_credential_is_never_cached(self):
-        user = make_user("editor", GROUP_FOR_RANK["editor"])
+        user = make_user("editor", "editor")
         enrolled(user)
         self.client.login(username="editor", password="x")
 
-        with patch("dbusers.utils.connection") as connection:
-            connection.cursor.return_value.__enter__.return_value.fetchone.return_value = (None,)
-            response = self.client.post(self.url)
+        self.cursor.fetchone.return_value = (None,)
+        response = self.client.post(self.url)
 
         self.assertEqual(response.headers["Cache-Control"], "no-store")
 
@@ -246,7 +217,7 @@ class GrafanaTests(TestCase):
 
     def test_a_request_through_the_proxy_is_not_answered(self):
         """The subrequest sets no forwarding header; a browser's request carries one."""
-        make_user("viewer", GROUP_FOR_RANK["viewer"])
+        make_user("viewer", "viewer")
         self.client.login(username="viewer", password="x")
 
         response = self.client.get(self.url, headers={"x-forwarded-for": "203.0.113.7"})
@@ -263,7 +234,7 @@ class GrafanaTests(TestCase):
         self.assertEqual(self.client.get(self.url).status_code, 403)
 
     def test_a_viewer_is_let_in_as_viewer(self):
-        make_user("viewer", GROUP_FOR_RANK["viewer"])
+        make_user("viewer", "viewer")
         self.client.login(username="viewer", password="x")
 
         response = self.client.get(self.url)
@@ -275,7 +246,7 @@ class GrafanaTests(TestCase):
     def test_the_rank_becomes_the_role(self):
         for rank, role in (("editor", "Editor"), ("admin", "Admin")):
             with self.subTest(rank=rank):
-                make_user(rank, GROUP_FOR_RANK[rank])
+                make_user(rank, rank)
                 self.client.login(username=rank, password="x")
                 self.assertEqual(self.client.get(self.url)["X-WEBAUTH-ROLE"], role)
 
@@ -286,7 +257,7 @@ class GrafanaTests(TestCase):
         self.assertEqual(self.client.get(self.url)["X-WEBAUTH-ROLE"], "Admin")
 
     def test_name_and_email_travel_too(self):
-        user = make_user("editor", GROUP_FOR_RANK["editor"])
+        user = make_user("editor", "editor")
         user.first_name, user.last_name, user.email = "Jean", "Dupont", "jean@example.com"
         user.save()
         self.client.login(username="editor", password="x")
@@ -298,14 +269,14 @@ class GrafanaTests(TestCase):
 
     def test_the_answer_is_not_cached(self):
         """A stale answer would keep someone signed in after they signed out."""
-        make_user("viewer", GROUP_FOR_RANK["viewer"])
+        make_user("viewer", "viewer")
         self.client.login(username="viewer", password="x")
         self.assertEqual(self.client.get(self.url)["Cache-Control"], "no-store")
 
     def test_the_answer_names_no_preview_for_an_ordinary_visitor(self):
         """Absent rather than empty: the proxy's map reads a missing header as production,
         which is what makes the substitution a no-op for everybody but a reviewer."""
-        make_user("viewer", GROUP_FOR_RANK["viewer"])
+        make_user("viewer", "viewer")
         self.client.login(username="viewer", password="x")
 
         self.assertNotIn("X-Preview-Datasource", self.client.get(self.url))
@@ -313,7 +284,7 @@ class GrafanaTests(TestCase):
     def test_someone_who_owes_a_decision_is_shown_the_version_they_were_asked_about(self):
         """The data source is named here because this is the one place that knows who is
         asking; the proxy substitutes its uid into every dashboard on the way out."""
-        user = make_user("jean", GROUP_FOR_RANK["viewer"])
+        user = make_user("jean", "viewer")
         review = Deployment.objects.create(sha="a" * 40, main_sha="a" * 40,
                                            environment=Deployment.PREVIEW)
         approval = Approval.objects.create(deployment=review, user=user)

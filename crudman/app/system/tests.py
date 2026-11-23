@@ -3,10 +3,10 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from django.contrib.auth.models import Group, User
+from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
-from sso.roles import GROUP_FOR_RANK
+from sso.testing import make_user
 
 from . import repo
 from .models import Approval, Deployment
@@ -328,9 +328,7 @@ class VersionsPageTest(RepositoryTestCase):
         repo.poll()
 
     def _user(self, name, rank):
-        user = User.objects.create_user(name, password="x", is_staff=True)
-        group, _ = Group.objects.get_or_create(name=GROUP_FOR_RANK[rank])
-        user.groups.add(group)
+        user = make_user(name, rank, is_staff=True)
         self.client.force_login(user)
         return user
 
@@ -504,9 +502,7 @@ class ReviewTest(RepositoryTestCase):
         repo.poll()
         self.candidate = repo.head_of_main()
 
-        self.editor = User.objects.create_user("paul", password="x", is_staff=True)
-        group, _ = Group.objects.get_or_create(name=GROUP_FOR_RANK["editor"])
-        self.editor.groups.add(group)
+        self.editor = make_user("paul", "editor", is_staff=True)
 
         self.stakeholder = User.objects.create_user("jean", password="x", is_staff=True)
 
