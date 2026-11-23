@@ -1,11 +1,8 @@
 """What the Contextual Help panel shows for a model or macro name under the cursor.
 
-The panel asks the kernel about the token at the cursor, and IPython answers for Python
-names alone -- so in a SQL cell it stays empty. Here the token is looked up in the loaded
-project instead: a model name gets the model's description and its columns, with their
-types and descriptions; a macro gets its docstring; a column name gets its type and
-description in every model the cell names. That is what an upstream model's file says
-about itself, brought to the place where it is used.
+IPython answers for Python names alone. Here, a model name gets the model's description
+and columns, a macro its docstring, and a column name its type and description in every
+model the cell names.
 """
 import inspect
 import re
@@ -61,9 +58,8 @@ def _model(context, name: str):
 def _column(context, code: str, column: str) -> str | None:
     """The column's type and description in every model the cell names, or None.
 
-    The models are the dotted names in the cell -- its own in the MODEL block, the
-    upstream ones after FROM and JOIN -- which is closer to what the person means than a
-    search of the whole project, and works before the cell has been saved and loaded.
+    The models named in the cell are closer to what the person means than a project-wide
+    search, and work before the cell has been saved.
 
     Args:
         context: The loaded SQLMesh Context.

@@ -1,19 +1,13 @@
 """What makes a cell of SQL do the right thing without anybody typing a magic.
 
-SQLMesh ships IPython magics -- ``%%model``, ``%%fetchdf``, ``%evaluate`` -- and they are
-what this uses. What it adds is that a model file opened as a notebook is *already* SQL: its
-one cell is a MODEL definition, and requiring the person to prefix it with ``%%model`` would
-mean the cell is no longer the file.
+A model file's one cell is a MODEL definition, and prefixing it with ``%%model`` would
+change the file. So an input transformer routes each cell to SQLMesh's magics:
 
-So an input transformer reads the first words of each cell and routes it:
-
-- a MODEL definition renders and validates that model, and shows a preview of its rows,
+- a MODEL definition is rendered, validated and previewed,
 - a bare query is fetched into a dataframe,
 - anything else is Python, untouched.
 
-Deliberately not ``%%model``'s own behaviour of rewriting the file: the editor is holding
-that file open, and two writers of one buffer is a race. Saving is the editor's job here,
-which is also the answer a person expects from Ctrl+S.
+Unlike ``%%model``, nothing rewrites the file the editor holds open.
 """
 import re
 

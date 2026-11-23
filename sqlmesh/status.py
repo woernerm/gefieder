@@ -5,19 +5,14 @@
     python status.py <environment> <sha> succeeded docs.json
     ... | python status.py <environment> <sha> failed
 
-The environment as well as the commit: the same commit is planned into production and into
-a review, and the two are separate rows whose outcomes must not be swapped.
+The environment is needed besides the commit, as the same commit is planned into
+production and into a review as separate rows. crudman opens the row; this names each step
+before it starts, so the page can say which one takes the time, and closes it.
 
-crudman opens the row when it checks a commit out; this moves it through the steps the
-engine does and closes it. Naming each step before starting it is what lets the page say
-which one is taking the time.
+Only a failure reads standard input, to keep the tail of the plan log.
 
-Only a failure reads standard input, and only to keep the tail of the plan log: a plan
-that worked says nothing a person reading the page has to act on, and the page shows
-whatever is stored.
-
-Raw SQL rather than Django: this runs in the engine image, which has neither Django nor
-crudman in it. The engine's role is granted exactly SELECT and UPDATE on the one table.
+Raw SQL, as the engine image has neither Django nor crudman. The engine's role is granted
+exactly SELECT and UPDATE on the one table.
 """
 
 import json
@@ -37,12 +32,7 @@ MESSAGE_LIMIT = 4000
 """How much of a failed plan's log to keep. The tail, that being where it says why."""
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
-"""The colour codes SQLMesh writes for a terminal.
-
-The log reaches a browser rather than a terminal, where the codes are neither invisible
-nor meaningful: they render as text in the middle of the sentence they were meant to
-colour.
-"""
+"""The colour codes SQLMesh writes for a terminal; a browser renders them as text."""
 
 
 def connect(database: str = ""):
@@ -74,6 +64,7 @@ def failure_message(log: str) -> str:
 
 
 def main() -> int:
+    """Record the step or outcome given on the command line; see the module usage."""
     environment, sha, status = sys.argv[1], sys.argv[2], sys.argv[3]
     docs = json.loads(Path(sys.argv[4]).read_text()) if len(sys.argv) > 4 else {}
     # Only on a failure: the other calls are not given a pipe, and reading a standard

@@ -73,7 +73,7 @@ COPY sqlmesh/ /seed/sqlmesh/
 RUN rm -f /seed/sqlmesh/Dockerfile /seed/sqlmesh/entrypoint.sh /seed/sqlmesh/sqlmesh.sh \
           /seed/sqlmesh/docs_export.py /seed/sqlmesh/status.py /seed/sqlmesh/preview.py
 
-# What a developer's checkout produces and must never commit. The password lives in
+# What a developer's checkout produces and must never commit. The password is kept in
 # sqlmesh/.env for the same reason it does in this repository -- SQLMesh loads that file
 # itself -- so it is named here rather than left to be remembered.
 RUN printf '%s\n' \

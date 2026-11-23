@@ -1326,7 +1326,7 @@ class FlightTests(TempMediaMixin, TransactionTestCase):
     def server_connections(self):
         """The endpoint's own backends: every connection but this test's.
 
-        Postgres is the only vantage point, the server's connections living in other
+        Postgres is the only vantage point, as the server's connections are held in other
         threads' thread-locals.
         """
         with connection.cursor() as cursor:
@@ -1417,8 +1417,7 @@ class FlightTests(TempMediaMixin, TransactionTestCase):
         self.assertEqual(Upload.objects.count(), 0)
 
     def test_a_truncated_table_shall_poison_the_commit(self):
-        """A client killed mid-table ends its stream without an error, so only the
-        cancellation flag keeps the partial table out."""
+        """A killed client ends its stream without error; only the cancel flag tells."""
         client, options = self.connect()
         self.send(client, options, "issues", self.table())
         session = next(iter(flight._sessions.values()))

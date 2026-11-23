@@ -1,17 +1,14 @@
 """Registry for the file checking and conversion functions of dropzones.
 
-Functions live in the package named by ``FUNCTIONS_PACKAGE`` and register themselves
-with the ``@checker`` and ``@converter`` decorators. ``autodiscover()`` imports every
-module there at startup (``DropzonesConfig.ready``).
-
-A function registers under its own name, the identifier a dropzone stores, so renaming
-one orphans the dropzones referencing the old name.
+Functions in the package ``FUNCTIONS_PACKAGE`` register with the ``@checker`` and
+``@converter`` decorators; ``autodiscover()`` imports them at startup. A dropzone stores
+the function's name, so renaming a function orphans the dropzones referencing it.
 
 Typical usage example:
 
     @checker("My check")
     def my_check(files: list[Path]) -> None:
-        # Raise any exception to reject the upload; nothing is stored.
+        # Raise any exception to reject the upload.
 
     @converter("My conversion")
     def my_convert(files: list[Path], out_dir: Path) -> None:
@@ -31,6 +28,7 @@ class Registry:
     """The functions of one kind, each under its own name, with optional dropdown labels."""
 
     def get(self, name):
+        """Returns the function registered as ``name``, or raises LookupError."""
         try:
             return self.functions[name]
         except KeyError:
@@ -47,6 +45,7 @@ class Registry:
         return sorted(pairs, key=lambda pair: pair[1].lower())
 
     def register(self, func, label=None):
+        """Register ``func`` under its name; a second function of that name is an error."""
         name = func.__name__
         registered = self.functions.get(name)
         if registered is not None and registered is not func:

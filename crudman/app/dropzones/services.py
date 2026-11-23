@@ -104,6 +104,7 @@ def _combined_hash(paths):
 
 
 def _run_checker(dropzone, in_paths):
+    """Raise UploadError if the dropzone's checker rejects the files."""
     if not dropzone.checker:
         return
     try:
@@ -119,6 +120,7 @@ def _run_checker(dropzone, in_paths):
 
 
 def _run_converter(dropzone, in_paths, out_dir):
+    """Returns the paths to store: the converter's output, or the input without one."""
     if not dropzone.converter:
         return in_paths
     try:

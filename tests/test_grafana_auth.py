@@ -41,10 +41,10 @@ def own_browser():
 
 class TestAnonymous:
     def test_a_grafana_page_shall_send_a_visitor_to_the_admin_login(self, http):
-        """And on to Grafana's login route afterwards, which issues its session cookie
-        and sends the person to Grafana's home. The page first asked for is not kept:
-        that route ignores a redirect target, and a deep link lost once at sign-in costs
-        less than a frontend reloading forever."""
+        """The login route issues Grafana's session cookie and ignores a redirect target.
+
+        Losing a deep link at sign-in costs less than a frontend reloading forever.
+        """
         resp = http.get(f"/{GRAFANA_PATH}/dashboards")
 
         assert resp.status_code == 302
@@ -66,20 +66,21 @@ class TestAnonymous:
 
 class TestSignedIn:
     def test_the_login_route_shall_issue_grafanas_session_cookie(self, signed_in):
-        """Grafana's frontend rotates its session token on every page load and reloads
-        without end when there is none -- so the sign-in redirect leads through Grafana's
-        login route, the one place it issues the token on seeing the proxy's headers."""
+        """Grafana's frontend reloads endlessly without a session token.
+
+        Its login route is the one place it issues the token on seeing the proxy's headers.
+        """
         resp = signed_in.get(f"/{GRAFANA_PATH}/login", follow_redirects=False)
 
         assert resp.status_code == 302
         assert "grafana_session" in resp.headers.get_list("set-cookie")[0]
 
     def test_a_stale_token_shall_be_replaced_rather_than_refused(self, own_browser):
-        """A token that expired, or was issued by a Grafana since recreated, while the
-        admin panel's session is still good: Grafana serves every page on the proxy's
-        headers but refuses to rotate it, and its frontend reloads on the refusal --
-        without end, since the reload brings the same token back. The proxy sends the
-        rotation through the login route instead, the one place a token is issued."""
+        """An expired or orphaned token is rotated through the login route.
+
+        Grafana serves pages on the proxy's headers but refuses to rotate such a token,
+        and its frontend would reload on the refusal forever.
+        """
         stale = "0123456789abcdef0123456789abcdef"
         # Sent by hand, as a browser would keep sending them: the jar would drop the
         # stale pair the moment the login route answers with the new one.
@@ -110,8 +111,7 @@ class TestSignedIn:
         assert resp.status_code == 200
 
     def test_a_stale_grafana_cookie_shall_not_outlive_the_admin_panels_session(self, own_browser):
-        """Grafana's cookie stays in the browser after signing out of the admin panel;
-        the proxy turns the browser away before Grafana could honour it."""
+        """Grafana's cookie outlives the admin panel's sign-out; the proxy refuses it."""
         own_browser.get(f"/{GRAFANA_PATH}/login")
         assert own_browser.cookies.get("grafana_session")
         own_browser.post(f"/{CRUDMAN_PATH}/logout/",
@@ -131,8 +131,7 @@ class TestSignedIn:
         assert resp.json()["login"] == SUPERUSER_NAME
 
     def test_the_rank_shall_become_the_organisation_role(self, signed_in):
-        """A superuser holds the admin rank, so is Grafana's Admin -- decided by the admin
-        panel, and Grafana told rather than asked."""
+        """The admin panel decides the role; Grafana is told rather than asked."""
         resp = signed_in.get(f"/{GRAFANA_PATH}/api/user/orgs")
 
         assert resp.status_code == 200
@@ -161,8 +160,7 @@ class TestEndpoint:
     """The admin panel's half of the contract, as the proxy calls it."""
 
     def test_it_shall_not_be_reachable_through_the_proxy(self, signed_in):
-        """A browser asking directly gets nothing: the answer is for the proxy's
-        subrequest, which is the one caller that sets no X-Forwarded-For."""
+        """Only the proxy's subrequest comes without X-Forwarded-For."""
         resp = signed_in.get(f"/{CRUDMAN_PATH}/notebooks/grafana/")
 
         assert resp.status_code == 404

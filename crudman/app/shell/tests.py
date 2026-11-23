@@ -45,8 +45,7 @@ class PageRequestTests(TestCase):
         self.assertContains(response, "Dropzones")
 
     def test_a_request_not_through_the_proxy_is_answered_as_before(self):
-        """The proxy's identity check for Grafana copies the browser's headers; its
-        answer has to stay the identity, not a page."""
+        """The proxy's identity check copies the browser's headers and needs the identity."""
         response = self.client.get(self.url, HTTP_SEC_FETCH_DEST="document")
 
         self.assertNotContains(response, 'id="frame"')
@@ -63,8 +62,7 @@ class PageRequestTests(TestCase):
         self.assertNotContains(response, 'id="frame"')
 
     def test_another_services_address_leads_a_visitor_to_the_sign_in(self):
-        """The admin panel's pages sign a visitor in themselves; a notebook address has
-        no route here to do it."""
+        """The admin panel signs visitors in; a notebook address has no route for it."""
         self.client.logout()
 
         response = self.client.get(f"/{settings.NOTEBOOK_PATH}/lab", **PAGE)
@@ -83,8 +81,7 @@ class PageRequestTests(TestCase):
         self.assertIn(reverse("admin:login"), response["Location"])
 
     def test_the_sign_in_hands_itself_to_the_window(self):
-        """A session that ran out while the bar was up: the provider refuses to be
-        framed, and the bar has to be drawn afresh for the new session."""
+        """The provider refuses to be framed, so the bar is drawn afresh."""
         response = self.client.get(reverse("login"), **FRAMED)
 
         self.assertContains(response, "top.location.replace")
@@ -147,8 +144,7 @@ class StageTests(TestCase):
         self.assertContains(self.client.get(reverse("stages")), "Model")
 
     def test_a_stage_lands_on_the_first_list_the_person_may_open(self):
-        """An editor holds no right on users; the system stage is still theirs, for the
-        model versions."""
+        """An editor has no right on users, but needs the system stage for model versions."""
         self.assertEqual(
             self.landing(make_user("editor", "editor"))["System"],
             reverse("admin:system_deployment_changelist"),
@@ -186,9 +182,7 @@ class SidebarTests(TestCase):
         self.assertIn(reverse("admin:dropzones_dropzone_changelist"), page)
 
     def test_a_page_that_is_not_the_admins_narrows_nothing(self):
-        """The documentation is the Model stage for someone reviewing a version and is
-        offered to nobody else, but it is not an admin page either way -- so whichever it
-        is, the sidebar it would narrow is not drawn there."""
+        """The documentation is no admin page, so there is no sidebar to narrow."""
         stage = stage_of(reverse("docs:index"))
 
         self.assertFalse(stage.apps if stage else ())

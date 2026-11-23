@@ -2,17 +2,13 @@
 
     python preview.py <environment>
 
-SQLMesh plans a version under review into an environment of its own, whose schemas are
-named ``<layer>__<environment>``: only what the commit changes is built, everything else
-stays the production table behind a view. That is the preview; this makes it readable.
+SQLMesh plans a version under review into schemas named ``<layer>__<environment>``. The
+preview database holds foreign tables named like production's, pointing at the
+environment's copy where there is one and at production otherwise. So a dashboard
+reading ``gold.issue_metrics`` gets the reviewed models unchanged.
 
-The preview database holds nothing but foreign tables pointing back here, one schema per
-production schema, named the same. This points each of them at the environment's copy
-where there is one and at production where there is none, so a dashboard reading
-``gold.issue_metrics`` gets the reviewed models without being written any differently.
-
-The work is in ``refresh_preview`` (postgresql/initdb/gf_0009), which runs with the rights
-to create schemas there. This is the call: the engine is what knows a plan has finished.
+The work is done by ``refresh_preview`` (postgresql/initdb/gf_0009); the engine calls it,
+as it knows when a plan has finished.
 """
 
 import os
@@ -22,6 +18,7 @@ from status import connect
 
 
 def main() -> int:
+    """Publish the environment named by the first argument in its preview database."""
     environment = sys.argv[1]
     # Named after the environment it serves, so a second review is a second database
     # and no new rule.

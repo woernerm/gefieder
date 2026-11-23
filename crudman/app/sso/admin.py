@@ -1,11 +1,8 @@
 """One menu section for who may sign in and what they may do.
 
 Users and groups are Django's, administered here whether single sign-on is on or off.
-allauth registers four more pages under two further headings: three are dead weight, the
-fourth comes back as an inline on the user it describes.
-
-Database access is a switch on this page rather than a section of its own, being one more
-thing a person either has or does not, alongside active and staff status.
+Of the four pages allauth registers, three are removed and one becomes an inline on the
+user. Database access is a switch on the user page, alongside active and staff status.
 """
 import logging
 
@@ -83,7 +80,7 @@ class DatabaseAccessFilter(admin.SimpleListFilter):
 class UserWithDatabaseAccessForm(UserChangeForm):
     """The user form with the database-access switch added.
 
-    Not a model field: the account lives in PostgreSQL, so the switch reports what exists
+    Not a model field: the account exists in PostgreSQL, so the switch reports what exists
     rather than storing an intention, and the save reconciles the two.
     """
 

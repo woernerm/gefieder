@@ -196,8 +196,7 @@ class BackendTests(TestCase):
         self.assertNotEqual(backend.make_secret(), backend.make_secret())
 
     def test_active_backend_makes_a_password(self):
-        """Guards the swap point: a backend whose provider held the credential would
-        return None here, and issue_password would set an empty one."""
+        """Guards the swap point: a backend holding the credential would leave it empty."""
         self.assertTrue(get_backend().make_secret())
 
 
@@ -213,8 +212,7 @@ class CredentialHandoverTests(MockedConnectionMixin, TestCase):
         self.user = make_user("jdoe", "editor")
 
     def test_enrolling_creates_the_role_without_a_password(self):
-        """The administrator decides that someone gets access; the password is issued
-        later, to the person's own client, so no administrator ever learns one."""
+        """The password goes to the person's client later, so no administrator learns it."""
         enroll(self.user)
 
         sql, params = self.cursor.execute.call_args[0]
@@ -222,8 +220,7 @@ class CredentialHandoverTests(MockedConnectionMixin, TestCase):
         self.assertEqual(params, [JDOE, None, EDITOR])
 
     def test_signing_in_hands_over_no_password(self):
-        """Nothing is shown to copy down: a password is issued when it is about to be
-        used and expires by itself, so a message here would only leak one."""
+        """A password is issued right before use, so a message would only leak it."""
         enroll(self.user)
 
         request = RequestFactory().get("/")
@@ -378,8 +375,7 @@ class TokenTests(TestCase):
         self.assertIsNone(user_for_token(token))
 
     def test_a_deactivated_person_holds_no_usable_token(self):
-        """Losing every role in the provider deactivates the account; it must close this
-        door too, not only the admin's."""
+        """Losing every provider role deactivates the account and closes this door too."""
         token = issue_token(self.user)
         self.user.is_active = False
         self.user.save()
@@ -421,8 +417,7 @@ class PasswordEndpointTests(MockedConnectionMixin, TestCase):
         self.assertEqual(self.client.post(self.url).status_code, 401)
 
     def test_a_request_through_the_proxy_is_answered(self):
-        """Unlike notebooks/whoami, which only the hub inside the pod may call: this one
-        exists for a laptop, so it has to survive the proxy's forwarding header."""
+        """Unlike notebooks/whoami, this serves a laptop, so it accepts forwarded requests."""
         token = issue_token(self.user)
 
         response = self.client.post(
@@ -459,8 +454,7 @@ class AccessTokenPageTests(TestCase):
         self.client.force_login(self.user)
 
     def test_the_page_is_reached_from_the_user_menu_and_not_the_app_list(self):
-        """Every page draws the menu, so the index page does; the app list does not name
-        it, since a link there would take a section's worth of room for one page."""
+        """An app list entry would take a section's worth of room for one page."""
         response = self.client.get(reverse("admin:index"))
         page = response.content.decode()
 

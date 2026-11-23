@@ -23,21 +23,15 @@
 
     # Grafana serves from /${GRAFANA_PATH} itself, so the path is unchanged.
     #
-    # Grafana has no login of its own here: it trusts the identity in X-WEBAUTH-* headers,
-    # which this location sets from the admin panel's answer about the visitor's session
-    # cookie (auth_request below). So one sign-in, the admin panel's, serves Grafana as it
-    # already serves the notebooks, and single sign-on is the admin panel's alone to do.
-    # Grafana accepts the headers only from the loopback, and this is the only route to
-    # it from outside the pod, which is what makes trusting them safe -- provided they
-    # are always set here and never passed through from a browser, as proxy_set_header
-    # guarantees.
+    # Grafana has no login of its own here: it trusts the X-WEBAUTH-* headers this location
+    # sets from the admin panel's answer about the session cookie (auth_request below).
+    # That is safe, as Grafana accepts them only from the loopback, this is the only route
+    # in, and proxy_set_header always overwrites what a browser sends.
     location /${GRAFANA_PATH}/ {
         access_log /var/log/app/visits.log visit_json if=$visit_log;
-        # A request carrying Authorization -- a service-account token, or the admin's
-        # basic credentials from a script -- is an API client's, not a browser's, and
-        # Grafana checks that credential itself as it always has. A browser sends none,
-        # so it takes the session route below. auth_request cannot be made conditional,
-        # so the condition is in the subrequest's location instead.
+        # A request carrying Authorization is an API client's, whose credential Grafana
+        # checks itself. auth_request cannot be made conditional, so the condition is in
+        # the subrequest's location.
         auth_request /_grafana_auth;
         auth_request_set $webauth_user  $upstream_http_x_webauth_user;
         auth_request_set $webauth_name  $upstream_http_x_webauth_name;
@@ -65,14 +59,10 @@
         proxy_set_header X-WEBAUTH-EMAIL $webauth_email;
         proxy_set_header X-WEBAUTH-ROLE  $webauth_role;
 
-        # Which version a visitor sees. A dashboard names the production data source by
-        # uid, and substituting that uid on the way out is what puts a reviewer on the
-        # preview database instead -- in every dashboard, saved or provisioned, without
-        # the person who wrote it having had to do anything. The browser then sends the
-        # uid it was given back on /api/ds/query, so only answers are rewritten.
-        #
-        # The upstream must not compress, a compressed body having nothing to substitute
-        # in; nginx compresses again on the way out, so nothing but loopback bytes is lost.
+        # Which version a visitor sees: substituting the production data source's uid on
+        # the way out puts a reviewer on the preview database in every dashboard. The
+        # browser sends the uid back on /api/ds/query, so only answers are rewritten. The
+        # upstream must not compress, as a compressed body cannot be substituted in.
         proxy_set_header Accept-Encoding "";
         gzip on;
         gzip_types application/json;
@@ -81,14 +71,10 @@
         sub_filter_once off;
         sub_filter '"${APP_NAME}-postgresql"' '"$datasource_uid"';
 
-        # A rotation Grafana refuses: the browser's token has expired, or belongs to a
-        # Grafana that no longer exists, while the admin panel's session is still good.
-        # Grafana still serves every page on the proxy's headers, but answers this call
-        # 401, which its frontend takes for "signed out" and reloads on -- without end,
-        # the reload bringing the same token back. Sent through the login route instead,
-        # the one place a token is issued: fetch follows the redirect, the new cookies
-        # arrive on the way, and what the frontend sees is the home page's 200. Nested,
-        # so the identity check and the headers above apply here unchanged.
+        # A rotation Grafana refuses (an expired or orphaned token) would be a 401, on which
+        # its frontend reloads forever. Sent through the login route instead, the one place
+        # a token is issued: fetch follows the redirect and receives the new cookies.
+        # Nested, so the identity check and the headers above apply unchanged.
         location = /${GRAFANA_PATH}/api/user/auth-tokens/rotate {
             proxy_intercept_errors on;
             error_page 401 = @grafana_reissue;
@@ -109,10 +95,8 @@
         proxy_set_header X-WEBAUTH-USER "";
     }
 
-    # The subrequest itself. Internal: unreachable as a URL, only as auth_request's
-    # question. It carries the visitor's cookies, which is all the endpoint reads; the
-    # body is dropped, and X-Forwarded-For deliberately not set, since its absence is how
-    # the endpoint tells a call from inside the pod from a browser's.
+    # The subrequest itself, unreachable as a URL. It carries the visitor's cookies, and no
+    # X-Forwarded-For, whose absence tells the endpoint the call comes from inside the pod.
     location = /_grafana_auth {
         internal;
         # An API client answers for itself: 200 here means "no session to check", and the
@@ -127,14 +111,9 @@
         proxy_set_header X-Forwarded-For "";
     }
 
-    # The visit is logged here as well: a dashboard someone opened is a visit whether or
-    # not they were signed in for it, and the log line names the page they were after.
-    #
-    # Back through Grafana's own login route rather than to the page asked for: that route
-    # is the one place Grafana issues its session cookie on seeing the proxy's headers,
-    # and its frontend rotates that cookie on every page load, reloading without end when
-    # there is none to rotate. The route sends the person on to Grafana's home; the page
-    # they first asked for is the one thing lost, once, at sign-in.
+    # Logged as a visit too, naming the page asked for. Back through Grafana's login route,
+    # the one place it issues its session cookie, without which its frontend reloads
+    # forever. The route lands on Grafana's home, so the page asked for is lost once.
     location @grafana_login {
         access_log /var/log/app/visits.log visit_json if=$visit_log;
         return 302 /${CRUDMAN_PATH}/login/?next=/${GRAFANA_PATH}/login;
@@ -152,13 +131,10 @@
         proxy_buffering off;
         proxy_read_timeout 1h;
         proxy_pass http://127.0.0.1:8001/;
-        # Authorization and Cookie reach the MCP server untouched, which is what lets it
-        # forward them to Grafana and act as the caller rather than as a shared account.
-        # It authenticates with a service-account token, not a session, so it is not
-        # behind the auth_request Grafana's own location is -- an assistant has no
-        # browser session to present. The one header it must never forward is the one
-        # Grafana trusts blindly from the loopback, which is where the MCP server calls
-        # from: stripped here so a forged one cannot ride through it.
+        # Authorization and Cookie pass untouched, so the server acts as the caller towards
+        # Grafana. No auth_request, as an assistant has no browser session. The header
+        # Grafana trusts from the loopback, where the server calls from, is stripped so a
+        # forged one cannot ride through.
         proxy_set_header X-WEBAUTH-USER "";
         proxy_set_header Host $http_host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

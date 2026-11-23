@@ -3,8 +3,8 @@
 The server holds no Grafana credential of its own. Every call carries the caller's own --
 a service-account token in Authorization, or the session cookie a signed-in browser holds
 -- which the server copies onto the Grafana API requests it makes (GRAFANA_FORWARD_HEADERS
-in quadlets/mcp.container). So Grafana decides what a call may do, and an Admin, an Editor
-and a Viewer differ here exactly as they do in the user interface.
+in quadlets/grafana_mcp.container). So Grafana decides what a call may do, and an Admin,
+an Editor and a Viewer differ here exactly as they do in the user interface.
 
 That is the property worth testing, because the alternative configuration -- one shared
 service-account token in the server's environment -- looks identical until someone without
@@ -255,10 +255,10 @@ class TestPermissionsFollowTheCaller:
         assert "401" in text, f"expected Grafana's 401, got: {text[:300]}"
 
     def test_a_forged_identity_header_shall_be_refused_too(self):
-        """Grafana signs browsers in from an X-WEBAUTH-USER header it trusts from the
-        loopback -- which is where this server calls it from, forwarding a caller's
-        headers. The proxy strips this one before it gets here; were it forwarded, a
-        call carrying no token at all would arrive as whoever it named."""
+        """Grafana trusts X-WEBAUTH-USER from the loopback, where this server calls from.
+
+        Were the header forwarded, a call without a token would arrive as whoever it named.
+        """
         client = McpClient(headers={"X-WEBAUTH-USER": SUPERUSER_NAME})
         client.initialize()
         text, is_error = client.call("user_info")

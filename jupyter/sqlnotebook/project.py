@@ -9,9 +9,8 @@ PROJECT = "sqlmesh"
 def find_project() -> Path | None:
     """The SQLMesh project this kernel belongs to.
 
-    Searched from the working directory upwards, then from the server's root -- the
-    workspace the spawner opened Lab on. That is what makes ``%evaluate`` work in a
-    notebook created anywhere, which is most of them.
+    Searched from the working directory upwards, then from the server's root, so
+    ``%evaluate`` works in a notebook created anywhere.
 
     Returns:
         The directory holding config.py, or None when there is no project to be found.

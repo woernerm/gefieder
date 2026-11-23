@@ -1,9 +1,8 @@
 """The page a person creates their own access token on.
 
-Reached from the menu behind one's own name at the foot of the sidebar, beside Change
-password: a credential of one's own rather than a record to administer, and too small a
-thing to hold a place in the app list. An admin page rather than a view of its own so it
-sits behind the same sign-in and inside the same frame as everything else here.
+Reached from the user menu beside Change password, as it is a credential of one's own
+rather than a record to administer. An admin page, so it has the same sign-in and frame
+as everything else.
 """
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
@@ -19,10 +18,8 @@ from .utils import issue_token
 class AccessTokenAdmin(ModelAdmin):
     """One page, showing the signed-in person their own token and nothing else.
 
-    The changelist is replaced wholesale: a row here is somebody's database account, but
-    the question the page answers is "how does my checkout connect", which is asked about
-    oneself alone. An administrator grants the access; the credential that mints passwords
-    is the account holder's.
+    The changelist is replaced: a row is somebody's database account, but the page answers
+    "how does my checkout connect", which concerns oneself alone.
     """
 
     # The row is provisioned by the Database access switch on the user page, and the token

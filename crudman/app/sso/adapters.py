@@ -1,7 +1,7 @@
 """The allauth shim: read the provider's roles, apply them, refuse anyone without one.
 
 Only the two hooks that bracket a login, so roles.py runs whether the account already
-existed or was created by this login. The work itself lives there, free of any allauth
+existed or was created by this login. The work itself is done there, free of any allauth
 import, which keeps it testable with single sign-on switched off.
 """
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter

@@ -141,7 +141,7 @@
             }
         }
 
-        // The choice lives in the Alpine component on <html>, which is up once Alpine is.
+        // The choice is stored in the Alpine component on <html>, which is up once Alpine is.
         const alpine = new Promise((ready) =>
             window.Alpine ? ready() : document.addEventListener("alpine:initialized", ready, { once: true })
         );

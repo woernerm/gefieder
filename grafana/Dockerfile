@@ -2,7 +2,7 @@
 ARG DOCKER_IO_MIRROR=docker.io
 FROM ${DOCKER_IO_MIRROR}/grafana/grafana:latest
 
-# The panel plugins to ship. Without a default, the list living in GRAFANA_PLUGINS in
+# The panel plugins to ship. No default, as the list is kept in GRAFANA_PLUGINS in
 # buildtime.env: a copy here would be a second place to edit.
 ARG GRAFANA_PLUGINS
 

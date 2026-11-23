@@ -1,12 +1,11 @@
 """What every kernel in this system has already done before the first cell runs.
 
-Run by ``exec_files`` in the IPython configuration (see ``jupyter/ipython_kernel_config.py``). It
-loads SQLMesh's magics and this system's cell routing, opens the project the notebook lives
-in, and says which account and environment the session is working as -- so a new notebook is
-immediately useful and nobody has to remember an incantation to make ``%evaluate`` work.
+Run by ``exec_files`` (see ``jupyter/ipython_kernel_config.py``). Loads SQLMesh's magics
+and this system's cell routing, opens the notebook's project, and names the account and
+environment the session works as.
 
-Failures here are reported rather than raised: a kernel that starts is one a person can fix
-things from, and the most likely cause is a database that is still coming up.
+Failures are reported rather than raised: a kernel that starts is one a person can fix
+things from, and the likely cause is a database still coming up.
 """
 import os
 import warnings
@@ -25,13 +24,9 @@ def _silence_seed_warnings() -> None:
     """Drop the pandas deprecations SQLMesh emits while loading a seed model.
 
     ``sqlmesh.core.model.definition`` passes ``infer_datetime_format`` and
-    ``errors="ignore"``, both deprecated in pandas 2; the first is now the default and
-    ignored, so neither changes a result today. There is no release to upgrade to -- 0.236.2
-    is current -- and the pair is printed around every rendered model, which is where a
-    warning a person should read would appear too.
-
-    Scoped to that module and those two messages: a future pandas will raise on the second
-    rather than warn, and anything else SQLMesh warns about still reaches the notebook.
+    ``errors="ignore"``, both deprecated in pandas 2 without changing a result. Printed
+    around every rendered model, they would bury warnings a person should read. Scoped to
+    that module and those two messages.
     """
     for message in ("infer_datetime_format", "errors='ignore' is deprecated"):
         warnings.filterwarnings(
@@ -44,16 +39,12 @@ def _silence_seed_warnings() -> None:
 def _themed_widget(quak):
     """quak's widget, with the two rules its shipped stylesheet puts out of reach.
 
-    The table is drawn in a shadow root. Custom properties cross that boundary -- which is
-    what ``~/.jupyter/custom/custom.css`` relies on -- but ordinary selectors do not, and
-    quak exports no ``::part``. Its scroll height is written as an inline style, and the
-    row under the pointer shares ``--light-silver`` with every border in the table; neither
-    can be reached from a stylesheet outside.
+    The table is drawn in a shadow root without ``::part`` exports. Custom properties cross
+    the boundary (``~/.jupyter/custom/custom.css`` relies on that), but the inline scroll
+    height and the row hover, which shares ``--light-silver`` with every border, do not.
 
-    So the widget's ES module is composed here: quak's own bundle, its export rewritten to
-    a fixed name, followed by a wrapper that delegates to it and adds a stylesheet to the
-    same shadow root. ``_esm`` is an anywidget trait and the root is ``mode="open"``, so
-    this uses what both publish rather than reaching past it.
+    So the widget's ES module is composed here: quak's bundle with its export renamed,
+    followed by a wrapper adding a stylesheet to the same open shadow root.
 
     Args:
         quak: The imported module, whose Widget is subclassed and whose bundle is read.
@@ -90,16 +81,10 @@ def _themed_widget(quak):
 def _explore_columns() -> None:
     """Render a dataframe as quak's column explorer: distributions above every column.
 
-    ``%fetchdf`` and ``%evaluate`` hand back a dataframe, whose plain repr truncates to a
-    few rows -- the wrong shape for looking at what a model produced. quak replaces
-    IPython's display formatter, so no cell has to call anything.
-
-    Its widget loads the table into a DuckDB of its own to compute the summaries, so it is
-    pointed at the previews and results a person reads, not at whatever a cell happens to
-    return: anything that is not a dataframe goes through unchanged.
-
-    Left out when quak is not installed: it is an operator's entry in
-    ``JUPYTER_EXTENSIONS``, so an image built without it must still start a kernel.
+    A dataframe's plain repr truncates to a few rows. quak replaces IPython's display
+    formatter, so no cell has to call anything; anything that is not a dataframe goes
+    through unchanged. Skipped when quak, an operator's ``JUPYTER_EXTENSIONS`` entry, is not
+    installed.
     """
     try:
         import quak
@@ -128,9 +113,7 @@ def _explore_columns() -> None:
 def _report(message: str) -> None:
     """Print a line under the first cell that runs.
 
-    Nothing printed before the first execute request reaches the notebook: there is no cell
-    to attach it to, so Lab files it in the Log Console, which nobody has open. What the
-    startup has to say -- which project, or why none -- waits for the first cell instead.
+    Output before the first execute request lands in the Log Console, which nobody has open.
 
     Args:
         message: The line to print.

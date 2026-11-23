@@ -1,13 +1,8 @@
 """Running a MODEL cell: validate the definition and preview the rows it produces.
 
-SQLMesh's own ``%%model`` magic writes the cell back to the model's file and reformats it.
-Here the file is what the editor has open, so writing it from underneath would race the
-editor and reformatting would rewrite a diff nobody asked for. This does the rest: parse the
-definition, register it with the context, and show what it produces.
-
-The preview evaluates against the database, which needs the model to be part of a loaded
-project -- so it works on a model that has been saved at least once, and says so plainly
-when it has not.
+SQLMesh's own ``%%model`` magic writes the cell back to the file and reformats it, which
+would race the editor holding that file. The preview needs the model in a loaded
+project, so it works only on a model saved at least once, and says so otherwise.
 """
 from IPython.core.magic import Magics, cell_magic, magics_class
 from IPython.display import display
@@ -27,10 +22,8 @@ class ModelMagics(Magics):
     def _context(shell):
         """The SQLMesh context the startup file put in the namespace, or loaded now.
 
-        Loaded here when the startup could not: one model that does not parse blocks the
-        whole project, and by the time a cell runs the person may have fixed it. Either
-        way the cell sees SQLMesh's own error, which names the file, rather than a report
-        that nothing is loaded.
+        Loaded here when the startup could not, as the person may have fixed the model that
+        failed to parse. The cell then sees SQLMesh's own error, which names the file.
 
         Args:
             shell: The InteractiveShell holding the user namespace.

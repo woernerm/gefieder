@@ -1,20 +1,13 @@
 """The kernel a model notebook runs on: ipykernel, reporting the language of its file.
 
-JupyterLab derives a cell's editor language from the notebook's ``language_info``, and
-overwrites that metadata with whatever the kernel reports as soon as the kernel connects
-(``_updateLanguage`` in its notebook model). So a model opens correctly highlighted and a
-second later turns into whatever the kernel said: setting it on the notebook is not enough,
-because the notebook's value is the one being replaced.
+JupyterLab overwrites the notebook's ``language_info`` with the kernel's as soon as the
+kernel connects (``_updateLanguage`` in its notebook model), so setting it on the notebook
+is not enough. One kernel serves SQL and Python models alike; the server puts the
+notebook's path in ``JPY_SESSION_NAME``, the only hint which one was opened.
 
-Which language depends on the file, and one kernel serves whatever the person opens: a SQL
-model is SQL, a Python model is Python. The server puts the notebook's path in
-``JPY_SESSION_NAME``, which is the only thing here that knows which was opened.
-
-Cells stay Python: the routing in :mod:`sqlnotebook.kernel` turns a MODEL or a query into
-the magic that runs it, and ``language_info`` says only what an editor should highlight.
-The one other thing a kernel decides for the frontend is what the Contextual Help panel
-shows, and that is answered from the project (:mod:`sqlnotebook.help`) before IPython gets
-to say "not found".
+Cells stay Python: :mod:`sqlnotebook.kernel` turns a MODEL or a query into the magic that
+runs it, and ``language_info`` only sets the editor highlighting. The Contextual Help panel
+is answered from the project (:mod:`sqlnotebook.help`) before IPython says "not found".
 """
 import os
 

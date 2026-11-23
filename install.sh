@@ -10,7 +10,7 @@
 # What was baked into the images at build time is recorded in the release's manifest.env.
 set -e
 
-# --- where the release lives ----------------------------------------------------------
+# --- where the release is ------------------------------------------------------------
 # Baked in from buildtime.env when the release is built, so an enterprise GitHub instance
 # works as well as github.com. No default: guessing would pull someone else's release.
 # From a checkout, set it (and TAG, to pin a version):
@@ -128,13 +128,9 @@ SERVER_NAME="$(printf '%s' "${SERVER_NAME:-}" | tr -d '[:space:]')"
 DEBUG="$(printf '%s' "${DEBUG:-}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
 
 # --- the server name ---------------------------------------------------------------
-# The fully qualified host name the system is reached under, or "localhost". Not a
-# scheme, a port or a path.
-#
-# Used verbatim: the certificate is issued for it, Django accepts it and the dropzone pages
-# hand it to uploaders. A short name usually fails on a company network, where the browser
-# gives it to the web proxy instead of resolving it -- but only a warning, since a short
-# name is correct where it does resolve.
+# The fully qualified host name the system is reached under, or "localhost"; no scheme,
+# port or path. A short name usually fails on a company network, where the browser gives it
+# to the web proxy, but it is only a warning, as it is correct where it resolves.
 case "${SERVER_NAME}" in
   *.*|localhost) : ;;
   *) echo "  ${SERVER_NAME} is not fully qualified; if browsers on your network cannot" >&2
@@ -157,10 +153,8 @@ else
 fi
 
 # --- preflight: the published ports must be bindable and reachable ---------------------
-# Read from the runtime.env sourced above, the same file main.pod expands its PublishPort
-# lines from, so this checks what will be bound. Neither failure aborts the install -- the
-# stack is worth having with only some ports open -- so this reports the fix for this
-# host.
+# Read from runtime.env, as main.pod's PublishPort lines are. No failure aborts the install,
+# as the stack is worth having with only some ports open; this reports the fix instead.
 PORTS="${HTTP_PORT} ${HTTPS_PORT} ${PG_PORT} ${SFTP_PORT} ${FLIGHT_PORT}"
 PORT_HINTS=""   # collected fixes, repeated in the cheat sheet at the end
 
@@ -275,7 +269,7 @@ echo "  $(echo $QUADLETS | wc -w) unit files installed in ${QUADLET_DIR}"
 
 # --- server-statistics collector: host-side timer and collector ------------------------
 # On the host rather than in a container, so it can read the pod's cgroup counters, disk
-# IOPS and network egress. Its units live with the other user units.
+# IOPS and network egress. Its units go with the other user units.
 step "Installing the server-statistics collector"
 SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 mkdir -p "$SYSTEMD_USER_DIR" "$APP_CONFIG_DIR/serverstats"
@@ -467,21 +461,12 @@ if systemctl --user restart main-pod.service 2>/dev/null; then
   fi
 
   # --- the pages must actually be served ------------------------------------------------
-  # An active unit is not a served page: a proxy whose upstream is unreachable still
-  # satisfies systemd. --insecure because the certificate may come from a company CA this
-  # host does not trust; this checks reachability, not trust. No -f, which would hide the
-  # status code. --retry-connrefused bridges the moment between the unit going active and
-  # nginx accepting connections, on a small budget: curl also retries a 502, which is the
-  # dead-upstream answer this check exists to report.
-  #
-  # Addressed to SERVER_NAME and pinned to loopback with --resolve rather than fetching
-  # localhost: the certificate is issued for SERVER_NAME, and against any other name the
-  # handshake can fail outright, which --insecure does not cover. The request never leaves
-  # the host, so this works before DNS for SERVER_NAME resolves here.
-  #
-  # Diagnostic only, and must never end the install. Under `set -e` a bare
-  # `code="$(curl ...)"` would abort on curl's exit status before the cheat sheet is
-  # printed, so curl runs as an `if` condition, which `set -e` exempts.
+  # An active unit is not a served page: a proxy with an unreachable upstream still
+  # satisfies systemd. --insecure, as the certificate may come from a company CA; no -f,
+  # which would hide the status code. The retry budget is small, as curl also retries the
+  # 502 this check exists to report. Addressed to SERVER_NAME, for which the certificate is
+  # issued, but pinned to loopback, so DNS need not resolve it yet. curl runs as an `if`
+  # condition, so `set -e` cannot end the install before the cheat sheet.
   served=true
   # An empty value would make --resolve malformed and turn this into a false alarm.
   probe_host="${SERVER_NAME:-localhost}"

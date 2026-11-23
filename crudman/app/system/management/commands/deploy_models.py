@@ -1,9 +1,8 @@
 """Deploy what the branch points at, once or on a loop.
 
-The entrypoint runs it once before serving, so the engine finds a working tree, and then
-leaves it looping in the background. A management command rather than a thread in the web
-process: it is the same code an operator can run by hand to see why a deployment did not
-happen.
+The entrypoint runs it once before serving, so the engine finds a working tree, then
+keeps it looping in the background. A management command, so an operator can run it by
+hand to see why a deployment did not happen.
 """
 
 import logging

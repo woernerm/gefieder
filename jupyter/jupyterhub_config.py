@@ -1,12 +1,7 @@
 """JupyterHub, authenticating against crudman and spawning one JupyterLab per person.
 
-There is no user directory here. A visitor arrives with the session cookie the admin panel
-gave them, the hub asks crudman who that is, and crudman answers with their rank. So the
-accounts, the sign-in and single sign-on are configured once, in one place, and a notebook
-needs nothing of its own.
-
-What each server gets is in ``spawn.py``: a working tree of the models repository, a
-database credential rotated for this one session, and a SQLMesh kernel.
+There is no user directory here: the hub asks crudman who holds the visitor's session
+cookie and what rank they have. What each server gets is in ``spawn.py``.
 """
 import os
 
@@ -42,9 +37,8 @@ BASE_URL = f"/{os.environ.get('NOTEBOOK_PATH', 'jupyter')}/"
 
 # The containers share the pod's network namespace, so binding the loopback keeps the hub
 # and the spawned servers off the pod's published ports: the nginx proxy is the only way in.
-# One namespace also means one set of ports for the whole pod, so these three avoid the ones
-# already taken: 8000 is crudman, 8001 the Grafana MCP server, 3000 Grafana, 5432 the
-# database.
+# One namespace also means one set of ports for the whole pod, so these avoid the ones
+# taken: 8000 crudman, 8001 the Grafana MCP server, 3000 Grafana, 5432 the database.
 c.JupyterHub.bind_url = f"http://127.0.0.1:8888{BASE_URL}"
 c.JupyterHub.hub_bind_url = "http://127.0.0.1:8081"
 
@@ -90,11 +84,10 @@ c.JupyterHub.spawner_class = WorkspaceSpawner
 # server has to be the one that has JupyterLab.
 c.Spawner.cmd = [f"{NOTEBOOK_VENV}/bin/jupyterhub-singleuser"]
 
-# What a spawned server inherits from this container. A spawn otherwise starts with almost
-# nothing: PATH is how the kernel and git are found, and the four SQLMESH_* settings are
-# what sqlmesh/config.py builds the connection from -- the quadlet puts them here, and
-# without them a kernel comes up with no project loaded. The person's own credential is not
-# among them; the spawn hook adds that per person.
+# What a spawned server inherits from this container, as a spawn otherwise starts with
+# almost nothing. Without the SQLMESH_* settings, from which sqlmesh/config.py builds the
+# connection, a kernel comes up with no project loaded. The spawn hook adds the person's
+# own credential.
 c.Spawner.env_keep = [
     "PATH",
     "SQLMESH_HOST",

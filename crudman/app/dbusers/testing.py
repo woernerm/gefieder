@@ -19,7 +19,7 @@ def enrolled(user):
 class MockedConnectionMixin:
     """Replaces the connection dbusers.utils provisions through, for the whole test.
 
-    The provisioning functions live in the stack's database, not the test database, so
+    The provisioning functions exist in the stack's database, not the test database, so
     what is asserted is what they are asked: ``self.cursor`` records every statement.
     """
 

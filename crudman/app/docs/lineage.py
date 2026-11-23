@@ -1,13 +1,11 @@
 """The lineage graph, as an ECharts configuration.
 
-SQLMesh's own graph (``sqlmesh dag``) names the vis-network files on unpkg.com, while the
-same graph is already in ``depends_on`` and ECharts is already this system's charting
-library.
+SQLMesh's own graph (``sqlmesh dag``) loads vis-network from unpkg.com, while
+``depends_on`` already holds the graph and ECharts is this system's charting library.
 
-Drawn as a sankey, the one built-in series shaped like lineage: a directed acyclic graph
-in columns, left to right. A model that reads several others keeps every edge, which a
-tree series cannot express. The columns come out as the medallion layers on their own,
-because a model is placed to the right of everything it reads.
+Drawn as a sankey, the one built-in series shaped like a directed acyclic graph in
+columns. The columns turn out as the medallion layers, as a model is placed to the right
+of everything it reads.
 """
 
 NODE_WIDTH = 18

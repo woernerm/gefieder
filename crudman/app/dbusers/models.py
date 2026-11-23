@@ -46,11 +46,9 @@ class DatabaseUser(models.Model):
         help_text="Disabled roles keep everything they own but cannot connect.",
     )
 
-    # What a developer's checkout authenticates with to fetch a password of its own. A
-    # credential of this system's making rather than their sign-in: it does one thing --
-    # mint a short-lived database password for its owner -- so a laptop never stores the
-    # account that administers the system. Cleared when database access is switched off,
-    # which is what revoking it means.
+    # What a developer's checkout uses to fetch a short-lived password, so a laptop never
+    # stores the sign-in that administers the system. Cleared, i.e. revoked, when database
+    # access is switched off.
     token = models.CharField(
         "access token",
         max_length=64,

@@ -11,10 +11,7 @@ logger = logging.getLogger(__name__)
 def sync_on_login(sender, request, user, **kwargs):
     """Reconcile the person's database rank with the one they now hold.
 
-    No password is handed over here. One is issued when it is going to be used -- by a
-    notebook spawn, or by the person's own checkout with their access token -- and expires
-    on its own, so there is nothing for them to copy down and nothing to leak from a
-    message they scrolled past.
+    No password is handed over; one is issued right before use and expires on its own.
 
     Args:
         sender: The signal sender, unused.

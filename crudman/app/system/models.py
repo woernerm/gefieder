@@ -6,12 +6,9 @@ from django.utils import timezone
 class Deployment(models.Model):
     """One attempt to put a commit of the models repository into production.
 
-    A row per attempt rather than per commit: the same commit is deployed again when
-    someone pins it back, and a refused attempt is worth keeping for the reason it carries.
-    The newest row is the current deployment.
-
-    The commit's own metadata is deliberately absent. It is in the repository, which the
-    versions page reads anyway, and a copy here would be a second version of the truth.
+    A row per attempt, as a commit is deployed again when someone pins it back, and a
+    refused attempt keeps its reason. The newest row is the current deployment. The commit's
+    metadata is read from the repository rather than copied here.
     """
 
     CHECKING_OUT = "checking_out"
@@ -70,8 +67,7 @@ class Deployment(models.Model):
     message = models.TextField(blank=True, default="")
 
     # The model documentation the engine exported from this commit, in the shape
-    # sqlmesh/docs_export.py writes. It lives with the deployment rather than in the image
-    # because the models no longer ship in one, so the docs pages describe what is running.
+    # sqlmesh/docs_export.py writes, so the docs pages describe what is running.
     docs = models.JSONField(default=dict, blank=True, editable=False)
 
     # Null for the poll, which acts for nobody.
@@ -127,14 +123,10 @@ class Deployment(models.Model):
 class Approval(models.Model):
     """One stakeholder's decision about the version under review.
 
-    A row per person asked, created when the review starts and left undecided until they
-    answer -- so "who still owes a decision" is a query rather than a second table, and it
-    is also what puts them on the preview: crudman tells the proxy to show a person the
-    reviewed version exactly while an undecided row of theirs exists (notebooks/views.py).
-
-    The person is any account that has signed in, not a rank and not a group. Who should
-    judge a metric depends on the metric, and a standing group would answer a different
-    question.
+    A row per person asked, undecided until they answer, so "who still owes a decision" is
+    a query. An undecided row also shows that person the reviewed version
+    (notebooks/views.py). Any account that has signed in may be asked, as who should judge a
+    metric depends on the metric.
     """
 
     deployment = models.ForeignKey(
@@ -163,12 +155,8 @@ class Approval(models.Model):
     def owed_by(cls, user):
         """The decision this person still owes, or None.
 
-        The newest review only: an older one they never answered is superseded, and
-        showing them a version nobody is waiting on would strand them off production.
-
-        One query rather than two, the newest review being a subquery rather than a
-        lookup: this is asked on every page the bar is drawn on and on every Grafana
-        request, the proxy putting the question about each of them to notebooks/views.py.
+        The newest review only: showing a superseded version would strand them off production.
+        One query, as it is asked on every page with the bar and on every Grafana request.
         """
         newest_review = Deployment.objects.filter(
             environment=Deployment.PREVIEW

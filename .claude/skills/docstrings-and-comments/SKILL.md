@@ -55,3 +55,10 @@ truth. Just code and third-party documentation are valid sources of truth.
 - Keep gramatically correct sentences in docstrings and full-line comments.
 - One line comments: Only remove fill words. Not content.
 - Focus on why something is done (design decision rationale). Now how something is done.
+- Do not repeat default values, or types already given in type annotations.
+- Avoid phrases typical of AI writing, including:
+  - "[not actually living thing] lives in", e.g. "the code lives in folder xyz". So, do
+    not use animate words for inanimate things.
+  - "it is worth stating plainly".
+  - Contrastive negation ("not X, but Y"), e.g. "metrics document, they don't
+    compute".

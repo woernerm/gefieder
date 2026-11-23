@@ -35,7 +35,7 @@ Volume=models_data.volume:/var/lib/app/models:ro,z
 # there (see SECRET_* in buildtime.env).
 Environment=SECRET_SQLMESH_PASSWORD=${SECRET_SQLMESH_PASSWORD}
 Secret=${SECRET_SQLMESH_PASSWORD}
-# The slim image has no pgrep and psycopg2 lives in the uv venv, so liveness is a
+# The slim image has no pgrep and psycopg2 is installed in the uv venv, so liveness is a
 # stdlib-only TCP connect. Single-quoted, quadlet mangling a double-quoted -c argument.
 HealthCmd=python -c 'import socket; socket.create_connection(("localhost",5432),3).close()'
 HealthInterval=30s

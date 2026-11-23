@@ -163,7 +163,7 @@ class TestAnalyticsPipeline:
         # The yaml tests state @temporal_join's awkward cases as input and expected rows,
         # one per gateway, which the seeded pipeline cannot. Run in the deployed container,
         # which is where the engine and its dependencies are. The wrapper on its PATH
-        # points the CLI at the checked-out project, the models living on the volume.
+        # points the CLI at the checked-out project, as the models are on the volume.
         result = subprocess.run(
             ["podman", "exec", "sqlmesh", "sqlmesh", "test"],
             capture_output=True, text=True,

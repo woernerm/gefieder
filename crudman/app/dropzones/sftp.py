@@ -1,11 +1,8 @@
 """The dropzones SFTP endpoint (run by ``manage.py sftpserver``).
 
-Running the server rather than watching a directory means an uploader needs no
-convention: connect with the dropzone's name and secret, ``put`` files, disconnect. The
-server sees the transfer, so completeness needs no signalling -- one session becomes one
-upload, and a session that breaks off mid-file stores nothing.
-
-Every session is chrooted into its own throwaway directory.
+Running the server rather than watching a directory means completeness needs no
+signalling: one session becomes one upload, and a session that breaks off mid-file
+stores nothing. Every session is chrooted into its own throwaway directory.
 """
 
 import asyncio
@@ -113,10 +110,9 @@ class SFTPEndpoint(asyncssh.SSHServer):
 class SessionSFTPServer(asyncssh.SFTPServer):
     """One SFTP (or scp) session, stored as one upload when the session ends.
 
-    The commit decision is made per session rather than per connection: not every client
-    disconnects cleanly after closing its files (paramiko drops the socket), and an upload
-    must not be lost to that. asyncssh force-closes handles the client left open while the
-    channel reports ``is_closing()``, which is what marks a transfer broken off mid-file.
+    Decided per session rather than per connection, as not every client disconnects cleanly
+    (paramiko drops the socket). asyncssh force-closes handles left open while the channel
+    reports ``is_closing()``, which marks a transfer broken off mid-file.
     """
 
     def __init__(self, chan):

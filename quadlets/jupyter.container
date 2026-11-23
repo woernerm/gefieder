@@ -47,7 +47,7 @@ Environment=DB_USER_PREFIX=${DB_USER_PREFIX}
 Environment=SQLMESH_HOST=localhost
 Environment=SQLMESH_PORT=5432
 Environment=SQLMESH_DATABASE=${PG_DATABASE}
-# Read-write, unlike the engine's mount: each person's workspace lives here under
+# Read-write, unlike the engine's mount: each person's workspace is stored here under
 # workspaces/, which is what that directory was reserved for. The deployed tree beside it
 # stays crudman's alone.
 Volume=models_data.volume:/var/lib/app/models:z

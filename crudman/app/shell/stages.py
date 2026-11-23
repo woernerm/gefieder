@@ -1,9 +1,8 @@
 """The stages of the workflow the bar offers, and which of them a person may enter.
 
-Stages rather than apps: a person sets out to look at dashboards or to bring data in, not
-to open the admin panel. Two of the four lead into the admin panel, each to a different
-part of it, and the sidebar there shows only that part (templatetags/shell.py) -- so the
-panel is not one entry in the bar but two small tools sharing a sign-in.
+A person sets out to look at dashboards or to bring data in, not to open the admin panel.
+Two of the four stages lead into different parts of the admin panel, and the sidebar
+there shows only that part (templatetags/shell.py).
 """
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -21,9 +20,8 @@ from system.models import Approval, Deployment
 def may_change(user, apps):
     """Whether the person may do more than look, in one of the apps.
 
-    A viewer holds view permissions on most of the panel, so "any permission" would light
-    every stage for everyone. What tells a stage's users from its onlookers is the right to
-    add, change or delete something there.
+    A viewer holds view permissions on most of the panel, so only add, change or delete
+    rights tell a stage's users from its onlookers.
 
     Args:
         user: The Django user.
@@ -79,9 +77,7 @@ STAGES = (
     HOME,
     Stage("Sources", "input", apps=("dropzones",), landing=(Dropzone,)),
     # Two spellings of one stage, never both at once. Someone who owes a decision on a
-    # version is reading it, not writing models, and a notebook is a developer's tool: what
-    # they need from "Model" is what the models say they do, in words. The documentation
-    # follows their review too, so both halves of the stage describe what they are seeing.
+    # version needs the documentation of what they review, not a developer's notebook.
     Stage("Model", "science", f"/{settings.NOTEBOOK_PATH}/",
           admits=lambda user: may_use_notebooks(user) and not Approval.owed_by(user)),
     Stage("Model", "science", f"/{settings.CRUDMAN_PATH}/docs/",

@@ -129,7 +129,7 @@ builds through `build.sh`, so CI and a developer build identically.
 
 ## The containers
 The system is a single pod (named after `APP_NAME`, `gefieder` by default; the pod file
-is `main.pod`, so the systemd unit is `main-pod.service`) of eight containers:
+is `main.pod`, so the systemd unit is `main-pod.service`) of nine containers:
 
 - `postgresql` — the database holding the engineering, analytics and application data,
   published on `PG_PORT` (5432 by default) so external tools can read and write it
@@ -148,7 +148,7 @@ is `main.pod`, so the systemd unit is `main-pod.service`) of eight containers:
 - `proxy` — an nginx reverse proxy that serves the admin panel, Grafana and the notebooks under
   `SERVER_NAME` and publishes the pod's ports 80/443
 
-The unit files live in `quadlets/` as templates with `${...}` tokens. The release
+The unit files are in `quadlets/` as templates with `${...}` tokens. The release
 workflow renders them (substituting the `buildtime.env` values) and the installer places
 the rendered files in `~/.config/containers/systemd/`.
 
@@ -173,7 +173,7 @@ adjust:
 | `GRAFANA_PATH` | the base path of Grafana, e.g. `grafana` → `https://SERVER_NAME/grafana/` |
 | `MCP_PATH` | the base path of the AI assistant endpoint, e.g. `ai/grafana_mcp` → `https://SERVER_NAME/ai/grafana_mcp/mcp`. The `/ai/` prefix leaves room for further assistant endpoints beside it |
 | `NOTEBOOK_PATH` | the base path of the notebooks, e.g. `jupyter` → `https://SERVER_NAME/jupyter/` |
-| `PG_DATABASE` | the database everything lives in; change it if the cluster already has one named `postgres` |
+| `PG_DATABASE` | the database holding everything; change it if the cluster already has one named `postgres` |
 | `SERVER_STATS_SCHEMA` | the schema that holds the server-usage and query statistics (see [Server statistics](#server-statistics)) |
 | `SERVER_STATS_INTERVAL` | how often, in seconds, the server statistics are sampled (default 60) |
 | `DUCKDB_EXTENSIONS` | the DuckDB extensions baked into the SQLMesh engine and notebook images, comma-separated; they are downloaded at build time, so the server needs no internet access to use them |
@@ -202,7 +202,6 @@ on a reinstall, so your edits survive an upgrade.
 | `SFTP_PORT`, `FLIGHT_PORT` | the ports the two dropzone upload endpoints are reached on; `2222` and `8815` |
 | `OIDC_ENABLED` | whether people sign in with their company account (see [Single sign-on](#single-sign-on)); `false` by default |
 | `OIDC_ISSUER` | the address of your identity provider |
-| `OIDC_AUTH_URL`, `OIDC_TOKEN_URL`, `OIDC_USERINFO_URL` | the three addresses Grafana needs spelled out; your provider lists them |
 | `OIDC_LOGOUT_URL` | where signing out sends people, so their session at the provider ends too |
 | `OIDC_CLIENT_ID` | the application ID your provider issued |
 | `OIDC_SCOPES` | optional; leave it empty and what to ask your provider for is worked out from `OIDC_ISSUER` |
@@ -410,7 +409,7 @@ where `%h` is the home directory of the user running the containers, and an abso
 such as `/etc/pki/gefieder` works as well.
 
 ## Storage
-Persistent data lives in named volumes, one per service, that the quadlets create
+Persistent data is kept in named volumes, one per service, that the quadlets create
 automatically on the first start (the installer also pre-creates them so the rootless
 user owns their contents):
 
@@ -468,7 +467,7 @@ and stores the numbers in the database, next to the per-query statistics it also
   Visitors are grouped by a hashed session, never by name, and the raw session cookie is
   never stored.
 
-It starts automatically after installation. The data lives in the `server_stats` schema;
+It starts automatically after installation. The data is stored in the `server_stats` schema;
 the dashboards that present it are added separately. A few controls:
 
 ```bash
@@ -537,13 +536,13 @@ This walks you through changing a model and getting it into production. It follo
 example projects that ship with the system, so you can do every step on a fresh
 installation before writing anything of your own.
 
-The models live in a git repository of their own, separate from the system that runs
+The models are kept in a git repository of their own, separate from the system that runs
 them. Inside it, `sqlmesh/models/bronze/` holds one folder per project,
 `sqlmesh/models/silver/` the per-project transforms and the harmonized `silver.issues`, and
 `sqlmesh/models/gold/` the precomputed metrics. The example data comes from the CSVs in
 `sqlmesh/seeds/`, so the pipeline runs without any external tooling.
 
-Where that repository lives is `REPO_MODELS` in `buildtime.env`. Out of the box it is a
+Where that repository is kept is set by `REPO_MODELS` in `buildtime.env`. Out of the box it is a
 repository the system creates on its own volume the first time it starts, filled with the
 models shown here, so a fresh installation computes something immediately. Point it at your
 own git host — GitHub, GitLab, anything `git clone` accepts — and that becomes the origin.
@@ -716,7 +715,7 @@ press **Use this version** on the commit before it.
 
 ### A note on state
 SQLMesh keeps its own record of every model version, what has been built and which
-version each environment points at. In Gefieder that lives in the `sqlmesh` schema of the
+version each environment points at. In Gefieder that record is kept in the `sqlmesh` schema of the
 same PostgreSQL database, which is why your machine and the server agree about
 environments at all, and why the ordinary backup of `postgresql_data` already covers it.
 Two consequences worth knowing: dashboards have no business reading that schema (Grafana

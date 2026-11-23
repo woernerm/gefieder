@@ -1,15 +1,8 @@
 """Reading a SQLMesh model as notebook cells, and writing those cells back as SQL.
 
-The alternative designs all keep two files. A notebook beside each model means generated
-SQL that must not be hand-edited, a sync step, and a reviewer reading JSON. Committing the
-notebook instead means the diff a regulated audit reads is a JSON blob.
-
-So there is one file, and the notebook is a view of it. Nothing is generated, so nothing
-can be overwritten, and ``git diff`` shows SQL because SQL is what is on disk.
-
-Cells are split on the same ``# %%`` markers jupytext uses, spelled ``-- %%`` for SQL. A
-model that has never been opened here has none, and is one cell -- which is the whole file,
-which is what SQLMesh parses.
+One file, with the notebook as a view of it: nothing is generated or synced, and
+``git diff`` shows SQL, not JSON. Cells are split on jupytext's ``# %%`` markers, spelled
+``-- %%`` for SQL. A model without markers is one cell.
 """
 import nbformat
 
@@ -88,9 +81,8 @@ def to_notebook(text: str) -> nbformat.NotebookNode:
 def from_notebook(notebook: nbformat.NotebookNode) -> str:
     """Write notebook cells back as the source of a model file.
 
-    A single code cell -- the shape a model keeps unless someone deliberately splits it --
-    is written out bare, so opening a model and saving it leaves the file byte for byte as
-    it was. Anything else gets its markers.
+    A single code cell is written out bare, so opening and saving a model leaves the file
+    unchanged.
 
     Args:
         notebook: The notebook being saved.

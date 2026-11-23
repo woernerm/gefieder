@@ -4,19 +4,14 @@
 #   podman exec sqlmesh sqlmesh plan dev
 #   podman exec sqlmesh sqlmesh test
 #
-# Installed as /usr/local/bin/sqlmesh, ahead of the one in the virtual environment. Three
-# things have to be settled before the CLI is useful here and none of them can be guessed
-# from the command line:
+# Installed as /usr/local/bin/sqlmesh, ahead of the one in the virtual environment, and used
+# by the entrypoint too. It settles:
 #
-#   -p            the project is a checkout on the models volume, not a directory in this
-#                 image, and it moves when a different version is deployed
-#   --log-file-dir  SQLMesh creates "logs" beside the working directory whatever else it is
-#                 told, and that checkout is mounted read-only
+#   -p               the project, a checkout on the models volume that moves per deployment
+#   --log-file-dir   as SQLMesh creates "logs" beside the read-only checkout otherwise
 #   --log-to-stdout  the handler its logger otherwise lacks, so journald sees the run
 #
-# The entrypoint uses it too, so there is one spelling of "run SQLMesh here".
-# SQLMESH_TREE names the checkout on the volume: "deployed" is what production runs and
-# what an operator means, and a version under review has one of its own beside it.
+# SQLMESH_TREE names the checkout: "deployed" for production, or a version under review.
 MODELS_DIR="${MODELS_DIR:-/var/lib/app/models}"
 exec uv run --project /sqlmesh sqlmesh \
   --log-to-stdout --log-file-dir /tmp/sqlmesh-logs \

@@ -29,15 +29,12 @@ from sqlmesh.core.engine_adapter import DuckDBEngineAdapter
 
 
 class PostgresBackedDuckDBAdapter(DuckDBEngineAdapter):
-    """DuckDB's adapter, told that its tables live in PostgreSQL.
+    """DuckDB's adapter, told that its tables are stored in PostgreSQL.
 
-    The DuckDB gateway below attaches this database as its only catalog, so every table
-    a model on it writes is a PostgreSQL table. DuckDB's adapter assumes DuckDB's own
-    storage, where CREATE OR REPLACE TABLE is how a FULL model is refreshed; through the
-    postgres extension that becomes DROP TABLE and CREATE, and PostgreSQL refuses to
-    drop a table a view still reads -- which every silver union is. Declaring the
-    statement unsupported makes the adapter refresh in place, as the PostgreSQL adapter
-    does for the same reason.
+    Through the postgres extension, DuckDB's CREATE OR REPLACE TABLE becomes DROP and
+    CREATE, and PostgreSQL refuses to drop a table a view reads, as every silver union does.
+    Declaring the statement unsupported makes the adapter refresh in place, as the
+    PostgreSQL adapter does.
     """
 
     SUPPORTS_REPLACE_TABLE = False
@@ -151,7 +148,7 @@ else:
     #
     # Two ways to arrive here. A clone of the models repository carries server.env, which
     # the system wrote when it created that repository, so cloning is the whole setup. A
-    # checkout of the gefieder repository has no such file and the same values live in the
+    # checkout of the gefieder repository has no such file; the same values are in the
     # two env files beside the project. Either way an exported variable wins, which is how
     # one checkout is pointed at a second installation.
     project = Path(__file__).resolve().parent
@@ -205,9 +202,6 @@ else:
 def attach_path(**settings: object) -> str:
     """Build the libpq connection string DuckDB attaches PostgreSQL with.
 
-    Two layers of quoting have to survive each other, and skipping either works until a
-    password is not a tame hex string.
-
     Args:
         **settings: The libpq keywords and their values, e.g. dbname, host, password.
 
@@ -231,7 +225,7 @@ duckdb_extensions = [e for e in os.environ.get("DUCKDB_EXTENSIONS", "").split(",
 
 config = Config(
     # The deployed project is a read-only checkout, so SQLMesh's parsed-model cache cannot
-    # live beside it as it does on a developer's machine. Only in the container: a
+    # be kept beside it as it does on a developer's machine. Only in the container: a
     # developer keeps the cache with the project, where "sqlmesh clean" expects it.
     **({"cache_dir": "/tmp/sqlmesh-cache"} if IN_CONTAINER else {}),
     gateways={

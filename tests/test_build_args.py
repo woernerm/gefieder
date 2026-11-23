@@ -40,7 +40,7 @@ def declared_args():
 
 
 # The shared build library every builder sources: build_image and its --build-arg list
-# live there, so a builder passes what it and this file name together.
+# are defined there, so a builder passes what it and this file name together.
 BUILD_LIB = "build-lib.sh"
 
 

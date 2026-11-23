@@ -68,25 +68,21 @@ class TestNames:
         assert {SILVER_SCHEMA, GOLD_SCHEMA} <= schemas(published)
 
     def test_every_bronze_schema_comes_along(self, published):
-        """Bronze is one schema per project and nothing announces a new one, so the
-        publication reads the list off production rather than being told it."""
+        """Nothing announces a new bronze schema, so the list is read off production."""
         assert any(name.startswith(BRONZE_SCHEMA_PREFIX) for name in schemas(published))
 
     def test_what_sqlmesh_keeps_to_itself_stays_out(self, published):
-        """Its physical schemas and its state: churning objects, not something to query,
-        and the same rule production's grants draw."""
+        """Physical schemas and state hold churning objects, as production's grants say."""
         assert not any(name.startswith("sqlmesh") for name in schemas(published))
 
     def test_no_environment_copy_is_published_under_its_own_name(self, published):
-        """The suffix is the mechanism, never a name anybody reads: a dashboard that
-        could name gold__preview would be one written for a review."""
+        """A dashboard naming gold__preview would be written for one review."""
         assert not any(name.endswith(f"__{PREVIEW_ENV}") for name in schemas(published))
 
 
 class TestContents:
     def test_it_holds_no_data_of_its_own(self, published):
-        """Every table is foreign. That is what makes a preview free: an unchanged model
-        is production's table read through a name, not a copy of it."""
+        """An unchanged model is production's table read through a foreign table."""
         with published.cursor() as cur:
             cur.execute(
                 "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
@@ -96,9 +92,7 @@ class TestContents:
             assert cur.fetchone()[0] == 0
 
     def test_a_layer_reads_the_same_rows_as_production(self, published, db):
-        """With no review planned, every name points at production -- so the preview data
-        source shows exactly what the live one does, and a review is the only difference
-        anybody ever sees."""
+        """A review is then the only difference between the preview and production."""
         with db.cursor() as cur:
             cur.execute(
                 "SELECT table_name FROM information_schema.tables "
@@ -121,15 +115,13 @@ class TestContents:
 
 class TestBoundary:
     def test_the_reader_cannot_write_through_it(self, published):
-        """The foreign server is reached as the read-only Grafana role, so the preview is
-        a way of looking at production and never a way into it."""
+        """The foreign server is reached as the read-only Grafana role."""
         with published.cursor() as cur:
             with pytest.raises(psycopg2.Error):
                 cur.execute(f'CREATE TABLE "{GOLD_SCHEMA}".sneaked (x int)')
 
     def test_publishing_is_not_something_a_reader_may_do(self, preview_db):
-        """It creates schemas; the engine calls it because the engine is what knows a
-        plan has finished."""
+        """It creates schemas; the engine calls it once a plan has finished."""
         with preview_db.cursor() as cur:
             with pytest.raises(psycopg2.Error):
                 cur.execute("SELECT refresh_preview(%s)", (PREVIEW_ENV,))
@@ -159,16 +151,14 @@ class TestOneSpelling:
         assert f"database: ${{PG_DATABASE}}_{PREVIEW_ENV}" in self.PROVISIONING.read_text()
 
     def test_the_proxy_substitutes_the_uid_a_dashboard_carries(self):
-        """On answers only: the browser sends back what it was given, so a query names the
-        data source the dashboard was served with."""
+        """The browser echoes the uid, so a query names the dashboard's data source."""
         assert (
             """sub_filter '"${APP_NAME}-postgresql"' '"$datasource_uid"';"""
             in self.LOCATIONS.read_text()
         )
 
     def test_a_visitor_with_no_review_gets_the_production_uid_back(self):
-        """The substitution runs for everybody; for everybody but a reviewer it replaces
-        the uid with itself."""
+        """For everybody but a reviewer, the substitution maps the uid onto itself."""
         assert '"${APP_NAME}-postgresql"' in self.MAPS.read_text()
 
     def test_crudman_names_the_data_source_after_the_environment(self):

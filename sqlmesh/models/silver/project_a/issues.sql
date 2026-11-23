@@ -1,5 +1,5 @@
 -- The bronze -> silver transform of Project A. Everything specific to how *this* project records
--- issues lives here: its Jira-style column names, and its own status vocabulary mapped onto
+-- issues is handled here: its Jira-style column names, and its own status vocabulary mapped onto
 -- the canonical open/closed states that every silver output agrees on.
 --
 -- The output column list IS the harmonization contract; it must match the other staging

@@ -55,10 +55,8 @@ urlpatterns = [
 if settings.OIDC_ENABLED:
     urlpatterns += [path(f"{CRUDMAN_PATH}/accounts/", include("allauth.urls"))]
 
-# A route that raises on purpose, so the integration suite can check that a 500's
-# traceback reaches the journal: only the container's main process is forwarded there, so
-# a "podman exec" cannot show it. Enabled by the test stack alone, since an always-present
-# route that raises is one URL guess away from being a nuisance.
+# Raises on purpose, so the integration suite can check that a 500's traceback reaches
+# the journal. Enabled by the test stack alone, as a route that raises is a nuisance.
 if os.environ.get("ERROR_LOGGING_PROBE", "").strip().lower() == "true":
     urlpatterns += [
         path(f"{CRUDMAN_PATH}/error-logging-probe/", views.error_logging_probe),

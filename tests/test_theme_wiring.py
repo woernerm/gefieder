@@ -80,10 +80,11 @@ def test_dev_stack_passes_default_theme_to_every_themed_container():
 
 
 def test_the_bars_switch_names_what_the_apps_read():
-    """The bar writes the choice where each app keeps its own: the storage key the hub's
-    pages read before their dark-mode script runs, and the Lab themes by the names the
-    entrypoint sets as the default. A rename in one place is a switch that no longer
-    reaches that app."""
+    """A key renamed in one place is a switch that no longer reaches that app.
+
+    The hub's pages read the storage key before their dark-mode script runs; the Lab
+    themes use the names the entrypoint sets as default.
+    """
     shell = SHELL.read_text()
     hub = (REPO / "jupyter/templates/page.html").read_text()
     key = re.search(r'localStorage\.setItem\("([^"]+)"', hub).group(1)

@@ -1,12 +1,8 @@
 -- The name check every function below starts with.
 --
--- Each takes a role name from crudman and interpolates it with format()'s %I, so a name
--- that is not a plain identifier is a caller bug rather than an injection risk. Shared so
--- the checks cannot drift apart; `label` names the offending parameter, keeping the
--- messages the callers already raise.
---
--- Called schema-qualified because most callers pin search_path to pg_catalog alone, which
--- cannot resolve a function in public.
+-- Names are interpolated with format()'s %I, so a name that is not a plain identifier is a
+-- caller bug rather than an injection risk. `label` names the offending parameter. Called
+-- schema-qualified, as most callers pin search_path to pg_catalog.
 CREATE OR REPLACE FUNCTION public.validate_identifier(name text, label text)
 RETURNS void
 LANGUAGE plpgsql
@@ -60,13 +56,9 @@ $$;
 -- Whether a role is one crudman provisioned for a person.
 --
 -- Membership of the ${ROLE_PREFIX}person marker gf_0008 creates, which create_db_user
--- grants and nothing revokes. A recorded fact rather than a name pattern: a personal role
--- shares its namespace with every other role in the cluster, so DB_USER_PREFIX is
--- readability, not a boundary. Not the rank membership, which delete_db_user strips to
--- lock someone out while a disabled account still has to be droppable.
---
--- pg_auth_members rather than pg_has_role, which is transitive and true of every
--- superuser.
+-- grants and nothing revokes; DB_USER_PREFIX is readability, not a boundary. Not the rank,
+-- which delete_db_user strips. pg_auth_members, as pg_has_role is transitive and true of
+-- every superuser.
 CREATE OR REPLACE FUNCTION is_db_user(role_name text)
 RETURNS boolean
 LANGUAGE sql
@@ -128,8 +120,8 @@ BEGIN
         RAISE EXCEPTION 'refusing to take over %, which is not a provisioned user role', user_name;
     END IF;
 
-    -- Optional: with an external identity provider the role carries no password of its
-    -- own, so only its absence is expressed here.
+    -- Optional: crudman enrolls a role without one, and issue_db_user_password sets it
+    -- right before use.
     IF user_password IS NOT NULL AND length(user_password) < 12 THEN
         RAISE EXCEPTION 'user_password must be at least 12 characters long';
     END IF;
@@ -218,9 +210,8 @@ $$;
 
 -- Clear a person's database password, leaving the role and its rank intact.
 --
--- crudman puts the account back into "awaiting credential" and issues a fresh password at
--- the person's next sign-in. Clearing it now rather than then means a leaked credential
--- stops working immediately.
+-- For a leaked credential, which stops working immediately; the person's client is issued
+-- a fresh password when it next asks.
 --
 -- With scram-sha-256 a role holding no password cannot authenticate, so LOGIN may stay,
 -- keeping the flag that distinguishes this from delete_db_user's disabled account.
@@ -252,19 +243,10 @@ $$;
 
 -- A password that expires, issued on a person's own role.
 --
--- What a notebook server connects with, and what a developer's checkout fetches instead of
--- keeping a standing password. The role is the person's own, so current_user inside the
--- session is them: every table a plan creates is owned by them, their rank applies
--- unchanged, and nothing has to be granted between two accounts of theirs.
---
--- VALID UNTIL is the whole of the expiry. It stops new connections once the deadline
--- passes; a session already open survives it, PostgreSQL checking credentials only at
--- connect time. That is the same property the credential this replaced had, and the reason
--- a leaked password is bounded rather than harmless.
---
--- Issuing replaces whatever password the role had, so a person holds one credential at a
--- time: opening a notebook invalidates the one their laptop fetched, and the laptop fetches
--- a fresh one on its next run.
+-- What a notebook server and a developer's checkout connect with, on the person's own role,
+-- so what a plan creates is owned by them. VALID UNTIL stops new connections after the
+-- deadline; open sessions survive it. Issuing replaces the previous password, so opening a
+-- notebook invalidates the one a laptop fetched, which fetches a fresh one on its next run.
 CREATE OR REPLACE FUNCTION issue_db_user_password(
     user_name text,
     user_password text,

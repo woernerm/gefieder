@@ -34,7 +34,7 @@ class TestDashboardProvisioning:
 
     def test_the_server_monitoring_dashboard_shall_be_in_the_default_folder(self, grafana_api):
         # foldersFromFilesStructure derives the folder from the on-disk directory, and
-        # the server-monitoring JSON lives under dashboards/Default/. Grafana reports it
+        # the server-monitoring JSON is under dashboards/Default/. Grafana reports it
         # as folderTitle, empty for a dashboard at the root.
         resp = grafana_api.get("/api/search", params={"type": "dash-db"})
         assert resp.status_code == 200, f"grafana search failed: {resp.status_code}"
@@ -130,9 +130,7 @@ class TestHomeDashboard:
         )
 
     def test_every_card_link_shall_resolve(self, grafana_api, cards):
-        """A relative href resolves against the dashboard's own URL, not the Grafana root,
-        so it 404s. Grafana's own dashboard URLs are absolute below GRAFANA_PATH, and the
-        cards have to be written the same way."""
+        """A relative href resolves against the dashboard's URL and 404s."""
         links = re.findall(r'href="([^"]+)"', cards)
         assert links, "the home page has no links at all"
         for link in links:
@@ -147,8 +145,7 @@ class TestHomeDashboard:
             )
 
     def test_the_cards_shall_not_rely_on_a_style_block(self, cards):
-        """The text panel's sanitizer drops <style>, which would leave the cards unstyled:
-        the markup renders, but as a bare list of text. Inline style attributes survive."""
+        """The text panel's sanitizer drops <style>; inline style attributes survive."""
         assert "<style" not in cards.lower(), (
             "the home page carries a <style> block, which the panel's sanitizer strips; "
             "the cards would render unstyled"

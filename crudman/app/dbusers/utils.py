@@ -54,7 +54,7 @@ def unmanaged_role(user) -> str | None:
 
     role_name = role_name_for(user.username)
     # This table rather than the is_db_user marker: readable from any database, whereas
-    # the init scripts' functions live only in the deployment's own.
+    # the init scripts' functions exist only in the deployment's own.
     if DatabaseUser.objects.filter(role_name=role_name).exists():
         return None
 
@@ -91,10 +91,8 @@ def db_role_for_user(user) -> str | None:
 def enroll(user) -> "DatabaseUser":
     """Create a user's database role, with no password of its own.
 
-    The administrator decides *that* someone gets database access; the password comes
-    later and belongs to the person alone -- ``issue_password``, called by a notebook
-    spawn or by their own checkout. So no administrator ever learns one, and under
-    scram-sha-256 the role cannot connect until its owner asks for a password.
+    The password is issued later to the person alone (``issue_password``), so no
+    administrator learns one. Until then, the role cannot connect.
 
     Args:
         user: The Django user to enroll.
@@ -168,13 +166,8 @@ def reset(user) -> None:
 def issue_password(user, valid_for: timedelta) -> tuple[str, str, datetime]:
     """Set a fresh, expiring password on a person's own database role.
 
-    What a notebook spawn and a developer's checkout both call. The role is the person's
-    own, so there is no second account to grant anything between: current_user in the
-    session is them.
-
-    Issuing replaces the previous password, so a person holds one at a time. That is what
-    keeps a leaked one bounded, and why the caller is expected to be the person's own
-    client rather than something that hands the result on.
+    Called by a notebook spawn and by a developer's checkout. Issuing replaces the previous
+    password, so a person holds one at a time, which bounds a leaked one.
 
     Args:
         user: The Django user whose role gets the password.

@@ -22,12 +22,9 @@ signed-in person from here.
 def login(request):
     """Redirect to the provider, or show the local form.
 
-    A visitor who still has a session with the provider is signed in without seeing a
-    page at all, which is the point of doing this instead of offering a button.
-
-    Signing in is a top-level affair. Asked for inside the shell's frame -- a session
-    that ran out while the bar was up -- the page hands itself to the window instead:
-    the provider refuses to be framed, and the bar has to be drawn for the new session.
+    A visitor with a provider session is signed in without seeing a page. Inside the shell's
+    frame, the page hands itself to the window, as the provider refuses to be framed and the
+    bar has to be drawn for the new session.
 
     Args:
         request: The HTTP request. The local form posts back here without the query

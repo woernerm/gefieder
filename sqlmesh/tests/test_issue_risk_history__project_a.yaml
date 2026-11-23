@@ -1,11 +1,6 @@
-# Unit test for the @temporal_join example (models/silver/project_a/issue_risk_history.sql).
-# It runs on hand-written input rows rather than on whatever the seeds happen to contain,
-# which is what lets it state the awkward cases outright and pin the expected answer to
-# them. Run it with `sqlmesh test`; the integration suite runs it inside the deployed
-# container (tests/test_analytics.py).
-#
-# The input is the same data the seeds carry, chosen so that every case the macro has to
-# get right appears at least once:
+# Unit test for the @temporal_join example (models/silver/project_a/issue_risk_history.sql),
+# on hand-written rows pinning the awkward cases. Run with `sqlmesh test`; the integration
+# suite runs it in the deployed container (tests/test_analytics.py). The cases:
 #
 #   PA-1  moves from one component to another, so a change of the component it is *not*
 #         on yet (C-PWR on the 12th) must not produce a row -- and neither must a

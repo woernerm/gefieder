@@ -1,15 +1,11 @@
 """Wiring the model-file translation into Jupyter.
 
-Jupyter asks a ContentsManager for a file's content and hands back what it saved, so
-answering a ``.sql`` request of type ``notebook`` with cells is all it takes for a model to
-open as a notebook. The translation itself is in :mod:`sqlnotebook.cells`, which imports
-nothing from Jupyter and is therefore testable on its own.
+Answering a ``.sql`` request of type ``notebook`` with cells makes a model open as a
+notebook; :mod:`sqlnotebook.cells` does the translation without Jupyter imports.
 
-Built on jupytext's manager rather than beside it. jupytext derives its own class from
-whichever manager is configured and its ``save`` refuses an extension it does not know, so
-a manager configured *under* it would never see a ``.sql`` save. Deriving from it instead
-puts this class on the outside: ``.sql`` is handled here and everything else -- a paired
-Python model, an ``.ipynb`` -- falls through to jupytext exactly as it would without us.
+Derived from jupytext's manager, as jupytext wraps whichever manager is configured and
+refuses to save unknown extensions. So ``.sql`` is handled here and everything else falls
+through to jupytext.
 """
 import nbformat
 from jupyter_server.services.contents.filemanager import FileContentsManager
@@ -35,9 +31,8 @@ class ModelContentsManager(
     def get(self, path, content=True, type=None, format=None):
         """Return a file, rendering a .sql one as a notebook when asked for one.
 
-        Jupyter asks with ``type="notebook"`` because the frontend registers .sql as a
-        notebook file type; the file browser and the editor ask for a file and still get
-        the text, which is what keeps "Open With -> Editor" working.
+        The file browser and the editor ask for a file and still get the text, which keeps
+        "Open With -> Editor" working.
 
         Args:
             path: The API path of the file.
@@ -73,14 +68,8 @@ class ModelContentsManager(
     def save(self, model, path=""):
         """Save a file, writing a notebook back to a .sql file as its cells' text.
 
-        Every save passes here -- the button, autosave, a checkpoint, Save As -- which is
-        what makes this the one place that can move a workspace off the deploying branch
-        before anything is written to it.
-
-        Where the save landed is not reported back: Lab's document context copies a fixed
-        set of fields out of the response and drops everything else, so a ``message`` on
-        the model reaches nobody. The git panel names the current branch, which is the
-        place a person looks for it anyway.
+        Every save passes here, so this moves a workspace off the deploying branch. The new
+        branch is not reported back, as Lab drops extra response fields; the git panel shows it.
 
         Args:
             model: The content model being saved.

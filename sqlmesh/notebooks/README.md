@@ -2,7 +2,7 @@
 
 Analysis notebooks: the exploring, charting and explaining that is not a model.
 
-A model lives in `models/` as a `.sql` or `.py` file and opens as a notebook by itself, so
+A model is stored in `models/` as a `.sql` or `.py` file and opens as a notebook by itself, so
 nothing here is needed to write one. What belongs here is the work that has outputs worth
 keeping -- a chart, a comparison, a note explaining why a metric is defined the way it is.
 These are ordinary `.ipynb` notebooks: their outputs are saved, they render on a git host,

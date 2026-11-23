@@ -56,8 +56,7 @@ class TestAPageOfItsOwn:
         assert f'<iframe src="{path}"' in resp.text
 
     def test_shall_send_an_anonymous_visitor_to_the_sign_in(self, http):
-        """A notebook address in particular: the hub would do it for its frame, but the
-        page of its own is crudman's, which has no route there."""
+        """The hub would do it for its frame, but the page of its own is crudman's."""
         resp = http.get(f"/{NOTEBOOK_PATH}/", headers=PAGE)
 
         assert resp.status_code == 302
@@ -86,16 +85,14 @@ class TestTheFrame:
 
     @pytest.mark.parametrize("path", [f"/{CRUDMAN_PATH}/", f"/{GRAFANA_PATH}/", f"/{NOTEBOOK_PATH}/hub/"])
     def test_shall_be_allowed_by_every_app(self, admin_session, path):
-        """A frame from the same origin, which Django's, Grafana's and the hub's
-        defaults all refuse."""
+        """A same-origin frame, which Django's, Grafana's and the hub's defaults refuse."""
         resp = admin_session.get(path, headers=FRAMED)
 
         assert resp.headers.get("x-frame-options", "sameorigin").lower() == "sameorigin"
         assert "frame-ancestors 'none'" not in resp.headers.get("content-security-policy", "")
 
     def test_shall_be_allowed_by_a_notebook_server_too(self, admin_session, notebook_server):
-        """The server the hub spawns refuses every frame as well, on its own, whatever
-        the hub itself allows."""
+        """The spawned server refuses frames on its own, whatever the hub allows."""
         resp = admin_session.get(notebook_server, headers=FRAMED)
 
         assert "frame-ancestors 'self'" in resp.headers.get("content-security-policy", "")

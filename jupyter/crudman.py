@@ -1,12 +1,8 @@
 """Authenticating a notebook visitor against the admin panel's session.
 
-crudman already knows who everyone is and what rank the identity provider gave them. So
-rather than configuring a second OpenID Connect client here -- which would need its own
-registration, its own claim mapping and a second sign-in for the person -- the hub presents
-the visitor's own crudman cookie to crudman and believes the answer.
-
-The consequences are the point: single sign-on is configured once, local accounts work
-identically when it is off, a demotion reaches the notebooks, and this container holds no
+Rather than a second OpenID Connect client, the hub presents the visitor's crudman cookie
+to crudman and believes the answer. So single sign-on is configured once, local accounts
+work identically, a demotion reaches the notebooks, and this container holds no
 credential that could ask about anybody but the caller.
 """
 import json
@@ -69,13 +65,9 @@ class CrudmanLoginHandler(BaseHandler):
     async def get(self):
         """Complete the login, or redirect to the admin panel's sign-in page.
 
-        A visitor with no crudman session is sent there with ``next`` pointing back here,
-        so single sign-on takes them to the provider and returns them to the notebook they
-        asked for. One hop, whether single sign-on is on or off.
-
-        Someone who *has* a session and is still refused is told so, rather than sent back
-        to sign in: they would return with the same session and be refused again, which is
-        a redirect loop rather than an answer.
+        A visitor without a crudman session is sent there with ``next`` pointing back here.
+        Someone who has a session and is still refused is told so, as sending them to sign in
+        would be a redirect loop.
         """
         user = await self.login_user()
         if user is not None:
@@ -114,10 +106,8 @@ class CrudmanAuthenticator(LocalAuthenticator):
     def normalize_username(self, username):
         """The Unix account and database role name for a Django username.
 
-        The same derivation as ``dbusers.utils.role_name_for`` in crudman, which is the
-        point: the server runs under this name, so ``getpass.getuser()`` in the SQLMesh
-        config resolves to the role the person actually connects as. A username from an
-        identity provider is frequently an email address and no valid identifier.
+        The same derivation as ``dbusers.utils.role_name_for`` in crudman, so
+        ``getpass.getuser()`` in the SQLMesh config resolves to the person's role.
 
         Args:
             username: The Django username.

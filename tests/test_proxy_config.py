@@ -87,7 +87,7 @@ def _run_entrypoint(debug, certs, hint=None, timeout=60):
     """Run the image's own entrypoint against `certs`, mounted where the quadlet mounts it.
 
     Unlike _run_proxy, which renders a template the way the entrypoint does, this runs the
-    entrypoint itself, the certificate check under test living there.
+    entrypoint itself, as the certificate check under test is there.
 
     Returns the CompletedProcess, or None when the entrypoint was still running at the
     timeout -- the healthy outcome when the check lets nginx start, since nginx then runs
@@ -602,8 +602,7 @@ class TestRoutingToUpstreams:
     def test_a_page_of_its_own_shall_reach_the_admin_panel_instead(
         self, destination, expected, fixtures
     ):
-        """The shell: what goes in the address bar is the admin panel's to answer
-        whichever app the path names, what goes in the shell's frame is the app's."""
+        """The shell answers the address bar; the app answers the shell's frame."""
         args = f"--header 'Sec-Fetch-Dest: {destination}'"
         result = _run_proxy(_fetch(f"/{GRAFANA_PATH}/", args=args), "true", fixtures)
         assert expected in result.stdout, result.stdout + result.stderr

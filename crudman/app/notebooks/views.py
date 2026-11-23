@@ -1,17 +1,11 @@
 """The endpoints the other services authenticate their visitors against.
 
-Neither JupyterHub nor Grafana keeps a directory of its own. Both ask here, carrying the
-visitor's own crudman session cookie, and get back who they are and what rank they hold --
-so there is one set of accounts, one sign-in, and single sign-on reaches both without
-being configured a second time.
+Neither JupyterHub nor Grafana keeps accounts of its own. Both ask here with the visitor's
+crudman session cookie, so there is one sign-in, and single sign-on reaches both. The hub
+asks ``whoami`` itself; for Grafana, nginx's auth_request asks ``grafana``.
 
-The hub asks ``whoami`` itself; for Grafana it is the proxy that asks, ``grafana`` being
-the subrequest behind nginx's auth_request on every Grafana page, and Grafana then trusts
-the identity the proxy passes on in a header.
-
-Both live under ``/<CRUDMAN_PATH>/``, which the proxy forwards, so a browser could
-otherwise reach them as well. They answer only requests that did not come through the
-proxy.
+Both are served under ``/<CRUDMAN_PATH>/``, so they answer only requests that did not
+come through the proxy.
 """
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
@@ -50,22 +44,17 @@ absence is what marks a request as coming from inside the pod.
 def whoami(request):
     """Identify the caller, and on POST rotate their notebook database credential.
 
-    The hub calls GET to authenticate a visitor and POST just before it spawns their
-    server. Both act on the session's own user and nothing else, so the hub holds no
-    credential that would let it ask about anybody else.
-
-    Answered only for a request that did not come through the proxy, which means the hub
-    rather than a browser: rotating the credential invalidates the notebook a person has
-    open, so a page on another site must not be able to trigger it with their cookie. That
-    is also what makes exempting CSRF safe -- the caller is the hub, which has no form and
-    no token to send.
+    The hub calls GET to authenticate a visitor and POST just before it spawns their server.
+    Only requests not through the proxy are answered: rotating invalidates the person's open
+    notebook, so a page on another site must not trigger it with their cookie. The hub has no
+    form and no CSRF token, hence the exemption.
 
     Args:
         request: The HTTP request, carrying the visitor's crudman session cookie.
 
     Returns:
         401 when the cookie names nobody, 403 when they hold too low a rank, and otherwise
-        the identity as JSON -- with the database role and password added on POST.
+        the identity as JSON, with the database role and password added on POST.
     """
     if FORWARDED in request.META:
         return JsonResponse({"detail": "not reachable from here"}, status=404)
@@ -99,19 +88,13 @@ def whoami(request):
 def grafana(request):
     """Identify the caller for Grafana, in the headers its auth proxy reads.
 
-    nginx asks here with the visitor's cookies before forwarding a Grafana request, and
-    copies the answer's headers into that request; Grafana trusts them because only the
-    proxy can reach it. The body is discarded, so the identity travels in headers alone.
+    nginx asks here with the visitor's cookies before forwarding a Grafana request and
+    copies the answer's headers into it; Grafana trusts them, as only the proxy can reach
+    it. Every rank may see Grafana, the viewer's included.
 
-    Every rank may see Grafana, the viewer's included -- unlike a notebook, a dashboard
-    is what a viewer is for. Someone with no rank at all is a 403: signed in, but with
-    nothing to be let in as.
-
-    The answer also says which version this person reads. Someone who owes a decision on a
-    version under review reads that one: the proxy substitutes the data source named here
-    for the one every dashboard carries, so the same dashboards show the reviewed models
-    without a copy of them existing. The header is absent for everybody else, which the
-    proxy's map reads as production.
+    Someone who owes a decision on a version under review gets a header naming that
+    version's data source, which the proxy substitutes for the one every dashboard
+    carries. Without the header, the proxy's map falls back to production.
 
     Args:
         request: The HTTP request, carrying the visitor's crudman session cookie.

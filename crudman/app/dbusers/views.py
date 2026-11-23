@@ -1,9 +1,8 @@
 """Where a developer's checkout fetches a database password.
 
-The one endpoint a laptop talks to. It presents the token its owner created in the admin
-panel and gets back a password that expires, so nothing standing is kept on a machine this
-system does not run on. The token is not itself a database credential: it does this and
-nothing else, and switching Database access off takes it back.
+The checkout presents the token its owner created in the admin panel and gets back an
+expiring password, so no standing credential is kept on a laptop. The token does nothing
+else, and switching Database access off revokes it.
 """
 from datetime import timedelta
 
@@ -22,9 +21,8 @@ LIFETIME = timedelta(hours=12)
 def password(request):
     """Exchange a token for a short-lived password on its owner's own role.
 
-    No session and no CSRF token: the caller is a command-line tool, and the bearer of the
-    token is the only thing that authenticates it -- which is why the token is worth no
-    more than the database access it stands for.
+    No session and no CSRF token, as the caller is a command-line tool authenticated by the
+    token alone.
 
     Args:
         request: The HTTP request, carrying "Authorization: Bearer <token>".

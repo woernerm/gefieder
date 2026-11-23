@@ -36,7 +36,7 @@ MODELS = [
 ]
 LINKS = 3  # bronze_a -> silver, bronze_b -> silver, silver -> gold
 
-# lineage.NODE_WIDTH, which lives in the crudman image rather than on this host. Only the
+# lineage.NODE_WIDTH, which exists in the crudman image rather than on this host. Only the
 # column check reads it, and a disagreement fails that check rather than passing quietly.
 NODE_WIDTH = 18
 

@@ -26,7 +26,7 @@ COPY sqlmesh/pyproject.toml /sqlmesh/pyproject.toml
 # The dependencies from pyproject.toml.
 RUN UV_EXTRA_INDEX_URL=${PYTHON_INDEX} uv sync --project /sqlmesh --no-dev
 
-# The extensions config.py's duckdb gateway loads. Without a default, the list living in
+# The extensions config.py's duckdb gateway loads. No default, as the list is kept in
 # DUCKDB_EXTENSIONS in buildtime.env.
 ARG DUCKDB_EXTENSIONS
 

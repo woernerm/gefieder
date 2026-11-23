@@ -168,7 +168,7 @@ for vol in $(basename -s .volume quadlets/*.volume); do
 done
 
 # --- (re)create the pod ---------------------------------------------------------------
-# A fresh pod each run, the data living in the volumes rather than the containers. The
+# A fresh pod each run, as the data is kept in the volumes rather than the containers. The
 # ports are published at the pod level, as main.pod does.
 podman pod rm -f "$POD" >/dev/null 2>&1 || true
 podman pod create --name "$POD" \

@@ -313,7 +313,7 @@ class BranchTest(RepositoryTestCase):
 class VersionsPageTest(RepositoryTestCase):
     """Who reaches the page, and who may change what is running.
 
-    It lives in the admin under System rather than beside the documentation, so it is not
+    It is in the admin under System rather than beside the documentation, so it is not
     open from the viewer rank up: every rank is staff, and the rank that may change things
     is what the page takes.
     """

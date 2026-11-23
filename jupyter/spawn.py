@@ -1,13 +1,11 @@
 """What a person's notebook server starts life as: a Unix account and a working tree.
 
-Each server runs as its own Unix user, so two people's homes, git credentials and the
-database password in their environment are separated by the kernel rather than by
-convention. The account is named exactly as crudman names their database role, which is
-what lets ``sqlmesh/config.py`` derive the connection with no notebook-specific branch.
+Each server runs as its own Unix user, so homes, git credentials and database passwords
+are separated by the kernel. The account is named as crudman names the database role, so
+``sqlmesh/config.py`` needs no notebook-specific branch.
 
-The working tree is a clone of the models repository under ``workspaces/`` on the models
-volume, which ``crudman/app/system/requirements.md`` reserved for this: the deployed tree is
-rewritten wholesale on every deployment, so nobody's uncommitted work may live there.
+The working tree is a clone of the models repository under ``workspaces/``, as the
+deployed tree is rewritten on every deployment.
 """
 import os
 import pwd
@@ -18,7 +16,7 @@ from jupyterhub.spawner import LocalProcessSpawner
 
 MODELS_DIR = Path(os.environ.get("MODELS_DIR", "/var/lib/app/models"))
 WORKSPACES = MODELS_DIR / "workspaces"
-"""Where each person's clone lives, beside the deployed tree rather than inside it."""
+"""Where each person's clone is kept, beside the deployed tree rather than inside it."""
 
 ORIGIN = os.environ.get("REPO_MODELS", "").strip()
 """What a workspace is cloned from -- the same repository crudman deploys from, so a push
@@ -73,11 +71,9 @@ class WorkspaceSpawner(LocalProcessSpawner):
     def _refresh_skeleton(account) -> None:
         """Copy the shipped configuration into an existing home.
 
-        ``/etc/skel`` is copied only when an account is created, so a person who signed in
-        under an earlier release keeps whatever it held then -- and the kernel would go on
-        starting without SQLMesh loaded. Overwritten rather than merged: these are this
-        system's files, and a person who wants their own additions has the profile's
-        startup directory beside them.
+        ``/etc/skel`` is copied only when an account is created, so a home from an earlier
+        release would start the kernel without SQLMesh. Overwritten, as these are this system's
+        files; a person's own additions belong in the profile's startup directory.
 
         Args:
             account: The Unix account record the server runs as.

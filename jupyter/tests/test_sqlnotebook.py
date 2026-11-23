@@ -53,8 +53,7 @@ def test_a_shipped_model_survives_being_opened_and_saved(path):
 
 @pytest.mark.parametrize("path", MODELS, ids=lambda p: p.name)
 def test_a_shipped_model_opens_as_one_cell(path):
-    """A model is one definition, so it is one cell until somebody splits it. Anything
-    else would mean the markers are being found where they were not written."""
+    """Anything else would mean markers are found where none were written."""
     assert len(to_notebook(path.read_text()).cells) == 1
 
 
@@ -80,30 +79,25 @@ def test_splitting_into_cells_round_trips():
 
 
 def test_a_split_file_is_still_valid_sql():
-    """The markers are SQL comments, which is what lets the engine parse a file somebody
-    has been editing in a notebook."""
+    """The markers are SQL comments, so the engine parses a file edited in a notebook."""
     text = from_notebook(cells(("markdown", "Why this exists."), "SELECT 1"))
     for line in text.splitlines():
         assert line.startswith("--") or not line.strip() or "SELECT" in line
 
 
 def test_prose_lands_where_sqlmesh_reads_a_description():
-    """A markdown cell above the definition becomes the leading comment, which SQLMesh
-    registers as the model's description -- so documentation written in the notebook
-    reaches the documentation pages."""
+    """SQLMesh registers the leading comment as the model's description."""
     text = from_notebook(cells(("markdown", "Revenue per customer."), "MODEL (\n  name a.b\n);"))
     assert text.splitlines()[1] == "-- Revenue per customer."
 
 
 def test_empty_cells_are_dropped():
-    """Jupyter leaves a trailing empty cell behind constantly; each one would otherwise
-    grow the file by a marker per save."""
+    """Jupyter leaves trailing empty cells, which would grow the file on every save."""
     assert from_notebook(cells("SELECT 1", "", "   ")) == "SELECT 1\n"
 
 
 def test_a_blank_notebook_saves_as_an_empty_file():
-    """The launcher creates a model with nothing in it. SQLMesh skips a zero-byte file and
-    parses anything longer, so a lone newline would break the project for every kernel."""
+    """SQLMesh skips a zero-byte file but would fail parsing a lone newline."""
     assert from_notebook(cells("", "   ")) == ""
 
 
@@ -123,8 +117,7 @@ class TestProjectLookup:
         assert find_project() == project
 
     def test_from_the_launcher(self, tmp_path, monkeypatch):
-        """A kernel started from the launcher works in the person's home, outside the
-        workspace; the server's root is the repository and the project one level in."""
+        """A launcher kernel starts in the home directory, outside the workspace."""
         project = self.workspace(tmp_path)
         (tmp_path / "home").mkdir()
         monkeypatch.chdir(tmp_path / "home")
@@ -172,8 +165,7 @@ class TestCellRouting:
         assert self.magic(source) is None
 
     def test_the_cell_itself_is_never_altered(self):
-        """Only a prefix is added: the cell is the model file, so a transformer that
-        rewrote it would rewrite what gets committed."""
+        """The cell is the model file, so rewriting it would rewrite what gets committed."""
         source = "MODEL (\n  name a.b\n);\nSELECT 1\n"
         assert "".join(route(source.splitlines(keepends=True))[1:]) == source
 
@@ -291,8 +283,7 @@ class TestDefaultViewer:
         )
 
     def test_a_model_opens_as_a_jupytext_notebook(self):
-        """The viewer name is jupytext's own; a typo in it fails the same way as a
-        missing file, silently."""
+        """The viewer name is jupytext's own; a typo fails silently like a missing file."""
         viewers = json.loads(self.overrides().read_text())[
             "@jupyterlab/docmanager-extension:plugin"
         ]["defaultViewers"]
@@ -313,9 +304,7 @@ class TestKernel:
         assert spec.language == "sql"
 
     def test_a_model_is_highlighted_as_sql(self):
-        """The kernel is ipykernel and reports Python, so without this the editor treats
-        ``--`` as no comment and ``'`` as a string: an apostrophe in a comment colours the
-        text to the next one, and the SQL below it is highlighted as Python."""
+        """As Python, an apostrophe in a ``--`` comment would colour the SQL below it."""
         info = to_notebook("SELECT 1").metadata.language_info
         assert info.mimetype == "text/x-sql"
 
@@ -332,8 +321,7 @@ class TestKernel:
 
     @pytest.mark.parametrize("path", MODELS, ids=lambda p: p.name)
     def test_the_kernel_never_reaches_the_file(self, path):
-        """Metadata is a property of the view, not of the model: a kernel written into
-        the .sql would put JSON in the file and a diff on every model."""
+        """Kernel metadata in the .sql would add JSON and a diff to every model."""
         original = path.read_text()
         assert "kernelspec" not in from_notebook(to_notebook(original))
 
@@ -366,8 +354,7 @@ class TestPythonModels:
             assert served["content"]["metadata"]["kernelspec"]["name"] == "sqlmesh"
 
     def test_opening_and_saving_a_python_model_changes_nothing(self, tmp_path):
-        """The kernel is a property of the view: written into the .py it would put
-        metadata in the file and a diff on every model."""
+        """Kernel metadata in the .py would put a diff on every model."""
         for path in self.python_models():
             root = tmp_path / path.stem
             manager = self.manager(root)
@@ -514,8 +501,7 @@ class TestColumnExplorer:
         assert isinstance(quak._formatter(pd.DataFrame({"a": [1, 2]})), quak.Widget)
 
     def test_a_series_is_left_alone(self):
-        """It offers quak the Arrow interface and then fails to convert: one column is no
-        struct. Unguarded, displaying one raises instead of rendering."""
+        """It offers the Arrow interface but fails to convert, as a column is no struct."""
         quak = pytest.importorskip("quak")
         pd = pytest.importorskip("pandas")
 
@@ -557,9 +543,11 @@ class TestQuakTheme:
         assert module.rstrip().endswith("};")
 
     def test_it_styles_what_a_stylesheet_cannot_reach(self):
-        """The scroll height is an inline style, and the row hover an inline colour quak
-        writes as var(--light-silver) -- neither is reachable from outside the shadow root,
-        and the class its own stylesheet defines for the hover is never applied."""
+        """Inline styles inside the shadow root are out of reach of a stylesheet.
+
+        quak sets the scroll height inline and the row hover as var(--light-silver); the
+        class its own stylesheet defines for the hover is never applied.
+        """
         themed, quak = self.themed()
         if themed is quak.Widget:
             pytest.skip("quak's bundle no longer ends in a default export")
@@ -608,8 +596,7 @@ class TestKernelLanguage:
         assert self.reported("models/silver/issues.sql", monkeypatch) == "text/x-sql"
 
     def test_a_python_model_stays_python(self, monkeypatch):
-        """One kernel serves whatever is opened, so the language follows the file: a
-        Python model highlighted as SQL is the same bug in reverse."""
+        """One kernel serves every model, so the language follows the file."""
         assert self.reported("models/bronze/c/raw.py", monkeypatch) == "text/x-python"
 
     def test_an_unknown_session_stays_python(self, monkeypatch):
@@ -617,12 +604,10 @@ class TestKernelLanguage:
         assert self.reported("", monkeypatch) == "text/x-python"
 
     def test_the_kernelspec_launches_that_kernel(self):
-        """The spec is what Jupyter runs; a stock ipykernel_launcher there reports
-        Python again and the highlighting reverts.
+        """A stock ipykernel_launcher in the spec would report Python again.
 
-        Read through Jupyter's own lookup rather than from the checkout: in the image only
-        ``tests/`` is mounted, and the installed spec is the one that matters anyway --
-        the Dockerfile rewrites its interpreter path on the way in.
+        Read through Jupyter's lookup, as only ``tests/`` is mounted in the image and the
+        Dockerfile rewrites the installed spec's interpreter path.
         """
         source = Path(__file__).resolve().parents[1] / "kernel" / "kernel.json"
         if source.exists():
@@ -634,8 +619,7 @@ class TestKernelLanguage:
         assert "sqlnotebook.ipkernel" in spec["argv"]
 
     def test_it_is_still_an_ipython_kernel(self):
-        """Cells are Python -- the routing turns a MODEL or a query into a magic, and the
-        language is only what an editor highlights."""
+        """Cells are Python; the language only sets the editor highlighting."""
         from ipykernel.ipkernel import IPythonKernel
 
         from sqlnotebook.ipkernel import SQLKernel

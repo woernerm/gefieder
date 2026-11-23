@@ -54,13 +54,11 @@ class RankTests(TestCase):
         self.assertTrue(may_use_notebooks(user))
 
     def test_an_editor_without_a_database_account_may_not(self):
-        """The rank alone is not enough: the credential is issued on a role that has to
-        exist. Offering a link that then fails to spawn is worse than offering none."""
+        """The credential needs an existing role; a failing link is worse than none."""
         self.assertFalse(may_use_notebooks(make_user("editor", "editor")))
 
     def test_deactivated_editor_may_not(self):
-        """Losing every role in the provider deactivates the account; it must close this
-        door too, not only the admin's."""
+        """Losing every provider role deactivates the account and closes this door too."""
         user = make_user("gone", "editor")
         enrolled(user)
         user.is_active = False
@@ -85,8 +83,7 @@ class CredentialTests(MockedConnectionMixin, TestCase):
     """Rotating the login a notebook server connects with."""
 
     def test_issues_on_the_persons_own_role(self):
-        """There is no second account: the notebook connects as the person, so what a
-        plan creates is owned by them."""
+        """The notebook connects as the person, so what a plan creates is owned by them."""
         user = make_user("editor", "editor")
         record = enrolled(user)
         self.cursor.fetchone.return_value = (None,)
@@ -133,9 +130,10 @@ class WhoamiTests(MockedConnectionMixin, TestCase):
         self.url = reverse("notebooks:whoami")
 
     def test_a_request_through_the_proxy_is_not_answered(self):
-        """A browser reaches this path too, and a page on another site could make one
-        rotate somebody's credential through their cookie. Only the hub, which calls
-        Django directly and so sets no forwarding header, gets an answer."""
+        """Only the hub, which sets no forwarding header, gets an answer.
+
+        Otherwise, a page on another site could rotate somebody's credential via their cookie.
+        """
         enrolled(make_user("editor", "editor"))
         self.client.login(username="editor", password="x")
 
@@ -183,9 +181,7 @@ class WhoamiTests(MockedConnectionMixin, TestCase):
         self.assertTrue(answer["db_password"])
 
     def test_post_without_an_account_explains_itself(self):
-        """Refused before the credential is even attempted, since a database account is
-        half of what may_use_notebooks requires. The hub shows this to the person, so it
-        has to name the next step rather than the rule."""
+        """The hub shows this to the person, so it names the next step."""
         make_user("editor", "editor")
         self.client.login(username="editor", password="x")
 
@@ -274,16 +270,14 @@ class GrafanaTests(TestCase):
         self.assertEqual(self.client.get(self.url)["Cache-Control"], "no-store")
 
     def test_the_answer_names_no_preview_for_an_ordinary_visitor(self):
-        """Absent rather than empty: the proxy's map reads a missing header as production,
-        which is what makes the substitution a no-op for everybody but a reviewer."""
+        """The proxy's map reads a missing header as production, an empty one not."""
         make_user("viewer", "viewer")
         self.client.login(username="viewer", password="x")
 
         self.assertNotIn("X-Preview-Datasource", self.client.get(self.url))
 
     def test_someone_who_owes_a_decision_is_shown_the_version_they_were_asked_about(self):
-        """The data source is named here because this is the one place that knows who is
-        asking; the proxy substitutes its uid into every dashboard on the way out."""
+        """Only this view knows who asks; the proxy puts the uid into every dashboard."""
         user = make_user("jean", "viewer")
         review = Deployment.objects.create(sha="a" * 40, main_sha="a" * 40,
                                            environment=Deployment.PREVIEW)

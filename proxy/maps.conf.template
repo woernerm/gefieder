@@ -32,7 +32,7 @@ map "$visit_is_get:$visit_app" $visit_log {
 }
 
 # One JSON object per visit; escape=json keeps a user-controlled field from breaking it.
-# The session cookie is logged raw -- the log lives on the proxy's own volume -- and the
+# The session cookie is logged raw -- the log is kept on the proxy's own volume -- and the
 # collector hashes it, so the raw value never reaches the database.
 log_format visit_json escape=json
     '{"ts":"$time_iso8601","app":"$visit_app","path":"$uri",'

@@ -440,8 +440,7 @@ class AdminMenuTests(TestCase):
             self.assertNotIn(heading, self.sections)
 
     def test_the_heading_holds_who_may_sign_in(self):
-        """The access token page is not among them: a credential of one's own, reached
-        from the user menu rather than listed as if it were a table to administer."""
+        """The access token page is in the user menu, being no table to administer."""
         self.assertEqual(self.sections["Access"], ["Groups", "Users"])
 
     def test_database_access_has_no_section_of_its_own(self):
@@ -1060,8 +1059,7 @@ class DatabaseAccessSwitchTests(MockedConnectionMixin, TestCase):
         self.assertTrue(page.context["adminform"].form["database_access"].value())
 
     def test_the_switch_is_rendered_as_a_switch(self):
-        """formfield_overrides reach model fields only, so a plain form field would fall
-        back to Django's bare checkbox."""
+        """formfield_overrides reach model fields only, not plain form fields."""
         page = self.client.get(reverse("admin:auth_user_change", args=[self.user.pk]))
         widget = page.context["adminform"].form.fields["database_access"].widget
         self.assertIsInstance(widget, UnfoldBooleanSwitchWidget)

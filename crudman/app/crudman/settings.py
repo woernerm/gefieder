@@ -375,7 +375,7 @@ UNFOLD = {
     "SITE_URL": None,
 
     # The menu behind one's own name at the foot of the sidebar. A dotted path since the
-    # function lives in an app, which cannot be imported while settings are read.
+    # function is defined in an app, which cannot be imported while settings are read.
     "ACCOUNT": {"navigation": "dbusers.admin.account_links"},
 
     # The system's colours, shared with Grafana and the notebooks. Unfold renders these as

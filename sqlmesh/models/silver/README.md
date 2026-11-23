@@ -50,7 +50,7 @@ convention, nothing the database enforces.
 
 Gold models read `silver.*` only and need no changes when projects come and go.
 
-The bronze layer for the example projects lives in `bronze/project_a`, `bronze/project_b`
+The bronze layer for the example projects is in `bronze/project_a`, `bronze/project_b`
 and `bronze/project_c`. There it reads example data from `seeds/` so the pipeline produces
 data out of the box; real projects get their bronze data from views over source schemas
 instead.

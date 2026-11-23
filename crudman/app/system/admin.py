@@ -17,24 +17,16 @@ NOT_ON_BRANCH = "That commit is not on the branch and was not deployed."
 class DeploymentAdmin(ModelAdmin):
     """The models repository's history, and which commit production is running.
 
-    An admin page rather than one of its own: choosing what the engine computes is
-    administration, so it belongs under System and behind the same sign-in, not on the
-    documentation pages that are open from the viewer rank up.
-
-    The changelist is replaced wholesale. A row here records a deployment, but the question
-    the page answers is "which commit shall run", and the commits come from git rather than
-    from this table.
+    Under System, as choosing what the engine computes is administration. The changelist is
+    replaced: the page answers "which commit shall run", and the commits come from git
+    rather than from this table.
     """
 
     def _require_rank(self, request):
         """What both buttons take before they change anything.
 
-        Once rather than in each of them: two copies of a permission check are two
-        chances to change only one. admin_view has already required a signed-in staff
-        account; this is the rank.
-
-        Not django.views.decorators.http.require_POST: these decorators take the request
-        as their first argument, which on a method is self.
+        admin_view has already required a signed-in staff account; this is the rank.
+        django.views.decorators.http.require_POST would take ``self`` as the request.
 
         Raises:
             PermissionDenied: Not a POST, or too low a rank.
@@ -80,9 +72,7 @@ class DeploymentAdmin(ModelAdmin):
     def has_view_permission(self, request, obj=None):
         """Readable by whoever may change what runs, and by nobody else.
 
-        Every rank is staff, so the admin's own check would let a viewer in here. The page
-        exists to move production between versions, and a viewer's business is the data
-        rather than the machinery, so it takes the rank that may change things.
+        Every rank is staff, so the admin's own check would let a viewer in here.
         """
         return request.user.has_perm("system.add_deployment")
 
@@ -139,10 +129,8 @@ class DeploymentAdmin(ModelAdmin):
     def review(self, request):
         """Put a commit up for review and ask the chosen people to decide about it.
 
-        One review at a time: starting another supersedes the one before it, whose
-        approvers are then no longer asked anything. That is what keeps the workflow
-        wordless for a stakeholder -- they sign in and are looking at the thing they were
-        asked about, rather than choosing between several.
+        Starting another review supersedes the one before, so a stakeholder signs in and sees
+        the one version they were asked about.
         """
         self._require_rank(request)
         sha = request.POST.get("sha", "").strip()

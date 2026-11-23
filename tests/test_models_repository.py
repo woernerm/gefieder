@@ -312,7 +312,7 @@ class TestWhoMayReadAndDeploy:
         assert "system/deployment/" not in page
 
     def test_no_clone_address_is_offered_that_nobody_can_reach(self, admin_session):
-        # The default repository lives on this volume alone, reachable from inside the
+        # The default repository exists on this volume alone, reachable from inside the
         # container and nowhere else. A clone command that cannot work is worse than none.
         page = admin_session.get(f"/{CRUDMAN_PATH}/system/deployment/").text
         assert "git clone" not in page

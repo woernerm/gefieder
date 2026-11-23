@@ -37,9 +37,9 @@ SSO_ROLE_GROUP = f"{ROLE_PREFIX}editor"
 def _django(script):
     """Run a snippet inside the crudman container and return what it printed.
 
-    Through uv, the application's dependencies living in its project environment rather
-    than in the first interpreter on PATH. Quietly, because the shell announces the models
-    it imported before running anything.
+    Through uv, as the application's dependencies are in its project environment rather
+    than the first interpreter on PATH. Quietly, as the shell announces the models it
+    imported before running anything.
     """
     return podman(
         "exec", "crudman",
@@ -110,7 +110,7 @@ def browser():
     """A client that follows redirects and keeps cookies, as a browser does.
 
     A sign-in is a chain of redirects between the proxy and the provider, and the session
-    that comes out of it lives in a cookie.
+    that comes out of it is stored in a cookie.
     """
     with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS, trust_env=False,
                       follow_redirects=True, timeout=30) as client:
@@ -118,16 +118,16 @@ def browser():
 
 
 class TestClientSecret:
-    """The client secret is mounted where the provider client lives, even with single
-    sign-on switched off. That it exists as a podman secret is asserted in test_secrets.py.
+    """The client secret is mounted for the provider client, even with SSO switched off.
+
+    That it exists as a podman secret is asserted in test_secrets.py.
     """
 
     def test_the_secret_shall_be_mounted_in_the_admin_panel(self):
         podman("exec", "crudman", "test", "-r", f"/run/secrets/{SECRETS['oidc_client']}")
 
     def test_grafana_shall_not_have_it(self):
-        """Grafana is no provider client: it takes the visitor from the proxy. A secret it
-        cannot use is one more place it could leak from."""
+        """Grafana takes the visitor from the proxy; an unused secret could only leak."""
         result = subprocess.run(
             ["podman", "exec", "grafana", "test", "-e", f"/run/secrets/{SECRETS['oidc_client']}"],
             capture_output=True,
@@ -144,9 +144,7 @@ class TestGrafanaConfiguration:
         assert podman("exec", "grafana", "printenv", "SERVER_NAME").strip() == SERVER_NAME
 
     def test_grafana_shall_have_no_provider_client(self):
-        """The whole generic_oauth block is gone, not merely switched off: with the proxy
-        signing visitors in, a second client would be a second identity for the same
-        person, and a second thing to register with the provider."""
+        """A second client would be a second identity for the same person."""
         config = podman("exec", "grafana", "cat", "/etc/grafana/grafana.ini")
         assert "[auth.generic_oauth]" not in config
         assert "[auth.proxy]" in config

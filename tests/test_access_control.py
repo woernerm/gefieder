@@ -1,8 +1,4 @@
-"""Per-user access control: what each database role may and may not do.
-
-Every role's permissions are spelled out explicitly, both the allowed and the forbidden.
-
-The expected permission matrix (from postgresql/initdb) is:
+"""What each database role may and may not do, per postgresql/initdb.
 
   role     | crudman schema            | silver / gold     | sqlmesh schema | bronze*
   ---------+---------------------------+-------------------+----------------+----------
@@ -11,18 +7,12 @@ The expected permission matrix (from postgresql/initdb) is:
   grafana  | read model tables only    | read-only         | no access**    | read-only
            | (not auth_/django_ ones)  |                   |                |
 
-  ** grafana sees only the schemas it should chart: bronze_<project>, silver and gold (and
-     the crudman model tables). It must NOT see sqlmesh's internals — the state schema
-     (sqlmesh), the per-project staging schema (silver_staging) or the physical schemas
-     behind the virtual layer (sqlmesh__*) — which hold churning, versioned objects. The
-     CREATE SCHEMA event trigger therefore grants grafana read only on bronze_<project>
-     schemas; silver and gold are granted explicitly in initdb.
+  ** Nor silver_staging or the physical schemas behind the virtual layer (sqlmesh__*),
+     which hold churning, versioned objects.
+  * SQLMesh creates a bronze schema when a model first names one, so the checks below
+    create a throwaway one.
 
-  * a bronze schema is created by SQLMesh when a model first names one, so a fresh stack
-    has none and the bronze visibility checks below create a throwaway one directly.
-
-A representative table is seeded into each schema, so the assertions hold regardless of
-what the running apps have created.
+A representative table is seeded into each schema, independent of what the apps created.
 """
 import psycopg2
 import pytest

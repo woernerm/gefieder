@@ -53,27 +53,26 @@ def test_the_route_is_served(http):
 
 
 def test_an_anonymous_visitor_is_sent_to_the_admin_panel_to_sign_in(http_follow):
-    """No second login screen: the hub has no accounts, so the only way in is the sign-in
-    crudman already offers, which with single sign-on on goes to the provider."""
+    """The hub has no accounts, so the only way in is crudman's sign-in."""
     response = http_follow.get(f"/{NOTEBOOK_PATH}/")
     assert f"/{CRUDMAN_PATH}/login/" in str(response.url)
 
 
 def test_whoami_is_not_reachable_through_the_proxy(http):
-    """The path is under the admin panel's, so a browser could otherwise reach it -- and a
-    page on another site could make one rotate somebody's credential with their cookie. It
-    answers the hub, which calls Django directly, and nobody who arrives through nginx."""
+    """Only the hub, which calls Django directly, gets an answer.
+
+    A page on another site could otherwise rotate somebody's credential with their cookie.
+    """
     for request in (http.get, http.post):
         assert request(f"/{CRUDMAN_PATH}/notebooks/whoami/").status_code == 404
 
 
 def test_the_kernel_loads_sqlmesh():
-    """A kernel that starts without the magics looks fine until the first cell fails, so
-    the configuration that loads them is checked rather than assumed.
+    """A kernel without the magics looks fine until the first cell fails.
 
-    ipykernel does not run a profile's startup/ files -- one dropped there is silently
-    never executed -- which is why this goes through exec_files instead, in the file a
-    *kernel* reads: an ipython_config.py beside it is read by the ipython command only."""
+    ipykernel ignores a profile's startup/ files, and an ipython_config.py is read by the
+    ipython command only, so this checks exec_files in the kernel's config.
+    """
     config = podman(
         "exec", "jupyter", "cat",
         "/etc/skel/.ipython/profile_default/ipython_kernel_config.py",
@@ -86,9 +85,7 @@ def test_the_kernel_loads_sqlmesh():
 
 
 def test_the_spawn_environment_carries_the_connection_settings():
-    """A spawned server inherits almost nothing from this container, so what the SQLMesh
-    config needs has to be listed. Missing one is silent: the kernel starts, and the first
-    cell fails with "Context must be defined"."""
+    """A missing variable fails silently: the first cell says "Context must be defined"."""
     config = podman("exec", "jupyter", "cat", "/etc/jupyterhub/jupyterhub_config.py")
     kept = config[config.index("env_keep") : config.index("]", config.index("env_keep"))]
     for name in ("PATH", "SQLMESH_HOST", "SQLMESH_PORT", "SQLMESH_DATABASE"):
@@ -100,9 +97,7 @@ def test_the_spawn_environment_carries_the_connection_settings():
 
 
 def test_a_notebook_connects_as_the_person(crudman_db, person):
-    """The point of the whole arrangement: a table a plan creates in a notebook is owned
-    by the person, exactly as if they had connected from a laptop. There is no second
-    account to assume, so current_user is simply them."""
+    """A table a plan creates in a notebook is owned by the person."""
     with crudman_db.cursor() as cur:
         cur.execute(
             "SELECT issue_db_user_password(%s, %s, %s)",
@@ -139,8 +134,7 @@ def test_the_rank_reaches_a_notebook_session(crudman_db, person):
 
 
 def test_issuing_replaces_the_previous_password(crudman_db, person):
-    """Rotated at every spawn, which is what makes a credential in a process environment
-    acceptable: the previous one stops working."""
+    """Rotation at every spawn makes a credential in a process environment acceptable."""
     with crudman_db.cursor() as cur:
         cur.execute(
             "SELECT issue_db_user_password(%s, %s, %s)", (person, PASSWORD + "-a", "12 hours")
@@ -154,8 +148,7 @@ def test_issuing_replaces_the_previous_password(crudman_db, person):
 
 
 def test_an_expired_password_stops_working(crudman_db, person):
-    """The whole of the expiry: past the deadline PostgreSQL refuses the password, so a
-    credential left in an environment stops being useful without anyone revoking it."""
+    """A credential left in an environment expires without anyone revoking it."""
     with crudman_db.cursor() as cur:
         cur.execute(
             "SELECT issue_db_user_password(%s, %s, %s)",
@@ -179,8 +172,7 @@ def test_the_expiry_is_reported(crudman_db, person):
 
 
 def test_a_service_role_gets_no_password(crudman_db):
-    """A service role's password is a podman secret its container reads at start, so
-    rotating one here would take that component down at its next restart."""
+    """Its container reads the podman secret at start; rotating it would break a restart."""
     with crudman_db.cursor() as cur:
         with pytest.raises(psycopg2.errors.RaiseException):
             cur.execute(
@@ -190,8 +182,7 @@ def test_a_service_role_gets_no_password(crudman_db):
 
 
 def test_an_unprovisioned_role_gets_no_password(crudman_db, admin_db):
-    """Only a role carrying the marker create_db_user grants, so this cannot mint a
-    credential for a role somebody made by hand."""
+    """Only roles marked by create_db_user, never one made by hand."""
     with admin_db.cursor() as cur:
         cur.execute("DROP ROLE IF EXISTS itest_outsider")
         cur.execute("CREATE ROLE itest_outsider LOGIN")
@@ -209,8 +200,7 @@ def test_an_unprovisioned_role_gets_no_password(crudman_db, admin_db):
 
 
 def test_a_disabled_person_gets_no_password(crudman_db, person):
-    """Offboarding takes LOGIN away; issuing must not hand it back, or a token still in
-    somebody's .env would reactivate an account an administrator closed."""
+    """A token left in an .env must not reactivate an account an administrator closed."""
     with crudman_db.cursor() as cur:
         cur.execute("SELECT delete_db_user(%s)", (person,))
         with pytest.raises(psycopg2.errors.RaiseException):

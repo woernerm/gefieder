@@ -10,8 +10,7 @@ ONLINE = timedelta(minutes=5)
 """How long after their last request a person still counts as online.
 
 A dashboard left open refreshes itself and keeps its viewer here; a tab left behind falls
-off the list within minutes rather than staying signed in for the fortnight the session
-lasts.
+off within minutes rather than after the session's two weeks.
 """
 
 RECENT = timedelta(days=7)
@@ -26,11 +25,7 @@ dashboard refreshing every few seconds would be a row update every few seconds.
 
 
 class Presence(models.Model):
-    """When a person was last seen.
-
-    One row per person, overwritten rather than appended: the bar asks who is here now and
-    who was this week, never when everybody was here -- the visit log answers that.
-    """
+    """When a person was last seen; one row per person, overwritten."""
 
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL, primary_key=True, on_delete=models.CASCADE

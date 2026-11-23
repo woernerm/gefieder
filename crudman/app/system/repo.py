@@ -41,7 +41,7 @@ written it yet. Reading it needs no git, so the engine image carries none.
 WORKSPACES = MODELS_DIR / "workspaces"
 """Reserved for working trees people edit in, kept apart from the deployed one.
 
-Deploying a version rewrites ``deployed/`` wholesale. Nobody's uncommitted work may live
+Deploying a version rewrites ``deployed/`` wholesale. Nobody's uncommitted work may be kept
 there, so anything that lets a person edit models on this server gets a tree of its own
 here and reaches production the same way everything else does: by pushing a commit.
 """
@@ -128,13 +128,9 @@ def clone_url() -> str | None:
 def _narrow_unions(work: Path, projects: list[str]) -> None:
     """Leave the harmonizing models unioning only the projects that are present.
 
-    A silver model directly under ``models/silver/`` stacks one branch per project, and a
-    branch reading a project that has not been added yet would fail to parse. So the earlier
-    commits get the same file with the later branches taken out, which is exactly the diff
-    adding a project produces in the other direction.
-
-    Rewritten rather than shipped as variants: the branches are generated from the file the
-    project actually runs, so editing that file cannot leave a stale copy behind.
+    A silver model directly under ``models/silver/`` unions one branch per project, and a
+    branch reading a missing project would fail to parse. Generated from the file the
+    project runs, so no stale copy is left behind.
 
     Args:
         work: The working tree being built.
@@ -229,13 +225,9 @@ def _commit(work: Path, message: str, when) -> None:
 def _seed() -> None:
     """Create the origin repository from the project this release ships.
 
-    Only when REPO_MODELS names a path that does not exist. Shipping the examples is what
-    keeps a fresh installation runnable end to end, and shipping them as one commit per
-    project is what gives the versions page something to move between on the first day.
-
-    Every commit is a project that plans: the harmonizing models are narrowed to the
-    projects each one has, so an earlier version is a smaller working system rather than a
-    broken one.
+    Only when REPO_MODELS names a path that does not exist. One commit per example project
+    gives the versions page something to move between on the first day; each is narrowed
+    to its projects, so an earlier version is a smaller working system.
     """
     origin = Path(ORIGIN)
     git("init", "--bare", f"--initial-branch={BRANCH}", str(origin), cwd=MODELS_DIR)
@@ -268,9 +260,7 @@ def _seed() -> None:
 def _server_env() -> str:
     """What a clone needs to reach this system's database, as sqlmesh/config.py reads it.
 
-    Committed rather than documented, so cloning the repository is the whole setup: a
-    developer adds their password and nothing else. It holds no secret -- an address, a
-    port, a database name and the prefix their role carries.
+    Committed, so cloning is the whole setup apart from the password. It holds no secret.
     """
     return (
         "# Written when this repository was created, so a clone is developable on its own.\n"
@@ -349,18 +339,15 @@ def deployed_sha() -> str | None:
 def log(limit: int = 50) -> list[dict]:
     """The branch's history, newest first.
 
-    The deployed commit is named alongside the branch, so it is listed even when the branch
-    no longer reaches it. A force-push or a rebase on the git host is enough to strand it,
-    and a list of versions that omits the running one is the one thing this page must never
-    do. git deduplicates it when it is on the branch, which is the ordinary case.
+    The deployed commit is listed even when the branch no longer reaches it, e.g. after a
+    force-push, as the versions page must never omit the running one.
 
     Args:
         limit: How many commits to read.
 
     Returns:
         One dict per commit with its sha, author, subject and the moment it was made, as
-        an aware datetime so the page can format it and this can sort by it. Empty before
-        the first clone, so the page renders rather than failing.
+        an aware datetime. Empty before the first clone.
     """
     revisions = [f"origin/{BRANCH}"]
     if deployed := deployed_sha():
@@ -401,12 +388,8 @@ def dependency_mismatch(sha: str) -> str | None:
     """Why this commit cannot run on the engine that is installed, if it cannot.
 
     The engine image resolves its dependencies at build time from the project's
-    pyproject.toml, so a commit that changes that file asks for an environment this
-    release does not have. Checking it out would leave the engine failing on an import
-    with no way back, so the deployment is refused before anything moves.
-
-    Compared against the seed, which is this release's copy of the same file: the two come
-    from one build, so they agree by construction.
+    pyproject.toml, so a commit changing that file would leave the engine failing on an
+    import. Compared against the seed, this release's copy of the same file.
 
     Args:
         sha: The commit to check.
@@ -448,9 +431,8 @@ def is_on_branch(sha: str) -> bool:
 def tree_of(environment: str) -> tuple[Path, Path]:
     """The working tree an environment runs, and the marker naming its commit.
 
-    An environment is a tree and a marker beside it, so a second one costs a directory
-    rather than a mechanism. Production keeps the name it has always had, the engine
-    watching ``deployed.sha``; every other environment is named after itself.
+    Production keeps the name ``deployed.sha`` the engine watches; every other environment
+    is named after itself.
 
     Args:
         environment: The environment name, as ``Deployment.environment`` holds it.
@@ -493,13 +475,12 @@ def checkout(sha: str, environment: str) -> None:
 def deploy(sha, *, environment=None, pinned=False, user=None, main_sha=None):
     """Deploy one commit into an environment and record the attempt.
 
-    The row is what the page reads, so it is created before the working tree is touched
-    and carries the step being worked on. The engine notices the tree has changed on its
-    next pass and advances the row through the rest.
+    The row is created before the working tree is touched, carrying the current step; the
+    engine advances it through the rest.
 
     Args:
         sha: The commit to deploy.
-        environment: Which environment to deploy into; production by default.
+        environment: Which environment to deploy into; None for production.
         pinned: Whether a person chose it rather than the poll.
         user: Who asked, or None for the poll.
         main_sha: Where the branch stood, so the poll knows it has already seen this.
@@ -568,10 +549,8 @@ def poll(user=None):
 def review(sha, approvers, user=None):
     """Put one commit up for review, and ask these people to decide about it.
 
-    The commit is deployed into an environment of its own, which is all a preview is: the
-    engine plans it there, so only what this commit changes is built and every other table
-    stays production's. The people named then read it in place of production until they
-    have answered.
+    The commit is deployed into an environment of its own, where only what it changes is
+    built. The people named read it in place of production until they have answered.
 
     Args:
         sha: The commit to review.

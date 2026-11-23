@@ -32,30 +32,20 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 
-# The environment every notebook server runs in, kept apart from the hub's own: the hub
-# image is Python 3.12 and the SQLMesh project needs 3.13, so uv brings its own interpreter
-# rather than this image dictating one to the models.
+# The environment every notebook server runs in, apart from the hub's: the hub image is
+# Python 3.12 and the SQLMesh project needs 3.13, so uv brings its own interpreter.
 ENV NOTEBOOK_VENV=/opt/notebook
 
-# Where uv puts the interpreter it downloads. Its default is under $HOME, which is /root
-# and unreadable to anyone else, and every notebook server runs as its own Unix user: the
-# venv below symlinks that interpreter, so the spawn fails with "permission denied" on a
-# path nothing in the error names.
+# Where uv puts the interpreter it downloads. Its default under /root is unreadable to the
+# per-person Unix users, whose spawn would fail with "permission denied".
 ENV UV_PYTHON_INSTALL_DIR=/opt/python
 COPY sqlmesh/pyproject.toml /opt/notebook-project/pyproject.toml
 COPY jupyter/requirements.txt /opt/notebook-project/requirements.txt
 
-# SQLMesh from the engine's own pyproject.toml, so a notebook plans with the version
-# production runs -- a difference there would show up as a plan that works in one place and
-# not the other. Lab and its extensions from requirements.txt beside it.
-#
-# jupyterhub itself goes in as well, pinned to the version the base image's hub reports: it
-# provides jupyterhub-singleuser, the server spawned per person, and that has to run in
-# *this* environment because it imports JupyterLab. PATH below puts this environment first,
-# so it is the one the hub finds.
-#
-# From the project directory, because uv pip takes pyproject.toml's [tool.uv] overrides only
-# from there; elsewhere it settles for an older sqlmesh than production's.
+# SQLMesh from the engine's own pyproject.toml, so a notebook plans with production's
+# version; Lab and its extensions from requirements.txt. jupyterhub too, pinned to the base
+# image's hub, as jupyterhub-singleuser imports JupyterLab and must run here. From the
+# project directory, as uv pip reads pyproject.toml's [tool.uv] overrides only there.
 RUN hub_version="$(jupyterhub --version)" \
     && UV_EXTRA_INDEX_URL=${PYTHON_INDEX} uv venv --python 3.13 ${NOTEBOOK_VENV} \
     && cd /opt/notebook-project \
@@ -154,7 +144,7 @@ COPY jupyter/jupyterhub_config.py jupyter/crudman.py jupyter/spawn.py grafana/pa
 COPY jupyter/templates/ /etc/jupyterhub/templates/
 COPY jupyter/entrypoint.sh /jupyter/entrypoint.sh
 
-# So the hub finds the single-user server, which lives in the notebook environment.
+# So the hub finds the single-user server, which is installed in the notebook environment.
 ENV PATH=${NOTEBOOK_VENV}/bin:${PATH}
 
 EXPOSE 8888

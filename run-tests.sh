@@ -119,11 +119,9 @@ PG_PORT=15432
 SFTP_PORT=12222
 FLIGHT_PORT=18815
 
-# The stand-in identity provider the single sign-on tests authenticate against. It runs in
-# the pod, so the services reach it on localhost, and the pod publishes the same port
-# number it listens on: it advertises an issuer built from the address it was asked on, and
-# a sign-in validates only if the browser and the services see one identical URL. 127.0.0.1
-# for the same reason, and because the server crashes on the IPv6 address.
+# The stand-in identity provider for the single sign-on tests. Published on the port it
+# listens on, as it builds its issuer from the address asked, and browser and services must
+# see one identical URL. 127.0.0.1, as the server also crashes on the IPv6 address.
 OIDC_PORT=18099
 OIDC_ISSUER="http://127.0.0.1:${OIDC_PORT}/default"
 OIDC_CLIENT_ID="${APP_NAME}-test"
@@ -174,7 +172,7 @@ mkdir -p "$QUADLET_DIR"
 VOLUMES="$(basename -s .volume quadlets/*.volume)"
 
 # Stop the services and drop the pod, volumes and unit files. Shared by our own teardown
-# and by the removal of a pre-existing deployment, both living under the same names.
+# and by the removal of a pre-existing deployment, as both use the same names.
 remove_deployment() {
   stack_stop="$(date +%s)"
   # In one go, as uninstall.sh does. Quadlet binds every container unit to
@@ -252,16 +250,11 @@ for u in serverstats/server-stats.service serverstats/server-stats.timer; do
   envsubst "$QUADLET_VARS" < "$u" > "$SYSTEMD_USER_DIR/$(basename "$u")"
 done
 install -m 0755 serverstats/collect.sh "$APP_CONFIG_DIR/serverstats/collect.sh"
-# The quadlets read SERVER_NAME and DEBUG from here, so the profile's values are written
-# rather than the repository defaults, which would put the production profile back into
-# DEBUG. The ports likewise: 80/443 would collide with a deployment and be unbindable for a
-# rootless run. Everything else is copied unchanged, "|| true" keeping a file without those
-# keys from aborting under set -e.
-#
-# The single sign-on settings point at the stand-in provider but arrive switched off, the
-# state every installation runs in; the sign-in tests turn OIDC_ENABLED on themselves.
-# ERROR_LOGGING_PROBE adds the route test_logs.py makes the server raise on, set only here
-# so no deployment serves it.
+# The profile's SERVER_NAME and DEBUG and the isolated ports replace the repository
+# defaults; everything else is copied, "|| true" keeping a file without those keys from
+# aborting under set -e. Single sign-on points at the stand-in provider but starts off, as
+# in every installation; the sign-in tests turn it on. ERROR_LOGGING_PROBE adds the route
+# test_logs.py makes the server raise on.
 {
   echo "SERVER_NAME=${SERVER_NAME}"
   echo "DEBUG=${DEBUG}"
@@ -275,9 +268,6 @@ install -m 0755 serverstats/collect.sh "$APP_CONFIG_DIR/serverstats/collect.sh"
   echo "FLIGHT_PORT=${FLIGHT_PORT}"
   echo "OIDC_ENABLED=false"
   echo "OIDC_ISSUER=${OIDC_ISSUER}"
-  echo "OIDC_AUTH_URL=${OIDC_ISSUER}/authorize"
-  echo "OIDC_TOKEN_URL=${OIDC_ISSUER}/token"
-  echo "OIDC_USERINFO_URL=${OIDC_ISSUER}/userinfo"
   echo "OIDC_LOGOUT_URL=${OIDC_ISSUER}/endsession"
   echo "OIDC_CLIENT_ID=${OIDC_CLIENT_ID}"
   grep -v -e '^SERVER_NAME=' -e '^DEBUG=' -e '^OIDC_' -e '^HTTP_PORT=' \
@@ -318,18 +308,11 @@ for u in $UNITS; do
 done
 
 # --- the stand-in identity provider ---------------------------------------------------
-# A throwaway OpenID Connect server, so a sign-in can be tested end to end without a real
-# directory. It joins the pod rather than taking a network of its own, which puts it on the
-# localhost the services already use.
-#
-# interactiveLogin false makes it usable from a test: the authorization endpoint answers
-# with the redirect instead of a login form. "roles" is what an Entra ID app role arrives
-# in, and Editor is the middle rank, so both a granted and a withheld permission can be
-# asserted.
-#
-# The mapping is keyed on grant_type because it is matched against the token request, not
-# the code request: a parameter appearing only on the latter never matches, and the claims
-# are silently left out.
+# A throwaway OpenID Connect server in the pod, so a sign-in can be tested end to end.
+# interactiveLogin false answers the authorization request with the redirect instead of a
+# form. "roles" is where an Entra ID app role arrives, and Editor is the middle rank, so
+# both granted and withheld permissions can be asserted. The mapping is keyed on grant_type,
+# as it is matched against the token request; other keys silently drop the claims.
 printf '  %-12s ' "identity"
 podman run -d --pod "$APP_NAME" --name mock-oidc \
   -e SERVER_PORT="$OIDC_PORT" \
@@ -387,13 +370,9 @@ export TEST_SQLMESH_PASSWORD="$SQLMESH_PASSWORD"
 export TEST_SERVER_STATS_SCHEMA="${SERVER_STATS_SCHEMA:-server_stats}"
 export TEST_COLLECTOR="$APP_CONFIG_DIR/serverstats/collect.sh"
 
-# The application logic the integration suite only sees from outside. Run first, in a
-# throwaway container from the crudman image, so a broken pipeline fails here rather than
-# as a puzzling HTTP result and against the dependencies the deployment ships.
-#
-# Django's test runner creates and drops its own test_<db> database, needing the CREATEDB
-# the deployed crudman role deliberately lacks -- hence the superuser connection, its
-# password mounted where settings.py reads the database password from.
+# The crudman unit tests, first, in a throwaway container from the crudman image, so a
+# broken pipeline fails here rather than as a puzzling HTTP result. As the superuser, as
+# Django's test runner needs the CREATEDB the crudman role lacks.
 echo "Running the crudman unit tests ..."
 UNIT_SECRET_DIR="$(make_tempdir)"
 podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_PG_SUPERUSER_PASSWORD" \

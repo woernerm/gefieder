@@ -1,9 +1,8 @@
 """The configuration of each person's own JupyterLab server.
 
-One thing it settles: that a .sql model opens as a notebook. The rest of JupyterLab is
-left at its defaults, which is the point -- a person who knows Jupyter knows this --
-except for the menus requirements.md lists under "What was taken out of JupyterLab",
-which are switched off in overrides/ and labconfig/ beside this file.
+Makes a .sql model open as a notebook. The rest of JupyterLab keeps its defaults, except
+for the menus requirements.md lists under "What was taken out of JupyterLab", switched
+off in overrides/ and labconfig/.
 """
 c = get_config()  # noqa: F821 -- Jupyter injects this into the file's namespace.
 

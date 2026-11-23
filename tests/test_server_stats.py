@@ -232,7 +232,7 @@ class TestHostCollector:
         assert tables > 0, "no table statistics were snapshotted"
 
     def test_the_statement_text_shall_be_stored_once_per_query(self, admin_db, probed):
-        # The text lives in query_dim, keyed by queryid, so it is written once however
+        # The text is stored in query_dim, keyed by queryid, so it is written once however
         # many samples a statement accumulates.
         with admin_db.cursor() as cur:
             texts = q(cur, f'SELECT count(*) FROM {SERVER_STATS_SCHEMA}.query_dim')[0]

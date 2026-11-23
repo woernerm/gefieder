@@ -4,7 +4,7 @@
 # Lab layout. The hub's sqlite database beside it records who has signed in and which
 # servers are running.
 #
-# Nothing here is the only copy of anything: the work lives in the workspaces on
+# Nothing here is the only copy of anything: the work is kept in the workspaces on
 # models_data, and what matters has been pushed. Removing this volume costs a re-login.
 [Volume]
 VolumeName=jupyter_data

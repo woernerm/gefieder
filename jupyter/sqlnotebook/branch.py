@@ -1,15 +1,8 @@
 """Keeping the deploying branch clean by moving a first edit onto one of its own.
 
-``main`` is the one branch crudman deploys (``crudman/app/system/repo.py``), so work that
-is still being written must not sit on it. The lever could have been a disabled Save
-button, but a person with unsaved edits and no way to save them has lost work, and Lab
-saves through checkpoints and autosave as well as through the button -- several doors to
-bolt, each of which strands the same person.
-
-So nothing is forbidden. The first save while on ``main`` creates a branch and lands there,
-and every later save is an ordinary save on the branch the person is already on. The git
-panel shows where they ended up, which teaches the arrangement better than a modal, and
-their workspace holds the branch and its uncommitted edits until they come back to it.
+``main`` is the one branch crudman deploys. Disabling saves would lose work, and Lab saves
+through checkpoints and autosave as well as the button. So the first save while on
+``main`` creates a branch and lands there; the git panel shows where.
 """
 import os
 import re
@@ -72,14 +65,13 @@ def _repository(path: Path) -> Path | None:
 def _name_for(path: Path) -> str:
     """The branch name a first save of this file earns.
 
-    Named after the file rather than the hour: a branch called ``silver-effort-rollup`` is
-    one its author recognises in the panel's list a week later, and a timestamp is not.
+    Named after the file, which its author recognises in the branch list a week later.
 
     Args:
         path: The file being saved.
 
     Returns:
-        The slug, which is the file's stem reduced to what git and a reader both accept.
+        The file's stem, reduced to what git and a reader both accept.
     """
     slug = re.sub(r"[^a-z0-9]+", "-", path.stem.lower()).strip("-")
     return slug or FALLBACK
@@ -88,9 +80,8 @@ def _name_for(path: Path) -> str:
 def _unique(name: str, root: Path) -> str:
     """The first unused branch name from ``name``, counting up.
 
-    Editing the same model in two sittings is ordinary, and the second must not fail on
-    the first one's branch nor silently continue it -- the earlier work may be finished
-    and pushed.
+    A second sitting on the same model must neither fail nor continue the first branch,
+    which may be finished and pushed.
 
     Args:
         name: The wanted name.
@@ -108,14 +99,9 @@ def _unique(name: str, root: Path) -> str:
 def switch_off_main(path: str | Path) -> None:
     """Move a workspace off ``main`` before a file in it is written.
 
-    Called from the contents manager for every save, which is the one place every door
-    into a file -- the button, autosave, a checkpoint, Save As -- passes through.
-
-    Failures are swallowed on purpose. Every one of them means the save goes to ``main``
-    instead of a branch, which is untidy; raising instead would mean the save does not
-    happen at all, which loses the person's work. The workspace is a clone with no
-    protected branch, so nothing downstream is at risk: deployment reads the origin, and
-    reaching it still takes a deliberate push.
+    Called from the contents manager for every save. Failures are swallowed: the save then
+    goes to ``main``, which is untidy, whereas raising would lose the person's work. Reaching
+    the origin still takes a deliberate push.
 
     Args:
         path: The file about to be written, as an absolute path.

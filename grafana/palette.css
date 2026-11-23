@@ -1,18 +1,12 @@
-/* The colours every application in this system is themed with, so the three of them --
-   Grafana, the admin panel and the notebooks -- read as one. Grafana's own dark and light
-   themes, transcribed: Grafana's chrome cannot be recoloured without an Enterprise licence,
-   so it is the fixed point the other two follow. It lives here to say where the values
-   came from; Grafana itself never reads it -- the admin and notebook images copy it in.
+/* The colours shared by Grafana, the admin panel and the notebooks: Grafana's own dark and
+   light themes, transcribed, as Grafana cannot be recoloured without an Enterprise licence.
+   Kept here to say where the values came from; only the admin and notebook images read it.
 
-   Values matched to Grafana 13.3.1 (packages/grafana-data, createColors). Written from
-   observation of the rendered theme, not copied from its source, and unlikely to move
-   between minor releases; check against the version in grafana/Dockerfile after a major
-   upgrade.
+   Matched to Grafana 13.3.1 (packages/grafana-data, createColors) by observation; check
+   against the version in grafana/Dockerfile after a major upgrade.
 
-   Both modes are spelled out with a mode in the name rather than switched by a selector:
-   each application signals light and dark its own way (a class on <html>, a Bootstrap
-   attribute, a JupyterLab body attribute), so the switch belongs in each one's adapter,
-   which maps its framework's variables onto these under its own selectors. */
+   Both modes carry the mode in their names, as each application signals light and dark its
+   own way; each one's adapter maps its variables onto these under its own selectors. */
 :root {
     /* Dark: the greys Grafana calls gray05 through gray25, and its "whiteBase" text. */
     --app-dark-bg-0: #111217;             /* the page canvas */
@@ -62,12 +56,9 @@
     --app-light-error: #e0226e;
     --app-light-error-text: #cf0e5b;
 
-    /* The greys themselves, the ramp the two sets above are picked from: Grafana's
-       gray05 to gray100 as of 13.2, opaque and evenly stepped (13.3 no longer names the
-       ramp; its ends are still the theme colours above). For a framework that wants a
-       lightness scale rather than named roles -- Tailwind's base-50 to base-950 in the
-       admin panel -- because a role like "secondary text" is translucent and mode-bound,
-       and a scale step is read as a border in one mode and as text in the other. */
+    /* Grafana's grey ramp, gray05 to gray100 as of 13.2 (13.3 no longer names it), which
+       the sets above are picked from. For frameworks wanting a lightness scale rather than
+       roles, such as Tailwind's base-50 to base-950 in the admin panel. */
     --app-gray-05: #111217;
     --app-gray-10: #181b1f;
     --app-gray-15: #22252b;
@@ -89,9 +80,8 @@
     --app-gray-95: #f4f5f5;
     --app-gray-100: #fbfbfb;
 
-    /* The one typeface, so a heading in one application is a heading in the next. Inter
-       is what Grafana and Unfold both ship; the notebooks fall through to the system UI
-       font, which is what JupyterLab does on its own. */
+    /* The one typeface: Inter, which Grafana and Unfold ship; the notebooks fall through
+       to the system UI font, as JupyterLab does on its own. */
     --app-font: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
         Arial, sans-serif;
     --app-font-mono: "Roboto Mono", Menlo, Monaco, Consolas, "Courier New", monospace;

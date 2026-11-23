@@ -139,8 +139,7 @@ class MissingExportTest(TestCase):
         self.assertEqual(views.documentation(), DOCS)
 
     def test_a_version_under_review_is_described_to_the_people_asked_about_it(self):
-        """They read that version everywhere else, so describing production to them would
-        describe something other than what their dashboards show."""
+        """Their dashboards show that version, so production's description would mislead."""
         Deployment.objects.create(
             sha="b" * 40, main_sha="b" * 40, status=Deployment.SUCCEEDED, docs=DOCS
         )

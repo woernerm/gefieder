@@ -99,7 +99,7 @@ BEGIN
                    END AS base
             FROM public.production_schema
             -- Everything SQLMesh keeps for itself, and the catalogs. "public" as well:
-            -- it is where this function lives, and importing over it would delete it.
+            -- this function is defined there, and importing over it would delete it.
             WHERE nspname NOT LIKE 'pg\_%'
               AND nspname NOT LIKE 'sqlmesh%'
               AND nspname NOT IN ('information_schema', 'public')
