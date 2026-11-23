@@ -1,0 +1,9 @@
+# What working in a notebook produces and no models repository should carry. A global
+# ignore file, so the repository's own .gitignore stays the one this system ships and a
+# clone is not edited to make the notebooks usable.
+.ipynb_checkpoints/
+.virtual_documents/
+__pycache__/
+.cache/
+logs/
+.env

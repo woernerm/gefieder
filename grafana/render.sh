@@ -28,7 +28,13 @@ here="$(dirname "$0")"
 # init scripts. The two SECRET_* names are the files the passwords are read from at
 # runtime; only the name is substituted, the $__file{} around it being Grafana's.
 # GRAFANA_PATH and MCP_PATH are the two paths the AI-assistant dashboard spells out.
-VARS='${APP_NAME} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${GRAFANA_DB_USER} ${SECRET_GRAFANA_PASSWORD} ${SECRET_OIDC_CLIENT} ${GRAFANA_PATH} ${MCP_PATH}'
+#
+# POSTGRES_VERSION is the one not from buildtime.env: the data source's postgresVersion
+# (19 -> 1900), read from the image postgresql/Dockerfile builds on, so a PostgreSQL
+# upgrade cannot leave Grafana describing the last one.
+POSTGRES_VERSION="$(sed -n 's|^FROM .*/postgres:\([0-9][0-9]*\).*|\100|p' "$here/../postgresql/Dockerfile")"
+export POSTGRES_VERSION
+VARS='${APP_NAME} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${GRAFANA_DB_USER} ${SECRET_GRAFANA_PASSWORD} ${GRAFANA_PATH} ${MCP_PATH} ${CRUDMAN_PATH} ${POSTGRES_VERSION}'
 
 # The Readme.md explaining this folder is for the repository, not the image, and its prose
 # shows the ${...} syntax literally.

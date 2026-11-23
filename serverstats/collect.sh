@@ -60,8 +60,8 @@ due() {
 }
 
 # psql inside the postgresql container, as the superuser. Required rather than defaulted:
-# the superuser is created under SUPERUSER_NAME, so a hardcoded fallback would fit only a
-# deployment that kept it.
+# the superuser role is created under PG_SUPERUSER_ROLE, so a hardcoded fallback would fit
+# only a deployment that kept it.
 POSTGRES_USER="${POSTGRES_USER:?POSTGRES_USER must be set to the database superuser name}"
 psql_exec() {
     podman exec -i "$CONTAINER" \
@@ -155,7 +155,7 @@ SQL
 # collector only triggers it at the cadence.
 if due "serverstats-query-probe" "$QUERY_PROBE_SECONDS"; then
 psql_exec <<SQL
--- One transaction, so the staged snapshot below lives across the three statements that
+-- One transaction, so the staged snapshot below persists across the three statements that
 -- read it (ON COMMIT DROP) and all three see the same instant.
 BEGIN;
 

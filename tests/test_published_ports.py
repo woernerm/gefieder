@@ -14,14 +14,13 @@ That the ports work is covered by the rest of the suite; these are the static ch
 a *changed* port would not be quietly ignored.
 """
 import re
-from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
+from conftest import REPO, allowlisted, declared
 
 POD = (REPO / "quadlets" / "main.pod").read_text()
 
-# The envsubst allowlists that render the quadlets, in both places carrying a copy.
-ALLOWLIST_SCRIPTS = ["run-tests.sh", ".github/workflows/publish.yml"]
+# The envsubst allowlist that renders the quadlets.
+ALLOWLIST_SCRIPTS = ["build-lib.sh"]
 
 
 def pod_port_tokens():
@@ -31,27 +30,13 @@ def pod_port_tokens():
     return set(re.findall(r"\$\{([A-Z_][A-Z0-9_]*)\}", "\n".join(lines)))
 
 
-def runtime_settings():
-    """The names declared in runtime.env."""
-    text = (REPO / "runtime.env").read_text()
-    return set(re.findall(r"^([A-Z_][A-Z0-9_]*)=", text, re.MULTILINE))
-
-
-def allowlisted(script):
-    """The names in a VARS='${A} ${B}' envsubst allowlist."""
-    text = (REPO / script).read_text()
-    line = re.search(r"^\s*VARS='([^']*)'", text, re.MULTILINE)
-    assert line, f"{script} has no VARS allowlist"
-    return set(re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", line.group(1)))
-
-
 def test_the_pod_shall_publish_its_ports_by_variable():
     # A literal port would mean editing the installed unit file to move one.
     assert pod_port_tokens(), "main.pod publishes literal ports, not runtime.env settings"
 
 
 def test_every_published_port_shall_be_declared_in_runtime_env():
-    missing = pod_port_tokens() - runtime_settings()
+    missing = pod_port_tokens() - declared("runtime.env")
     assert not missing, f"main.pod expands settings runtime.env does not declare: {sorted(missing)}"
 
 
@@ -88,3 +73,38 @@ def test_the_dropzone_healthchecks_shall_follow_their_port():
         assert probes, f"{svc}.container has no healthcheck"
         for probe in probes:
             assert var in probe, f"{svc}.container probes a literal port: {probe}"
+
+
+# --- the ports inside the pod ------------------------------------------------------------
+# Not published, and so not a runtime setting: the containers share one network namespace,
+# which means one set of ports for all of them, and two services claiming the same one fail
+# only at start. That is how the notebook proxy's default (8001) met the Grafana MCP server.
+
+IN_POD_PORTS = {
+    "postgresql": {5432},
+    "crudman": {8000},
+    "grafana": {3000},
+    "grafana_mcp": {8001},
+    # The hub, the server it binds for browsers, and the API of the routing proxy it spawns.
+    "jupyter": {8081, 8082, 8888},
+    # nginx, which is what the pod publishes.
+    "proxy": {80, 443},
+}
+"""Who listens on what inside the pod, as the configuration files set it."""
+
+
+def test_no_two_services_shall_claim_the_same_port_in_the_pod():
+    seen = {}
+    for service, ports in IN_POD_PORTS.items():
+        for port in ports:
+            assert port not in seen, (
+                f"{service} and {seen[port]} both listen on {port} inside the pod"
+            )
+            seen[port] = service
+
+
+def test_the_notebook_ports_shall_be_the_ones_configured():
+    """The list above is only worth having if it still describes the configuration."""
+    config = (REPO / "jupyter" / "jupyterhub_config.py").read_text()
+    for port in IN_POD_PORTS["jupyter"]:
+        assert f"127.0.0.1:{port}" in config, f"the hub no longer binds {port}"

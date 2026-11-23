@@ -62,6 +62,11 @@ uv run --project /crudman python manage.py collectstatic --noinput
 
 # Not "manage.py createsuperuser", which fails once the user exists, i.e. on every
 # restart. Updating instead also makes rotating the secret rotate the password.
+#
+# The password is set only when the secret differs from it: Django ties a session to
+# the password hash, so setting it -- even to the same value, which salts anew -- signs
+# the admin out of every browser, and of Grafana and the notebooks with it, on every
+# restart.
 uv run --project /crudman python manage.py shell -c "
 import os
 from pathlib import Path
@@ -70,12 +75,28 @@ from django.contrib.auth import get_user_model
 user, _ = get_user_model().objects.get_or_create(username=os.environ.get('SUPERUSER_NAME', 'admin'))
 user.is_staff = user.is_superuser = True
 user.email = os.environ.get('SUPERUSER_EMAIL', '')
-user.set_password(
+password = (
     Path('/run/secrets', os.environ.get('SECRET_SUPERUSER_PASSWORD', 'superuser_password'))
     .read_text().strip()
 )
+if not user.check_password(password):
+    user.set_password(password)
 user.save()
 "
+
+# The models repository: create or clone it and check the deployed commit out, before
+# gunicorn binds. The engine waits for that tree, so doing it here rather than in the loop
+# below is what lets a cold start come up in one pass.
+#
+# Not fatal. A git host that is unreachable right now must not cost the whole admin panel;
+# the loop retries and the versions page says what happened.
+uv run --project /crudman python manage.py deploy_models \
+  || echo "The models could not be deployed; the versions page has the reason." >&2
+
+# Then on a loop, which is what makes a push to the models repository reach production
+# without anyone logging in here. A child of the container's init, so it goes away with the
+# container; MODELS_POLL_INTERVAL=0 turns it into an immediate exit.
+uv run --project /crudman python manage.py deploy_models --loop &
 
 # gunicorn ships its access log off; "--access-logfile -" turns it on and points both logs
 # at the stream journald captures, so a reported error can be tied to its request.

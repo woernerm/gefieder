@@ -1,12 +1,9 @@
 """Export the SQLMesh project's documentation as JSON, for crudman to render.
 
-Runs at image build time: loading a Context parses the project files and needs no
-connection. What ships is plain text only, the structure rather than its presentation, so
-the same file can feed the docs pages and later an MCP server.
-
-Descriptions come from the models themselves: SQLMesh reads the comment block above a
-MODEL() statement as its description and the inline comments on the projections as the
-column descriptions.
+Run by the engine after a plan; loading a Context parses the project files and needs no
+connection. Descriptions come from the models: SQLMesh reads the comment block above
+MODEL() as the model's description and the projections' inline comments as column
+descriptions.
 """
 
 import json
@@ -36,15 +33,15 @@ def _model_name(reference: str) -> str:
     return f"{table.db}.{table.name}" if table.db else table.name
 
 
-def _layer_and_tenant(model) -> tuple[str | None, str | None]:
+def _layer_and_project(model) -> tuple[str | None, str | None]:
     """Where a model sits in the medallion architecture, read from its path.
 
     Args:
         model: The loaded SQLMesh model.
 
     Returns:
-        The layer name and the tenant folder below it, either None when the model does
-        not live under models/<layer>/ -- an external model, say.
+        The layer name and the project folder below it, either None when the model is
+        not under models/<layer>/ -- an external model, say.
     """
     path = getattr(model, "_path", None)
     if path is None:  # A model defined outside a file, e.g. one loaded from state.
@@ -54,7 +51,7 @@ def _layer_and_tenant(model) -> tuple[str | None, str | None]:
     for index, part in enumerate(parts):
         if part in LAYERS:
             rest = parts[index + 1 :]
-            # A file directly in the layer folder belongs to no single tenant.
+            # A file directly in the layer folder belongs to no single project.
             return part, rest[0] if len(rest) > 1 else None
     return None, None
 
@@ -62,27 +59,24 @@ def _layer_and_tenant(model) -> tuple[str | None, str | None]:
 def model_entry(model, dialect: str) -> dict:
     """One model's documentation, as plain text.
 
+    ``include_python`` drops the source of the macros a model calls, while a Python model
+    keeps its own function; ``render_query`` expands the macro calls into the SQL SQLMesh runs.
+
     Args:
         model: The loaded SQLMesh model.
         dialect: The SQL dialect the definition is rendered in.
 
     Returns:
-        The fields the docs pages show. Rendering the definition rather than reading the
-        file gives the statement SQLMesh runs, formatted the same way for every model.
-
-        ``include_python`` drops the source of the macros a model merely calls, which
-        would bury the model itself; a Python model overrides the flag and keeps its own
-        function. ``render_query`` then expands the macro calls, so the SQL shown is what
-        SQLMesh would run rather than the ``@macro()`` standing in for it.
+        The fields the docs pages show.
     """
-    layer, tenant = _layer_and_tenant(model)
+    layer, project = _layer_and_project(model)
     columns = model.columns_to_types or {}
     descriptions = model.column_descriptions or {}
 
     return {
         "name": model.name,
         "layer": layer,
-        "tenant": tenant,
+        "project": project,
         "description": model.description or "",
         "kind": model.kind.name,
         "cron": model.cron,

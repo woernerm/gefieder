@@ -3,7 +3,7 @@
 -- the current state; Jira calls it the changelog.
 --
 -- A SEED like the other example models, so the pipeline has data without an external
--- source. The column names are the tenant's own, as always in bronze.
+-- source. The column names are the project's own, as always in bronze.
 --
 -- The uniqueness audit is not decoration: silver joins this with @temporal_join, which
 -- reads the row in effect at a point in time, and two rows sharing a timestamp would make
@@ -19,6 +19,10 @@ MODEL (
     status TEXT,
     story_points INTEGER,
     component_key TEXT
+  ),
+  column_descriptions (
+    changed_at = 'The day this row took effect; it holds until the next row of the issue.',
+    component_key = 'The component the issue was filed against at that time.'
   ),
   grain (issue_key, changed_at),
   audits (unique_combination_of_columns(columns := (issue_key, changed_at)))

@@ -5,9 +5,8 @@ from django.db import models
 class DatabaseUser(models.Model):
     """A person's own PostgreSQL login role.
 
-    Unlike ``Tenant``, a real table rather than a cache over the catalog: only this row
-    records which Django account a role belongs to. The credential is deliberately absent,
-    so a lost password is re-provisioned rather than recovered.
+    Only this row records which Django account a role belongs to. The credential is
+    deliberately absent, so a lost password is re-provisioned rather than recovered.
     """
 
     # The Django account decides who exists and what rank they hold; deleting it takes
@@ -47,13 +46,16 @@ class DatabaseUser(models.Model):
         help_text="Disabled roles keep everything they own but cannot connect.",
     )
 
-    # An administrator enrolls someone, but the credential is generated on that person's
-    # next sign-in and shown to them alone. Until then the role cannot connect.
-    awaiting_credential = models.BooleanField(
-        "awaiting credential",
-        default=True,
+    # What a developer's checkout uses to fetch a short-lived password, so a laptop never
+    # stores the sign-in that administers the system. Cleared, i.e. revoked, when database
+    # access is switched off.
+    token = models.CharField(
+        "access token",
+        max_length=64,
+        blank=True,
+        default="",
         editable=False,
-        help_text="The password is issued on the user's next sign-in, once, to them.",
+        help_text="Authenticates a developer's checkout when it fetches a password.",
     )
 
     provisioned_on = models.DateTimeField("provisioned", auto_now=True)
@@ -65,3 +67,20 @@ class DatabaseUser(models.Model):
 
     def __str__(self):
         return self.role_name
+
+
+class AccessToken(DatabaseUser):
+    """The token page, as a model so the admin serves it.
+
+    A proxy of DatabaseUser rather than a table of its own: the token is a field on that
+    row, and this exists only to give the page an address behind the admin's sign-in. Its
+    changelist is replaced by the page a person creates their own token on.
+    """
+
+    class Meta:
+        proxy = True
+        # From when the page was listed under Access. Only the address depends on it now,
+        # and moving a proxy to another label costs a migration.
+        app_label = "auth"
+        verbose_name = "access token"
+        verbose_name_plural = "Access token"

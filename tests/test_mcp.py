@@ -3,8 +3,8 @@
 The server holds no Grafana credential of its own. Every call carries the caller's own --
 a service-account token in Authorization, or the session cookie a signed-in browser holds
 -- which the server copies onto the Grafana API requests it makes (GRAFANA_FORWARD_HEADERS
-in quadlets/mcp.container). So Grafana decides what a call may do, and an Admin, an Editor
-and a Viewer differ here exactly as they do in the user interface.
+in quadlets/grafana_mcp.container). So Grafana decides what a call may do, and an Admin,
+an Editor and a Viewer differ here exactly as they do in the user interface.
 
 That is the property worth testing, because the alternative configuration -- one shared
 service-account token in the server's environment -- looks identical until someone without
@@ -18,7 +18,7 @@ import uuid
 import httpx
 import pytest
 
-from conftest import BASE_URL, GRAFANA_PATH, MCP_PATH, SUPERUSER_NAME, SUPERUSER_PASSWORD, VERIFY_TLS
+from conftest import BASE_URL, MCP_PATH, SUPERUSER_NAME, VERIFY_TLS
 
 # The endpoint the streamable-http transport serves, below the prefix the proxy strips.
 MCP_URL = f"{BASE_URL}/{MCP_PATH}/mcp"
@@ -48,19 +48,21 @@ def parse_rpc(response):
 
 
 class McpClient:
-    """One MCP session, authenticated as whoever the token belongs to.
+    """One MCP conversation, authenticated as whoever the token belongs to.
 
-    A session is opened by the initialize handshake and named by the Mcp-Session-Id the
-    server returns; every later call carries it back.
+    Opened by the initialize handshake. A server that keeps session state names it with an
+    Mcp-Session-Id and every later call carries that back; this one keeps none and returns
+    no id, which the specification allows and which changes nothing about the calls.
     """
 
-    def __init__(self, token=None, cookies=None):
+    def __init__(self, token=None, cookies=None, headers=None):
         self.token = token
         self.cookies = cookies or {}
+        self.extra_headers = headers or {}
         self.session_id = None
 
     def _headers(self):
-        headers = {"Content-Type": "application/json", "Accept": ACCEPT}
+        headers = {"Content-Type": "application/json", "Accept": ACCEPT, **self.extra_headers}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         if self.session_id:
@@ -81,9 +83,12 @@ class McpClient:
         assert response.status_code == 200, (
             f"the mcp handshake failed: {response.status_code} {response.text[:200]}"
         )
+        # Optional by the specification: a server "MAY assign a session ID at
+        # initialization time", and a client carries one back only if it was given one.
+        # This server keeps no session state and returns none, which is why the id is
+        # read rather than required -- asserting it would test the server's choice
+        # rather than anything this system relies on.
         self.session_id = response.headers.get("Mcp-Session-Id")
-        assert self.session_id, "the server returned no Mcp-Session-Id"
-        # Without it the server considers the handshake unfinished and refuses calls.
         self._post({"jsonrpc": "2.0", "method": "notifications/initialized"})
         return parse_rpc(response)["result"]
 
@@ -105,15 +110,6 @@ class McpClient:
         result = reply["result"]
         text = "".join(part.get("text", "") for part in result.get("content", []))
         return text, result.get("isError", False)
-
-
-@pytest.fixture(scope="module")
-def grafana_api():
-    """Grafana's API as the admin, used to mint the tokens the MCP calls then carry."""
-    with httpx.Client(base_url=f"{BASE_URL}/{GRAFANA_PATH}", verify=VERIFY_TLS,
-                      auth=(SUPERUSER_NAME, SUPERUSER_PASSWORD),
-                      follow_redirects=True, timeout=30) as client:
-        yield client
 
 
 def service_account_token(grafana_api, role):
@@ -255,6 +251,20 @@ class TestPermissionsFollowTheCaller:
         assert is_error, (
             f"an unauthenticated call reached Grafana anyway: {text[:300]} -- the server "
             "has a credential of its own, which would give every caller its rights"
+        )
+        assert "401" in text, f"expected Grafana's 401, got: {text[:300]}"
+
+    def test_a_forged_identity_header_shall_be_refused_too(self):
+        """Grafana trusts X-WEBAUTH-USER from the loopback, where this server calls from.
+
+        Were the header forwarded, a call without a token would arrive as whoever it named.
+        """
+        client = McpClient(headers={"X-WEBAUTH-USER": SUPERUSER_NAME})
+        client.initialize()
+        text, is_error = client.call("user_info")
+        assert is_error, (
+            f"a forged identity header was honoured: {text[:300]} -- the proxy must strip "
+            "X-WEBAUTH-USER on the MCP location"
         )
         assert "401" in text, f"expected Grafana's 401, got: {text[:300]}"
 

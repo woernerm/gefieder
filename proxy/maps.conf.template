@@ -32,13 +32,40 @@ map "$visit_is_get:$visit_app" $visit_log {
 }
 
 # One JSON object per visit; escape=json keeps a user-controlled field from breaking it.
-# The session cookie is logged raw -- the log lives on the proxy's own volume -- and the
+# The session cookie is logged raw -- the log is kept on the proxy's own volume -- and the
 # collector hashes it, so the raw value never reaches the database.
 log_format visit_json escape=json
     '{"ts":"$time_iso8601","app":"$visit_app","path":"$uri",'
     '"status":$status,"ip":"$remote_addr","xff":"$http_x_forwarded_for",'
     '"ua":"$http_user_agent",'
     '"grafana_session":"$cookie_grafana_session","crudman_session":"$cookie_sessionid"}';
+
+# --- the shell around every page --------------------------------------------------------
+# A page a browser puts in its address bar goes to crudman whichever app the path belongs
+# to, and crudman answers with the shell: the bar, and a frame asking for the same path
+# again (crudman/app/shell/middleware.py). The frame's request says "iframe" here and
+# reaches the app. Only a GET can be a page; the header is missing from older browsers
+# and from scripts, which then get the app as before.
+map "$request_method:$http_sec_fetch_dest" $grafana_port {
+    default        3000;
+    "GET:document" 8000;
+}
+
+map "$request_method:$http_sec_fetch_dest" $notebook_port {
+    default        8888;
+    "GET:document" 8000;
+}
+
+# --- the data source a Grafana visitor reads ------------------------------------------
+# Dashboards name the production data source and nothing else; a version under review is
+# shown by answering with a different uid, which the substitution in locations.conf does
+# from this variable. crudman names the data source in X-Preview-Datasource while someone
+# owes a decision on a review and leaves the header off otherwise -- so the default below
+# is the ordinary case, and the substitution is then the uid replaced by itself.
+map $preview_datasource $datasource_uid {
+    default $preview_datasource;
+    ""      "${APP_NAME}-postgresql";
+}
 
 # --- WebSocket handshakes ---------------------------------------------------------------
 # The Connection header sent upstream: "upgrade" for a handshake, "close" otherwise.

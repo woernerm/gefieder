@@ -1,6 +1,6 @@
 # Instructions for this repository
 
-- Purpose: Whitelabel template for multi-tenant data analytics systems (user configures 
+- Purpose: Whitelabel template for data analytics systems (user configures 
   `APP_NAME` in `buildtime.env`). It solves the wireing, configuration and 
   initialization of its components. It does not provide data models or metrics apart 
   from examples (since it is a template).
@@ -17,15 +17,18 @@
 - Components: PostgreSQL, Django admin, SQLMesh, Grafana, nginx proxy, dropzone SFTP and
   Arrow Flight endpoints.
 - Reachable from outside: Grafana and Django admin through the nginx proxy (80/443);
-  PostgreSQL (5432), SFTP (2222) and Flight (8815) publish their own port.
+  PostgreSQL (5432), SFTP (2222, also git over SSH for the models repository) and Flight
+  (8815) publish their own port.
 
 
 ## Where things are
 
-- `crudman/` — Django admin (Unfold); apps in `app/`: tenants, dropzones, sso, dbusers,
-  example.
+- `crudman/` — Django admin (Unfold); apps in `app/`: system, dropzones, sso, dbusers,
+  docs, notebooks, shell (the bar below every page, framing all three apps), example.
 - `sqlmesh/` — SQLMesh project: `config.py`, `macros/`, `models/{bronze,silver,gold}`.
-- `postgresql/` — pgduckdb image; `initdb/gf_000N_*.{sh,sql}` for initialization,
+  Not baked into the image: it is the *seed* of the models repository crudman keeps on the
+  `models_data` volume, and the engine runs whatever commit is checked out there.
+- `postgresql/` — PostgreSQL image; `initdb/gf_000N_*.{sh,sql}` for initialization,
   `render.sh`: substitute the database role names at build time.
 - `grafana/` — `custom.ini`: configuration, `provisioning/`: default dashboards, 
   `render.sh`: replace template placeholders at build time.
@@ -36,12 +39,12 @@
 - `quadlets/` — every unit, centrally: `main.pod`, `*.container`, `*_data.volume`.
 - `tests/` — the pytest integration suite; `run-tests.sh` starts a throwaway stack for it.
 - `*/requirements.md` — what a component must do and why: `quadlets/`,
-  `crudman/app/dropzones/`, `crudman/app/tenants/`, `crudman/app/dbusers/`.
+  `crudman/app/dropzones/`, `crudman/app/system/`, `crudman/app/dbusers/`.
 - `build.sh` builds release images; `install.sh` and `uninstall.sh` run on target
   machine. Both distributed as assets of the GitHub Release.
 
 # Medallion architecture
-- Bronze: Raw source data, one schema per tenant. Best for urgent metric requests and
+- Bronze: Raw source data, one schema per project. Best for urgent metric requests and
   tool-centric metrics (like error checking of source data).
 - Silver: Standardized model. Independence of tools and projects. Best for 
   knowledge-domain focused metrics (e.g. project & resource planning, forecasting, agile 
@@ -79,11 +82,16 @@
 - README.md addresses someone *running* the system, not developing it: concise, 
   novice user level. No technical details.
 - Push to origin/main triggers `.github/workflows/publish.yml` (builds images & creates 
-  GitHub release).
+  GitHub release). This is for the *system*; an analytics model ships by a commit to the
+  models repository (`REPO_MODELS`) and needs no release.
 - Make your responses 300 words or less.
 - Example names are John Doe, Max Mustermann, Joe Bloggs, Bob Smith, John Q. Public,
   Average Joe, John Q. Citizen, Jean Dupont, Paul Martin, Monsieur Durand, Monsieur 
   Tout-le-monde, Madame Tout-le-monde, Matti Meikäläinen, Meðal-Jón, Meðal-Jóna, 
   Jón Jónsson, Jóna Jónsdóttir, Jos Bleau, G. Raymond, Pinco Pallino.
   Do not use other names.
-- You can always delete running deployments (e.g. when trying to run the run-tests.sh script), because you are not running on the target machine.
+- You running on a dev machine: Stop & delete existing deployments is always allowed.
+- Write classes in the order from top to bottom: Class variables, subclasses,
+  private methods, public methods, dunder methods.
+- Keep responses to less than 200 words unless asked for more details.
+- Do not commit by yourself. 

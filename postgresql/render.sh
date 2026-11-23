@@ -22,7 +22,7 @@ here="$(dirname "$0")"
 # and the medallion schemas. DB_USER_PREFIX is absent because a personal account is
 # recognised by the marker is_db_user tests, never by its name; SERVER_STATS_SCHEMA because
 # gf_0007 reads it from the image's ENV, staying adjustable without a rebuild.
-VARS='${PG_DATABASE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${GRAFANA_DB_USER} ${ROLE_PREFIX} ${BRONZE_SCHEMA_PREFIX} ${SILVER_SCHEMA} ${GOLD_SCHEMA} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD}'
+VARS='${PG_DATABASE} ${PG_SUPERUSER_ROLE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${GRAFANA_DB_USER} ${ROLE_PREFIX} ${BRONZE_SCHEMA_PREFIX} ${SILVER_SCHEMA} ${GOLD_SCHEMA} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD}'
 
 # The entrypoint runs the scripts in filename order, so render_tree mirrors the tree.
 render_tree "$VARS" "$out" "$here/initdb"

@@ -19,7 +19,7 @@ import uuid
 
 import pytest
 
-from conftest import CRUDMAN_PATH, GRAFANA_PATH, inspect_container
+from conftest import APP_NAME, CRUDMAN_PATH, GRAFANA_PATH, inspect_container
 
 # The ports the two applications listen on inside the pod, which the proxy forwards to.
 CRUDMAN_PORT = 8000
@@ -87,7 +87,7 @@ def _run_entrypoint(debug, certs, hint=None, timeout=60):
     """Run the image's own entrypoint against `certs`, mounted where the quadlet mounts it.
 
     Unlike _run_proxy, which renders a template the way the entrypoint does, this runs the
-    entrypoint itself, the certificate check under test living there.
+    entrypoint itself, as the certificate check under test is there.
 
     Returns the CompletedProcess, or None when the entrypoint was still running at the
     timeout -- the healthy outcome when the check lets nginx start, since nginx then runs
@@ -126,7 +126,8 @@ def _run_proxy(script, debug, fixtures):
         "set -e",
         "mkdir -p /var/log/app /etc/nginx/conf.d",
         "cp /fixtures/upstreams.conf /etc/nginx/conf.d/upstreams.conf",
-        f"export CRUDMAN_PATH={CRUDMAN_PATH} GRAFANA_PATH={GRAFANA_PATH} DEBUG={debug}",
+        f"export APP_NAME={APP_NAME} CRUDMAN_PATH={CRUDMAN_PATH}"
+        f" GRAFANA_PATH={GRAFANA_PATH} DEBUG={debug}",
     ]
     if debug != "true":
         setup_steps += [
@@ -136,12 +137,12 @@ def _run_proxy(script, debug, fixtures):
             "reorder_fullchain",
         ]
     setup_steps.append(
-        "envsubst '${CRUDMAN_PATH} ${GRAFANA_PATH}'"
+        "envsubst '${APP_NAME} ${CRUDMAN_PATH} ${GRAFANA_PATH}'"
         f" < /etc/nginx/proxy/{template}.conf.template > /etc/nginx/conf.d/default.conf"
     )
     # Both templates include the shared maps and locations fragments.
     setup_steps += [
-        "for f in maps locations; do envsubst '${CRUDMAN_PATH} ${GRAFANA_PATH}'"
+        "for f in maps locations; do envsubst '${APP_NAME} ${CRUDMAN_PATH} ${GRAFANA_PATH}'"
         " < /etc/nginx/proxy/$f.conf.template > /etc/nginx/proxy/$f.conf; done"
     ]
     setup = "; ".join(setup_steps)
@@ -594,13 +595,25 @@ class TestRoutingToUpstreams:
             f"{path} did not reach its upstream:\n{result.stdout}\n{result.stderr}"
         )
 
-    def test_the_root_shall_redirect_to_the_admin_panel(self, fixtures):
+    @pytest.mark.parametrize("destination,expected", [
+        ("document", CRUDMAN_BODY),
+        ("iframe", GRAFANA_BODY),
+    ])
+    def test_a_page_of_its_own_shall_reach_the_admin_panel_instead(
+        self, destination, expected, fixtures
+    ):
+        """The shell answers the address bar; the app answers the shell's frame."""
+        args = f"--header 'Sec-Fetch-Dest: {destination}'"
+        result = _run_proxy(_fetch(f"/{GRAFANA_PATH}/", args=args), "true", fixtures)
+        assert expected in result.stdout, result.stdout + result.stderr
+
+    def test_the_root_shall_redirect_to_the_dashboards(self, fixtures):
         # --spider does not follow the redirect (busybox wget has no --max-redirect).
         result = _run_proxy(_fetch("/", args="--spider"), "true", fixtures)
         assert "302" in result.stdout, result.stdout + result.stderr
         # A bare path: nginx would build a URL from the port it listens on inside the pod,
         # sending a client that arrived on any other port where nothing listens.
-        assert f"Location: /{CRUDMAN_PATH}/" in result.stdout, (
+        assert f"Location: /{GRAFANA_PATH}/?kiosk" in result.stdout, (
             "the redirect is absolute; it drops the port the client is talking to:\n"
             + result.stdout + result.stderr
         )

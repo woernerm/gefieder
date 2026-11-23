@@ -10,7 +10,7 @@
 # What was baked into the images at build time is recorded in the release's manifest.env.
 set -e
 
-# --- where the release lives ----------------------------------------------------------
+# --- where the release is ------------------------------------------------------------
 # Baked in from buildtime.env when the release is built, so an enterprise GitHub instance
 # works as well as github.com. No default: guessing would pull someone else's release.
 # From a checkout, set it (and TAG, to pin a version):
@@ -45,14 +45,6 @@ else
   WORK="$(mktemp -d)"
 fi
 trap 'rm -rf "$WORK"' EXIT
-
-# Keep in sync with the workflow's matrix and the quadlets/ directory.
-IMAGES="postgresql crudman sqlmesh proxy grafana grafana_mcp"
-QUADLETS="main.pod postgresql.container crudman.container sftp.container \
-  flight.container sqlmesh.container grafana.container grafana_mcp.container proxy.container \
-  postgresql_data.volume \
-  grafana_data.volume sftp_data.volume \
-  proxy_data.volume uploads_data.volume"
 
 # --- progress reporting ---------------------------------------------------------------
 # The tools' own progress bars, enabled only when stderr is a terminal: piped into a log
@@ -101,7 +93,7 @@ fi
 # --- images: download each tarball with its own curl, then load it --------------------
 step "Downloading the release from ${BASE}"
 curl -fsSL "${BASE}/manifest.env" -o "${WORK}/manifest.env"
-. "${WORK}/manifest.env"   # APP_NAME, SUPERUSER_NAME, CRUDMAN_PATH, GRAFANA_PATH, ...
+. "${WORK}/manifest.env"   # APP_NAME, IMAGES, UNITS, QUADLETS, CRUDMAN_PATH, ...
 
 # --- runtime configuration -------------------------------------------------------------
 # The quadlets read this through EnvironmentFile=, and the installer needs SERVER_NAME and
@@ -136,13 +128,9 @@ SERVER_NAME="$(printf '%s' "${SERVER_NAME:-}" | tr -d '[:space:]')"
 DEBUG="$(printf '%s' "${DEBUG:-}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
 
 # --- the server name ---------------------------------------------------------------
-# The fully qualified host name the system is reached under, or "localhost". Not a
-# scheme, a port or a path.
-#
-# Used verbatim: the certificate is issued for it, Django accepts it and the dropzone pages
-# hand it to uploaders. A short name usually fails on a company network, where the browser
-# gives it to the web proxy instead of resolving it -- but only a warning, since a short
-# name is correct where it does resolve.
+# The fully qualified host name the system is reached under, or "localhost"; no scheme,
+# port or path. A short name usually fails on a company network, where the browser gives it
+# to the web proxy, but it is only a warning, as it is correct where it resolves.
 case "${SERVER_NAME}" in
   *.*|localhost) : ;;
   *) echo "  ${SERVER_NAME} is not fully qualified; if browsers on your network cannot" >&2
@@ -164,11 +152,19 @@ else
   BASE_URL="${SCHEME}://${SERVER_NAME}:${WEB_PORT}"
 fi
 
+# Where a laptop clones the models from: the repository on the models volume, served over
+# SSH on the SFTP port, or the git host REPO_MODELS names. crudman's repo.clone_url() says
+# the same on the Versions page.
+case "${REPO_MODELS}" in
+  /*) CLONE_URL="ssh://git@${SERVER_NAME}:${SFTP_PORT}/models.git"
+      CLONE_HINT="Add your SSH key first: the menu behind your name > SSH keys." ;;
+  *)  CLONE_URL="${REPO_MODELS}"
+      CLONE_HINT="Kept on that git host, which manages its own access." ;;
+esac
+
 # --- preflight: the published ports must be bindable and reachable ---------------------
-# Read from the runtime.env sourced above, the same file main.pod expands its PublishPort
-# lines from, so this checks what will be bound. Neither failure aborts the install -- the
-# stack is worth having with only some ports open -- so this reports the fix for this
-# host.
+# Read from runtime.env, as main.pod's PublishPort lines are. No failure aborts the install,
+# as the stack is worth having with only some ports open; this reports the fix instead.
 PORTS="${HTTP_PORT} ${HTTPS_PORT} ${PG_PORT} ${SFTP_PORT} ${FLIGHT_PORT}"
 PORT_HINTS=""   # collected fixes, repeated in the cheat sheet at the end
 
@@ -283,7 +279,7 @@ echo "  $(echo $QUADLETS | wc -w) unit files installed in ${QUADLET_DIR}"
 
 # --- server-statistics collector: host-side timer and collector ------------------------
 # On the host rather than in a container, so it can read the pod's cgroup counters, disk
-# IOPS and network egress. Its units live with the other user units.
+# IOPS and network egress. Its units go with the other user units.
 step "Installing the server-statistics collector"
 SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 mkdir -p "$SYSTEMD_USER_DIR" "$APP_CONFIG_DIR/serverstats"
@@ -302,7 +298,7 @@ install -m 0755 "${WORK}/collect.sh" "$APP_CONFIG_DIR/serverstats/collect.sh"
 # container user mapped to a subuid, so reading those from the host needs `podman unshare`.
 # Owning them too would need UserNS=keep-id, which the PostgreSQL image does not survive.
 step "Creating data volumes"
-VOLUMES="postgresql_data grafana_data sftp_data proxy_data uploads_data"
+VOLUMES="$(printf '%s\n' $QUADLETS | sed -n 's/\.volume$//p')"
 for vol in $VOLUMES; do
   podman volume exists "$vol" || podman volume create "$vol" >/dev/null
 done
@@ -342,6 +338,8 @@ create_secret "$SECRET_DJANGO_KEY"       "$(openssl rand -hex 32)"
 create_secret "$SECRET_CRUDMAN_PASSWORD" "$(openssl rand -hex 32)"
 create_secret "$SECRET_SQLMESH_PASSWORD" "$(openssl rand -hex 32)"
 create_secret "$SECRET_GRAFANA_PASSWORD" "$(openssl rand -hex 32)"
+create_secret "$SECRET_JUPYTER"          "$(openssl rand -hex 32)"
+create_secret "$SECRET_PG_SUPERUSER_PASSWORD" "$(openssl rand -hex 32)"
 
 # The one credential this script cannot produce, the identity provider issuing it. Created
 # anyway, because a quadlet whose Secret= names a missing secret refuses to start; the
@@ -431,7 +429,6 @@ for u in $QUADLETS; do
   esac
 done
 
-UNITS="postgresql crudman sftp flight sqlmesh grafana grafana_mcp proxy"
 stack_start="$(date +%s)"
 if systemctl --user restart main-pod.service 2>/dev/null; then
   for u in $UNITS; do
@@ -474,21 +471,12 @@ if systemctl --user restart main-pod.service 2>/dev/null; then
   fi
 
   # --- the pages must actually be served ------------------------------------------------
-  # An active unit is not a served page: a proxy whose upstream is unreachable still
-  # satisfies systemd. --insecure because the certificate may come from a company CA this
-  # host does not trust; this checks reachability, not trust. No -f, which would hide the
-  # status code. --retry-connrefused bridges the moment between the unit going active and
-  # nginx accepting connections, on a small budget: curl also retries a 502, which is the
-  # dead-upstream answer this check exists to report.
-  #
-  # Addressed to SERVER_NAME and pinned to loopback with --resolve rather than fetching
-  # localhost: the certificate is issued for SERVER_NAME, and against any other name the
-  # handshake can fail outright, which --insecure does not cover. The request never leaves
-  # the host, so this works before DNS for SERVER_NAME resolves here.
-  #
-  # Diagnostic only, and must never end the install. Under `set -e` a bare
-  # `code="$(curl ...)"` would abort on curl's exit status before the cheat sheet is
-  # printed, so curl runs as an `if` condition, which `set -e` exempts.
+  # An active unit is not a served page: a proxy with an unreachable upstream still
+  # satisfies systemd. --insecure, as the certificate may come from a company CA; no -f,
+  # which would hide the status code. The retry budget is small, as curl also retries the
+  # 502 this check exists to report. Addressed to SERVER_NAME, for which the certificate is
+  # issued, but pinned to loopback, so DNS need not resolve it yet. curl runs as an `if`
+  # condition, so `set -e` cannot end the install before the cheat sheet.
   served=true
   # An empty value would make --resolve malformed and turn this into a false alarm.
   probe_host="${SERVER_NAME:-localhost}"
@@ -510,6 +498,7 @@ if systemctl --user restart main-pod.service 2>/dev/null; then
          printf '  %-12s NOT reachable (%s)\n' "$app" "${code:-no response}${why}" >&2 ;;
     esac
   done
+  printf '  %-12s clone from %s\n' "models" "${CLONE_URL}"
   if [ "$served" = "true" ]; then
     echo "  system is up and running"
   else
@@ -545,11 +534,12 @@ cat > "$HELP" <<EOF
 ${APP_NAME} Cheat sheet
 ============================
 
-  Admin panel:  ${BASE_URL}/${CRUDMAN_PATH}/
-  Model docs:   ${BASE_URL}/${CRUDMAN_PATH}/docs/
-  Grafana:      ${BASE_URL}/${GRAFANA_PATH}/
-  PostgreSQL:   host=${SERVER_NAME} port=${PG_PORT} dbname=${PG_DATABASE} user=${SUPERUSER_NAME}
-                psql "host=${SERVER_NAME} port=${PG_PORT} dbname=${PG_DATABASE} user=${SUPERUSER_NAME}"
+  Open:         ${BASE_URL}/
+  PostgreSQL:   host=${SERVER_NAME} port=${PG_PORT} dbname=${PG_DATABASE}
+                Connect as your own database user, which an administrator switches on
+                under Database access; the password is shown at your next sign-in.
+  Models:       git clone ${CLONE_URL}
+                ${CLONE_HINT}
 
 ${PORT_SECTION}Follow the combined live log of all components:
   journalctl --user -f -u main-pod -u postgresql -u crudman -u sftp -u flight -u sqlmesh -u grafana -u proxy
@@ -560,6 +550,9 @@ Shut the system down:
 Start the system up again:
   systemctl --user start main-pod.service
 
+Run a SQLMesh command against the deployed models (plan, run, test, table_diff):
+  podman exec sqlmesh sqlmesh test
+
 Run a database backup now:
   podman exec postgresql sh -c 'pg_dumpall -U "\$POSTGRES_USER"' > backup-\$(date +%F).sql
 
@@ -569,6 +562,7 @@ Volume paths (cd into them to inspect data):
   proxy:      $(podman volume inspect proxy_data -f '{{.Mountpoint}}')
   sftp:       $(podman volume inspect sftp_data -f '{{.Mountpoint}}')
   uploads:    $(podman volume inspect uploads_data -f '{{.Mountpoint}}')
+  models:     $(podman volume inspect models_data -f '{{.Mountpoint}}')
 
 The postgresql and grafana volumes are written by a user inside the container, so
 reading their contents from the host needs: podman unshare ls <path>

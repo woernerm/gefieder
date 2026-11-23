@@ -1,15 +1,12 @@
 """One menu section for who may sign in and what they may do.
 
 Users and groups are Django's, administered here whether single sign-on is on or off.
-allauth registers four more pages under two further headings: three are dead weight, the
-fourth comes back as an inline on the user it describes.
-
-Database access is a switch on this page rather than a section of its own, being one more
-thing a person either has or does not, alongside active and staff status.
+Of the four pages allauth registers, three are removed and one becomes an inline on the
+user. Database access is a switch on the user page, alongside active and staff status.
 """
 import logging
 
-from dbusers.utils import db_role_for_user, enroll, remove, unmanaged_role
+from dbusers.utils import db_role_for_user, enroll, remove
 from django import forms
 from django.conf import settings
 from django.contrib import admin, messages
@@ -83,7 +80,7 @@ class DatabaseAccessFilter(admin.SimpleListFilter):
 class UserWithDatabaseAccessForm(UserChangeForm):
     """The user form with the database-access switch added.
 
-    Not a model field: the account lives in PostgreSQL, so the switch reports what exists
+    Not a model field: the account exists in PostgreSQL, so the switch reports what exists
     rather than storing an intention, and the save reconciles the two.
     """
 
@@ -110,20 +107,8 @@ class UserWithDatabaseAccessForm(UserChangeForm):
         if user.pk is None:
             return
 
-        # A role of that name may exist without being ours -- the deployment's superuser
-        # is the plain case. The person reaches the database through it, so the switch is
-        # on, and read-only because the provisioning functions refuse a foreign role.
-        existing = unmanaged_role(user)
-        if existing:
-            self.fields["database_access"].initial = True
-            self.fields["database_access"].disabled = True
-            self.fields["database_access"].help_text = (
-                f'User "{existing}" is the database superuser. It cannot be removed.'
-            )
-            return
-
-        # The password is handed over at the next sign-in here, so someone who cannot
-        # reach the admin would never learn it. Staff status first, saved, then this.
+        # The access token is created here, so someone who cannot reach the admin could
+        # never fetch a password. Staff status first, saved, then this.
         if not user.is_staff:
             self.fields["database_access"].disabled = True
             self.fields["database_access"].help_text = (

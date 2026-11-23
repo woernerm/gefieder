@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from conftest import CRUDMAN_PATH, LOGGING_UNITS
+from conftest import CRUDMAN_PATH, LOGGING_UNITS, poll
 
 # A line counts as timestamped if it carries a date and clock time anywhere: journald's
 # own ISO-8601 stamp as well as grafana's "t=2026-06-25T22:31:05", gunicorn's
@@ -41,6 +41,7 @@ SELF_TIMESTAMPING = {
     "sqlmesh": (False, "SQLMesh formats its records with a hardcoded module constant"),
     "grafana": (True, "every Grafana log format puts t= inside the line, never first"),
     "proxy": (False, "nginx's error_log format is fixed"),
+    "jupyter": (True, "configurable-http-proxy offers a log level and no format at all"),
 }
 
 # How far a service's own stamp may sit from journald's. They mark emission and
@@ -59,6 +60,10 @@ OWN_TIMESTAMP_FORMATS = (
     (re.compile(r"(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})"), False),
     # SQLMesh: "2026-08-05 22:49:58,688"
     (re.compile(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+"), False),
+    # The notebook proxy: "2026-09-07T20:53:27.467Z [ConfigProxy]". Anchored on the tag
+    # that follows, an ISO stamp with no punctuation of its own being what a line could
+    # equally be quoting.
+    (re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\.\d+(Z) \[ConfigProxy\]"), True),
 )
 
 
@@ -132,14 +137,8 @@ def journal(unit, *args):
     return out.stdout
 
 
-def _container_lines(unit):
-    """The service's own output since the unit last started.
-
-    Two filters, both needed. `-t <unit>` keeps the container's stdout and drops the
-    systemd and podman records that also land in a unit's journal, whose stamps no service
-    setting reaches. `--since` the last start keeps the assertion about the code running
-    now, the journal outliving a release.
-    """
+def _since_start(unit):
+    """journalctl arguments limiting it to the unit's last start."""
     # InactiveExitTimestamp is when the unit began starting; the units gate "active" on
     # their healthcheck, so everything logged while coming up falls before that mark.
     started = subprocess.run(
@@ -149,30 +148,42 @@ def _container_lines(unit):
     ).stdout.split()
     # journalctl takes neither the weekday nor the zone name. An unparsable value means
     # no window rather than a failure, which only widens what is checked.
-    since = ["--since", " ".join(started[1:3])] if len(started) >= 3 else []
+    return ["--since", " ".join(started[1:3])] if len(started) >= 3 else []
+
+
+def _container_lines(unit):
+    """The service's own output since the unit last started.
+
+    Two filters, both needed. `-t <unit>` keeps the container's stdout and drops the
+    systemd and podman records that also land in a unit's journal, whose stamps no service
+    setting reaches. `--since` the last start keeps the assertion about the code running
+    now, the journal outliving a release.
+    """
     out = subprocess.run(
         ["journalctl", "--user", "-u", f"{unit}.service", "-t", unit, "--no-pager",
-         "-o", "short-iso", *since],
+         "-o", "short-iso", *_since_start(unit)],
         capture_output=True, text=True, check=True,
     ).stdout
     return [ln for ln in out.splitlines() if ln.strip() and not ln.startswith("-- ")]
 
 
-def _journal_lines(unit, timeout=60):
+def _journal_lines(unit, *args, timeout=60):
     """The unit's journal lines, waiting for the first one to appear.
 
     Polled: some services emit their first line only after the readiness the suite waits
     for.
     """
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        lines = [ln for ln in journal(unit).splitlines() if ln.strip()]
-        # journalctl prints "-- No entries --" when the unit logged nothing.
-        lines = [ln for ln in lines if not ln.startswith("-- ")]
-        if lines:
-            return lines
-        time.sleep(2)
-    return []
+    # journalctl prints "-- No entries --" when the unit logged nothing.
+    return poll(lambda: [ln for ln in journal(unit, *args).splitlines()
+                         if ln.strip() and not ln.startswith("-- ")], timeout)
+
+
+def _crudman_journal_with(*needles):
+    """crudman's journal once it holds every needle, or None after a minute."""
+    def probe():
+        log = journal("crudman")
+        return log if all(needle in log for needle in needles) else None
+    return poll(probe, 60)
 
 
 class TestPersistentLogs:
@@ -189,9 +200,7 @@ class TestPersistentLogs:
         subprocess.run(
             ["systemctl", "--user", "restart", "crudman.service"], check=True,
         )
-        deadline = time.time() + 60
-        while time.time() < deadline and len(_journal_lines("crudman")) <= before:
-            time.sleep(2)
+        poll(lambda: len(_journal_lines("crudman")) > before, 60)
         after = len(_journal_lines("crudman"))
         assert after >= before, "the journal lost lines across the restart"
         assert after > before, "the restart appended nothing to the journal"
@@ -215,7 +224,9 @@ class TestLogTimestamps:
 
     @pytest.mark.parametrize("unit", LOGGING_UNITS)
     def test_every_log_line_shall_carry_a_timestamp(self, unit):
-        lines = _journal_lines(unit)
+        # Since this stack's pod started: the journal outlives a release, so a line an
+        # older image wrote would otherwise fail the code running now.
+        lines = _journal_lines(unit, *_since_start("main-pod"))
         assert lines, f"{unit} wrote nothing to its journal"
         missing = [ln for ln in lines if not TIMESTAMP.search(ln)]
         assert not missing, (
@@ -245,7 +256,9 @@ class TestLogTimestamps:
 
     # The units whose steady-state log carries a second timestamp in a readable format.
     # postgresql's only self-stamped lines spell the zone as a name ("UTC").
-    @pytest.mark.parametrize("unit", ["crudman", "sqlmesh", "grafana", "proxy"])
+    @pytest.mark.parametrize(
+        "unit", ["crudman", "sqlmesh", "grafana", "proxy", "jupyter"]
+    )
     def test_a_second_timestamp_shall_not_contradict_the_journal(self, unit):
         compared, disagreeing = 0, []
         for line in _container_lines(unit):
@@ -302,13 +315,8 @@ class TestApplicationErrors:
             "for this stack, so the test would pass without testing anything"
         )
 
-        deadline = time.time() + 60
-        while time.time() < deadline:
-            log = journal("crudman")
-            if marker in log:
-                break
-            time.sleep(2)
-        else:
+        log = _crudman_journal_with(marker)
+        if not log:
             pytest.fail(
                 f"crudman's journal has no record of the 500 raised for {marker}; the "
                 "traceback is being discarded"
@@ -329,12 +337,8 @@ class TestApplicationErrors:
         marker = f"gf-access-probe-{int(time.time())}"
         http.get(f"/{CRUDMAN_PATH}/error-logging-probe/", params={"marker": marker})
 
-        deadline = time.time() + 60
-        while time.time() < deadline:
-            log = journal("crudman")
-            if "error-logging-probe" in log and " 500 " in log:
-                return
-            time.sleep(2)
+        if _crudman_journal_with("error-logging-probe", " 500 "):
+            return
         pytest.fail(
             "crudman's journal has no access-log line for the failing request, so a "
             "reported error cannot be tied to the request that caused it"

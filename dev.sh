@@ -51,7 +51,7 @@ PG_PORT="${ARG_PG_PORT:-5432}"
 SFTP_PORT="${ARG_SFTP_PORT:-2222}"
 # The dropzones Arrow Flight endpoint, likewise.
 FLIGHT_PORT="${ARG_FLIGHT_PORT:-8815}"
-PG_USER="${SUPERUSER_NAME}"
+PG_USER="${PG_SUPERUSER_ROLE}"
 PG_DB="${PG_DATABASE}"
 # On WSL "localhost" often resolves to ::1 first, which podman's pasta networking does not
 # bind, so the IPv4 loopback is named explicitly here and in the summary.
@@ -157,15 +157,18 @@ create_service_secrets
 # A dev-only convenience.
 podman secret rm "$SECRET_SUPERUSER_PASSWORD" >/dev/null 2>&1 || true
 printf '%s' "$SUPERUSER_DEFAULT_PASSWORD" | podman secret create "$SECRET_SUPERUSER_PASSWORD" - >/dev/null
+# The cluster superuser is nobody's login, so a fixed dev value buys nothing.
+podman secret rm "$SECRET_PG_SUPERUSER_PASSWORD" >/dev/null 2>&1 || true
+printf '%s' "$SUPERUSER_DEFAULT_PASSWORD" | podman secret create "$SECRET_PG_SUPERUSER_PASSWORD" - >/dev/null
 
 # --- volumes --------------------------------------------------------------------------
 # Created up front so the rootless user owns their contents, as install.sh does.
-for vol in postgresql_data grafana_data sftp_data proxy_data uploads_data; do
+for vol in $(basename -s .volume quadlets/*.volume); do
   podman volume exists "$vol" || podman volume create "$vol" >/dev/null
 done
 
 # --- (re)create the pod ---------------------------------------------------------------
-# A fresh pod each run, the data living in the volumes rather than the containers. The
+# A fresh pod each run, as the data is kept in the volumes rather than the containers. The
 # ports are published at the pod level, as main.pod does.
 podman pod rm -f "$POD" >/dev/null 2>&1 || true
 podman pod create --name "$POD" \
@@ -185,11 +188,15 @@ podman pod create --name "$POD" \
 
 run_quadlet postgresql
 
+# PG_PORT among them: it is the port a developer's clone connects on, which crudman
+# writes into the models repository when it creates one, and no container can work it out.
 run_quadlet crudman \
   -e "SERVER_NAME=${SERVER_NAME}" \
   -e DEBUG=true \
+  -e "DEFAULT_THEME=${DEFAULT_THEME}" \
   -e "CSRF_TRUSTED_ORIGINS=http://${HOST_ADDR}:${HTTP_PORT}" \
-  -e "SFTP_PORT=${SFTP_PORT}" -e "FLIGHT_PORT=${FLIGHT_PORT}"
+  -e "SFTP_PORT=${SFTP_PORT}" -e "FLIGHT_PORT=${FLIGHT_PORT}" \
+  -e "PG_PORT=${PG_PORT}"
 
 # The crudman image in its "sftp" and "flight" roles, which the quadlets' Exec= lines
 # select.
@@ -203,11 +210,17 @@ run_quadlet sqlmesh
 # same line the README gives custom ports.
 run_quadlet grafana \
   -e "SERVER_NAME=${SERVER_NAME}" \
+  -e "DEFAULT_THEME=${DEFAULT_THEME}" \
   -e "GF_SERVER_ROOT_URL=http://${HOST_ADDR}:${HTTP_PORT}/${GRAFANA_PATH}/"
 
 # Nothing to override: it reaches Grafana on localhost inside the pod, and its callers'
 # credentials arrive with each request rather than from the environment.
 run_quadlet grafana_mcp
+
+# It authenticates against crudman on the pod's localhost, and the database it hands each
+# notebook is the in-pod one whatever port the stack publishes; only the theme is its own
+# runtime setting.
+run_quadlet jupyter -e "DEFAULT_THEME=${DEFAULT_THEME}"
 
 # DEBUG=true picks the plain-HTTP template, so the certificate directory the quadlet
 # mounts is only created for the mount to resolve.
@@ -220,13 +233,16 @@ run_quadlet proxy -e DEBUG=true -e "SERVER_NAME=${SERVER_NAME}"
 start_stats_loop
 
 # --- summary --------------------------------------------------------------------------
+# As crudman's repo.clone_url() derives it for the Versions page and the notebooks.
+case "${REPO_MODELS}" in
+  /*) CLONE_URL="ssh://git@${SERVER_NAME}:${SFTP_PORT}/models.git" ;;
+  *)  CLONE_URL="${REPO_MODELS}" ;;
+esac
 cat <<EOF
 
 ${APP_NAME} is starting in development mode (plain HTTP, no certificate).
 
-  Admin panel:  http://${HOST_ADDR}:${HTTP_PORT}/${CRUDMAN_PATH}/
-  Model docs:   http://${HOST_ADDR}:${HTTP_PORT}/${CRUDMAN_PATH}/docs/
-  Grafana:      http://${HOST_ADDR}:${HTTP_PORT}/${GRAFANA_PATH}/
+  Open:         http://${HOST_ADDR}:${HTTP_PORT}/
   Login:        ${SUPERUSER_NAME} / ${SUPERUSER_DEFAULT_PASSWORD}
 
   PostgreSQL:   host=${HOST_ADDR} port=${PG_PORT} dbname=${PG_DB} user=${PG_USER}
@@ -238,6 +254,9 @@ ${APP_NAME} is starting in development mode (plain HTTP, no certificate).
 
   Arrow Flight: port ${FLIGHT_PORT} for dropzones with the Arrow Flight method
                 (each dropzone's admin page shows its address and a ready-to-run client)
+
+  Models:       git clone ${CLONE_URL}
+                (add your SSH key first: the menu behind your name > SSH keys)
 
   Follow logs:  ./dev.sh logs
   Stop:         ./dev.sh down

@@ -32,5 +32,8 @@
         {% endfor %}
     </div>
 
-    {% include "unfold/helpers/navigation_user.html" %}
+    {# As in the admin's sidebar: only when no bar below carries the menu. #}
+    <template x-if="window.top === window.self">
+        {% include "unfold/helpers/navigation_user.html" %}
+    </template>
 </nav>

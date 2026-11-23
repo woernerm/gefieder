@@ -12,6 +12,10 @@ MODEL (
     classification TEXT,
     team TEXT
   ),
+  column_descriptions (
+    classification = 'The classification the safety case assigns to the area.',
+    team = 'The team responsible for the area at that time.'
+  ),
   grain (area, updated),
   audits (unique_combination_of_columns(columns := (area, updated)))
 );

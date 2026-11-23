@@ -11,7 +11,7 @@ Image=${REGISTRY}/grafana:${IMAGE_TAG}
 # APP_NAME names the provisioned data source. The admin logs in with the same credentials
 # as the PostgreSQL and Django superuser.
 Environment=APP_NAME=${APP_NAME}
-# custom.ini reads these back as $__env{}, so changing the host name or identity provider
+# custom.ini reads these back as $__env{}, so changing the host name or the default theme
 # needs a restart rather than a rebuild.
 EnvironmentFile=%h/.config/${APP_NAME}/runtime.env
 Environment=GF_SECURITY_ADMIN_USER=${SUPERUSER_NAME}
@@ -27,12 +27,11 @@ Environment=GF_SERVER_SERVE_FROM_SUB_PATH=true
 Environment=GF_LOG_MODE=console
 # RHEL/Fedora SELinux needs a relabeled volume for rootless podman to mount it.
 Volume=grafana_data.volume:/var/lib/grafana:z
-# superuser_password for the admin login, grafana_password for the data source,
-# oidc_client_secret for single sign-on. The last is a placeholder while OIDC_ENABLED is
-# false, but podman will not start a container whose Secret= is missing.
+# superuser_password for the admin login, grafana_password for the data source. No
+# single sign-on secret: Grafana has no login of its own, the proxy signing visitors in
+# on the admin panel's say-so (custom.ini, [auth.proxy]).
 Secret=${SECRET_SUPERUSER_PASSWORD}
 Secret=${SECRET_GRAFANA_PASSWORD}
-Secret=${SECRET_OIDC_CLIENT}
 HealthCmd=wget -qO /dev/null http://localhost:3000/${GRAFANA_PATH}/api/health
 HealthInterval=10s
 HealthTimeout=5s

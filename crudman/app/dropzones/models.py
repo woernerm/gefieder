@@ -88,8 +88,7 @@ class Dropzone(models.Model):
         editable=False,
         help_text="Unguessable part of the upload URL.",
     )
-    # One credential field serves every unattended method, a dropzone having exactly one
-    # upload method.
+    # One field serves every unattended method, as a dropzone has exactly one method.
     secret = models.CharField(
         blank=True,
         max_length=64,
@@ -139,8 +138,7 @@ class Dropzone(models.Model):
             view: Name of the view within the ``dropzones`` URL namespace.
 
         Returns:
-            The URL, its scheme following DEBUG as the proxy's choice of template does,
-            so an uploader gets the address their client will reach.
+            The URL; its scheme follows DEBUG, as the proxy's choice of template does.
         """
         scheme = "http" if settings.DEBUG else "https"
         path = reverse(f"dropzones:{view}", kwargs={"token": self.token})
@@ -212,13 +210,13 @@ class Dropzone(models.Model):
     def default_valid_from(self):
         """The start of validity for an upload that carries no validity of its own.
 
-        The unattended methods (webhook, SFTP, Arrow Flight) send files and nothing else,
-        so the dropzone's default decides: "always" leaves the lower bound open, every
-        other mode starts the upload now.
+        Used by the unattended methods (webhook, SFTP, Arrow Flight), which send files
+        only.
         """
         return None if self.default_validity == self.Validity.ALWAYS else timezone.now()
 
     def user_may_upload(self, user):
+        """Whether ``user`` may use the browser upload page."""
         if not self.require_login:
             return True
         if not user.is_authenticated:
@@ -230,9 +228,8 @@ class Dropzone(models.Model):
     def api_secret_matches(self, presented):
         """Whether ``presented`` authorizes an API or webhook upload to this dropzone.
 
-        Without a login requirement the URL token alone authorizes the upload, so an
-        empty secret accepts any client; with one, it rejects every client rather than
-        silently opening the endpoint.
+        Without a login requirement, the URL token alone authorizes the upload, so an
+        empty secret accepts any client. With one, an empty secret rejects every client.
 
         Args:
             presented: The secret the client sent.
@@ -283,9 +280,8 @@ class UploadQuerySet(models.QuerySet):
 class Upload(models.Model):
     """One uploaded set of files and the period the set is valid for.
 
-    The stored files live in ``directory`` (relative to the uploads volume), one
-    :class:`UploadFile` row each. Analytics code finds the file set valid at a given
-    timestamp with this query, mirroring ``UploadQuerySet.valid_at``::
+    Analytics code finds the file set valid at a timestamp with this query, mirroring
+    ``UploadQuerySet.valid_at``::
 
         SELECT u.directory, f.file
         FROM crudman.dropzones_upload u
@@ -296,8 +292,8 @@ class Upload(models.Model):
           AND (u.valid_until IS NULL OR @ts < u.valid_until)
         ORDER BY u.uploaded_at DESC
 
-    ``f.file`` already contains ``directory``, so the absolute path is the volume's
-    mount point plus ``f.file``.
+    ``f.file`` contains ``directory``, so the absolute path is the volume's mount point
+    plus ``f.file``.
     """
 
     dropzone = models.ForeignKey(
@@ -386,6 +382,5 @@ def _delete_stored_file(sender, instance, **kwargs):
 
 @receiver(post_delete, sender=Upload)
 def _delete_upload_directory(sender, instance, **kwargs):
-    # The cascade deleted the files already; FileField.delete leaves the now-empty
-    # per-upload directory behind.
+    # FileField.delete leaves the now empty per-upload directory behind.
     remove_upload_directory(instance.directory)

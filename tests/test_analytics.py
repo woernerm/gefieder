@@ -1,11 +1,11 @@
-"""The SQLMesh analytics pipeline produces data for every example tenant, end to end.
+"""The SQLMesh analytics pipeline produces data for every example project, end to end.
 
-run-tests.sh seeds a fresh stack with the three example tenants and lets SQLMesh backfill
+run-tests.sh seeds a fresh stack with the three example projects and lets SQLMesh backfill
 bronze -> silver -> gold. These tests read the result as the read-only grafana role, the
 consumer of gold.
 
 project_c's bronze layer is a polars Python model rather than a SQL transform, so a
-missing dependency or a tenant left out of the silver union shows up here as project_c
+missing dependency or a project left out of the silver union shows up here as project_c
 missing from gold while the others pass.
 
 silver.issue_risk_history is the same history built two ways -- project_a's by PostgreSQL
@@ -13,13 +13,15 @@ with the @temporal_join macro, project_b's by DuckDB with a native ASOF JOIN. Bo
 against PostgreSQL, which the SQLMesh unit tests cannot cover: those run on DuckDB.
 """
 import subprocess
-import time
 
 import pytest
-from conftest import GOLD_SCHEMA, SILVER_SCHEMA
+from conftest import GOLD_SCHEMA, SILVER_SCHEMA, poll
+
+DEPLOYED_PROJECT = "/var/lib/app/models/deployed/sqlmesh"
+"""Where the engine finds the project: a checkout on the models volume, not the image."""
 
 # Seeded into a fresh stack; project_c is the polars Python-model one.
-EXAMPLE_TENANTS = {"project_a", "project_b", "project_c"}
+EXAMPLE_PROJECTS = {"project_a", "project_b", "project_c"}
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -31,50 +33,44 @@ def wait_for_backfill(grafana_db):
     unrelated branches of the DAG.
     """
     tables = (f"{GOLD_SCHEMA}.issue_metrics", f"{SILVER_SCHEMA}.issue_risk_history")
-    deadline = time.time() + 180
-    while True:
-        try:
-            with grafana_db.cursor() as cur:
-                filled = 0
-                for table in tables:
-                    cur.execute("SELECT to_regclass(%s)", (table,))
-                    if cur.fetchone()[0] is None:
-                        break
-                    cur.execute(f"SELECT count(*) FROM {table}")
-                    if cur.fetchone()[0] == 0:
-                        break
-                    filled += 1
-                if filled == len(tables):
-                    return
-        except Exception:
-            pass
-        if time.time() > deadline:
-            pytest.fail(f"SQLMesh did not backfill {', '.join(tables)} in time")
-        time.sleep(2)
+
+    def filled(table):
+        with grafana_db.cursor() as cur:
+            cur.execute("SELECT to_regclass(%s)", (table,))
+            if cur.fetchone()[0] is None:
+                return False
+            cur.execute(f"SELECT count(*) FROM {table}")
+            return cur.fetchone()[0] > 0
+
+    if not poll(lambda: all(filled(t) for t in tables), 180, errors=(Exception,)):
+        pytest.fail(f"SQLMesh did not backfill {', '.join(tables)} in time")
 
 
-def tenants_in(conn, table):
-    """Return the distinct tenant_id values present in the given silver/gold table."""
+def projects_in(conn, table):
+    """Return the distinct tenant_id values present in the given silver/gold table.
+
+    tenant_id names the project a row came from; the column keeps the older name.
+    """
     with conn.cursor() as cur:
         cur.execute(f"SELECT DISTINCT tenant_id FROM {table}")
         return {row[0] for row in cur.fetchall()}
 
 
 class TestAnalyticsPipeline:
-    def test_gold_has_all_example_tenants(self, grafana_db):
+    def test_gold_has_all_example_projects(self, grafana_db):
         # gold is the precomputed layer dashboards read, so it must carry a row per
-        # tenant. Catches the polars bronze model dropping out of the pipeline.
-        present = tenants_in(grafana_db, f"{GOLD_SCHEMA}.issue_metrics")
-        assert EXAMPLE_TENANTS <= present, (
-            f"{GOLD_SCHEMA}.issue_metrics is missing tenants: {EXAMPLE_TENANTS - present}"
+        # project. Catches the polars bronze model dropping out of the pipeline.
+        present = projects_in(grafana_db, f"{GOLD_SCHEMA}.issue_metrics")
+        assert EXAMPLE_PROJECTS <= present, (
+            f"{GOLD_SCHEMA}.issue_metrics is missing projects: {EXAMPLE_PROJECTS - present}"
         )
 
-    def test_silver_has_all_example_tenants(self, grafana_db):
-        # silver is where the per-tenant transforms are unioned, so this pins a failure
+    def test_silver_has_all_example_projects(self, grafana_db):
+        # silver is where the per-project transforms are unioned, so this pins a failure
         # above to the union rather than to the gold aggregation.
-        present = tenants_in(grafana_db, f"{SILVER_SCHEMA}.issues")
-        assert EXAMPLE_TENANTS <= present, (
-            f"{SILVER_SCHEMA}.issues is missing tenants: {EXAMPLE_TENANTS - present}"
+        present = projects_in(grafana_db, f"{SILVER_SCHEMA}.issues")
+        assert EXAMPLE_PROJECTS <= present, (
+            f"{SILVER_SCHEMA}.issues is missing projects: {EXAMPLE_PROJECTS - present}"
         )
 
     def test_project_c_metrics_are_correct(self, grafana_db):
@@ -166,20 +162,22 @@ class TestAnalyticsPipeline:
     def test_sqlmesh_unit_tests_pass(self):
         # The yaml tests state @temporal_join's awkward cases as input and expected rows,
         # one per gateway, which the seeded pipeline cannot. Run in the deployed container,
-        # which is where the engine and its dependencies are.
+        # which is where the engine and its dependencies are. The wrapper on its PATH
+        # points the CLI at the checked-out project, as the models are on the volume.
         result = subprocess.run(
-            ["podman", "exec", "sqlmesh", "uv", "run", "--project", "/sqlmesh", "sqlmesh", "test"],
+            ["podman", "exec", "sqlmesh", "sqlmesh", "test"],
             capture_output=True, text=True,
         )
         assert result.returncode == 0, result.stdout + result.stderr
 
     def test_the_temporal_join_macro_agrees_across_gateways(self):
         # Neither yaml test can show that the two joins say the same thing, running
-        # different tenants over different data. test_temporal_join.py renders both
+        # different projects over different data. test_temporal_join.py renders both
         # branches over one fixture and compares them row for row.
         result = subprocess.run(
-            ["podman", "exec", "sqlmesh", "uv", "run", "--project", "/sqlmesh",
-             "python", "/sqlmesh/app/tests/test_temporal_join.py"],
+            ["podman", "exec", "--workdir", DEPLOYED_PROJECT, "sqlmesh",
+             "uv", "run", "--project", "/sqlmesh",
+             "python", f"{DEPLOYED_PROJECT}/tests/test_temporal_join.py"],
             capture_output=True, text=True,
         )
         assert result.returncode == 0, result.stdout + result.stderr

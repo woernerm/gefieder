@@ -58,16 +58,14 @@ def claimed_picture(extra_data):
 def loadable_picture(url):
     """The URL if a browser will be able to fetch it for itself, otherwise None.
 
-    Unfold sets the URL as a CSS background, and one that fails to load leaves an empty
-    circle, worse than the initial it replaced. Probing from the server is not the same
-    question, but it errs the right way: an unreachable host costs only the picture.
+    Unfold sets the URL as a CSS background, and a failing one leaves an empty circle. A
+    server-side probe errs the right way: an unreachable host costs only the picture.
 
     Args:
         url: The picture URL the provider claimed.
 
     Returns:
-        The URL if it answers as an image, otherwise None; ``fetched_picture`` then
-        takes over.
+        The URL if it answers as an image, otherwise None.
     """
     if not url:
         return None

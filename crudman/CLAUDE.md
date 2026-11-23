@@ -7,10 +7,19 @@ non-admin, non-technical users.
 ## Layout
 
 - `app/crudman/` — settings, urls, wsgi/asgi
-- `app/tenants/` — tenants and their database roles and schemas
+- `app/system/` — administering the system itself: which commit of the analytics models
+   runs. crudman is the only writer of the `models_data` volume (`repo.py`).
 - `app/dropzones/` — Multi-file uploads using one of sftp, HTTP POST, Browser upload,
    Apache Arrow Flight protocol and others, pipeline for checking and converting data.
 - `app/sso/` — OpenID Connect login via allauth
+- `app/docs/` — the deployed models, described; reads the export from the deployment row
+- `app/notebooks/` — what JupyterHub authenticates its visitors against. The credential a
+   server connects with is an expiring password on the person's own role, issued by
+   `dbusers`. No admin page of its own.
+- `app/shell/` — the bar below every page and the frame it puts the apps in: a page a
+   browser asks for by address is answered with the shell whichever app the path names,
+   and the frame asks for the same path again (`middleware.py`). `stages.py` names the
+   workflow stages, who may enter each, and which admin apps the sidebar shows for it.
 - `app/example/` — an empty scaffold; Perfect to quickly spin up forms for non-technical 
    users to input their data.
 
@@ -35,4 +44,4 @@ non-admin, non-technical users.
 `app/*/tests.py` run inside the built image, twice: `run-tests.sh` runs them once 
 plainly and once with single sign-on configured.
 
-Requirements: `app/dropzones/requirements.md`, `app/tenants/requirements.md`.
+Requirements: `app/dropzones/requirements.md`, `app/system/requirements.md`.

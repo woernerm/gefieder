@@ -19,5 +19,4 @@ changes the database when the intended state is already in place.
 
 A script that must run only once carries `once` in its filename, which keeps it out of
 the re-applied set: `gf_0001_once_configure_settings.sh` appends to `postgresql.conf`,
-and `gf_0006_once_create_example_tenants.sql` seeds the example tenants an administrator
-is meant to be able to delete for good.
+which a re-run would duplicate on every boot.

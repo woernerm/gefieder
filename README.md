@@ -2,14 +2,20 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-Gefieder is a multi-tenant data analytics platform for engineering teams, built on
-PostgreSQL, DuckDB, SQLMesh and Django (with the Unfold admin interface).
+Gefieder is a data analytics platform for engineering teams, built on PostgreSQL, DuckDB,
+SQLMesh and Django (with the Unfold admin interface).
 
 It runs as a small pod of containers managed by podman. Once it is up you get two web
 interfaces:
 
 - an **administration panel** (Django) for entering and editing organizational data
 - **Grafana dashboards** with the database already wired up as a read-only data source
+- **notebooks** (JupyterLab) for writing and trying out the analytics models in the browser
+
+All three sit above one bar at the foot of the window, which is the same everywhere: the
+stages of the workflow in the middle -- *Dashboards*, *Sources*, *Model*, *System*, each shown
+only to those who may use it -- and on the right who is online and your own menu (theme,
+access token, password, sign-out). Any address you bookmark or share opens inside it.
 
 This README walks you from nothing to a running system: first locally on your own
 machine, then deployed on a server, followed by reference sections for the settings,
@@ -49,9 +55,7 @@ creates the credentials it needs and prints the addresses and the login:
 
 It always runs in development mode, so it serves plain HTTP and needs no certificate:
 
-- Administration panel: <http://127.0.0.1:8080/crudman/>
-- Model documentation: <http://127.0.0.1:8080/crudman/docs/>
-- Grafana dashboards: <http://127.0.0.1:8080/grafana/>
+- <http://127.0.0.1:8080/> -- the dashboards, with the bar below leading everywhere else
 
 Log in as the superuser with the password `dev.sh` prints. To run the test suite instead,
 use `./run-tests.sh`, which builds a stack of its own on isolated ports and removes it
@@ -125,13 +129,13 @@ builds through `build.sh`, so CI and a developer build identically.
 
 ## The containers
 The system is a single pod (named after `APP_NAME`, `gefieder` by default; the pod file
-is `main.pod`, so the systemd unit is `main-pod.service`) of seven containers:
+is `main.pod`, so the systemd unit is `main-pod.service`) of nine containers:
 
 - `postgresql` — the database holding the engineering, analytics and application data,
   published on `PG_PORT` (5432 by default) so external tools can read and write it
 - `crudman` — the Django administration panel, reachable through the proxy
 - `sftp` — the SFTP endpoint for dropzone uploads (the crudman image in a second role),
-  published on `SFTP_PORT` (2222 by default)
+  published on `SFTP_PORT` (2222 by default); it also lets you clone the analytics models
 - `flight` — the Arrow Flight endpoint for dropzone uploads (the crudman image in a
   third role), published on `FLIGHT_PORT` (8815 by default)
 - `sqlmesh` — the SQLMesh analytics engine, running models on their cron schedules
@@ -139,10 +143,12 @@ is `main.pod`, so the systemd unit is `main-pod.service`) of seven containers:
   data source and the extra panel types from `GRAFANA_PLUGINS` ready to use
 - `grafana_mcp` — the Grafana MCP server, which lets an AI assistant read and change Grafana on
   your behalf (see [AI assistant access](#ai-assistant-access))
-- `proxy` — an nginx reverse proxy that serves the admin panel and Grafana under
+- `jupyter` — JupyterHub, giving each person a notebook for writing analytics models
+  (see [Writing analytics models](#writing-analytics-models))
+- `proxy` — an nginx reverse proxy that serves the admin panel, Grafana and the notebooks under
   `SERVER_NAME` and publishes the pod's ports 80/443
 
-The unit files live in `quadlets/` as templates with `${...}` tokens. The release
+The unit files are in `quadlets/` as templates with `${...}` tokens. The release
 workflow renders them (substituting the `buildtime.env` values) and the installer places
 the rendered files in `~/.config/containers/systemd/`.
 
@@ -156,20 +162,24 @@ adjust:
 | --- | --- |
 | `APP_NAME` | the name of the project (pod name, volume prefix, cert dir) |
 | `REPO` | your repository's full URL; the release workflow bakes it into `install.sh`, which downloads from `<REPO>/releases/latest/download`. It has no default — a release cannot be built without it |
+| `REPO_MODELS` | where the analytics models live. The default is a repository the system creates on its own volume, so a fresh installation needs no git host; set it to a git repository to develop the ordinary way (see [Writing analytics models](#writing-analytics-models)) |
 | `REGISTRY` | the path the images are named under, e.g. `ghcr.io/your-org/gefieder` → `…/gefieder/crudman` |
 | `IMAGE_TAG` | the image tag, e.g. `latest` |
-| `SUPERUSER_NAME` | the name of the PostgreSQL, Django and Grafana superuser |
+| `SUPERUSER_NAME` | the name of the Django and Grafana administrator |
+| `PG_SUPERUSER_ROLE` | the PostgreSQL cluster superuser, which nobody logs in as by hand |
 | `SUPERUSER_EMAIL` | the email address of the Django superuser |
 | `SUPERUSER_DEFAULT_PASSWORD` | the password used when the installer's password prompt is left empty |
 | `CRUDMAN_PATH` | the base path of the admin panel, e.g. `crudman` → `https://SERVER_NAME/crudman/` |
 | `GRAFANA_PATH` | the base path of Grafana, e.g. `grafana` → `https://SERVER_NAME/grafana/` |
 | `MCP_PATH` | the base path of the AI assistant endpoint, e.g. `ai/grafana_mcp` → `https://SERVER_NAME/ai/grafana_mcp/mcp`. The `/ai/` prefix leaves room for further assistant endpoints beside it |
-| `PG_DATABASE` | the database everything lives in; change it if the cluster already has one named `postgres` |
+| `NOTEBOOK_PATH` | the base path of the notebooks, e.g. `jupyter` → `https://SERVER_NAME/jupyter/` |
+| `PG_DATABASE` | the database holding everything; change it if the cluster already has one named `postgres` |
 | `SERVER_STATS_SCHEMA` | the schema that holds the server-usage and query statistics (see [Server statistics](#server-statistics)) |
 | `SERVER_STATS_INTERVAL` | how often, in seconds, the server statistics are sampled (default 60) |
-| `DUCKDB_EXTENSIONS` | the DuckDB extensions baked into the database image, comma-separated; they are downloaded at build time, so the server needs no internet access to use them |
+| `DUCKDB_EXTENSIONS` | the DuckDB extensions baked into the SQLMesh engine and notebook images, comma-separated; they are downloaded at build time, so the server needs no internet access to use them |
 | `GRAFANA_PLUGINS` | the extra panel types baked into the Grafana image, comma-separated plugin ids; downloaded at build time as well, so the dashboards can use them offline |
 | `GRAFANA_MCP_TOOLS` | what an AI assistant may ask the system to do, comma-separated (see [AI assistant access](#ai-assistant-access)) |
+| `JUPYTER_EXTENSIONS` | extra JupyterLab extensions baked into the notebook image, comma-separated package names; empty by default, and downloaded at build time like the two lists above |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | company proxy for image builds (empty = direct) |
 | `PYTHON_INDEX` | additional Python package index for the build, e.g. a company mirror (empty = PyPI) |
 | `DOCKER_IO_MIRROR`, `GHCR_IO_MIRROR` | where the build pulls its base images from; set them to a company mirror if `docker.io` and `ghcr.io` are slow to reach |
@@ -187,10 +197,11 @@ on a reinstall, so your edits survive an upgrade.
 | `DEBUG` | development vs. production mode (see below) |
 | `HTTP_PORT`, `HTTPS_PORT` | the ports the two web interfaces are reached on; `80` and `443` (see [Using custom ports](#using-custom-ports)) |
 | `PG_PORT` | the port PostgreSQL is reached on; `5432` |
-| `SFTP_PORT`, `FLIGHT_PORT` | the ports the two dropzone upload endpoints are reached on; `2222` and `8815` |
+| `MODELS_POLL_INTERVAL` | how often, in seconds, the system looks for a new commit of the analytics models; `20`, and `0` switches the automatic deployment off |
+| `DEFAULT_THEME` | whether the dashboards, the admin panel and the notebooks open in `dark` or `light` colours; `dark`. Everyone can still pick the other one for themselves |
+| `SFTP_PORT`, `FLIGHT_PORT` | the ports the two dropzone upload endpoints are reached on; `2222` and `8815`. The analytics models are cloned over `SFTP_PORT` too |
 | `OIDC_ENABLED` | whether people sign in with their company account (see [Single sign-on](#single-sign-on)); `false` by default |
 | `OIDC_ISSUER` | the address of your identity provider |
-| `OIDC_AUTH_URL`, `OIDC_TOKEN_URL`, `OIDC_USERINFO_URL` | the three addresses Grafana needs spelled out; your provider lists them |
 | `OIDC_LOGOUT_URL` | where signing out sends people, so their session at the provider ends too |
 | `OIDC_CLIENT_ID` | the application ID your provider issued |
 | `OIDC_SCOPES` | optional; leave it empty and what to ask your provider for is worked out from `OIDC_ISSUER` |
@@ -238,6 +249,8 @@ take effect.
 | `sqlmesh_password` | the database user the analytics engine connects with |
 | `grafana_password` | the read-only database user for the Grafana data source |
 | `oidc_client_secret` | the single sign-on client secret, if you use it (see below) |
+| `jupyter_secret` | encrypts the notebook sessions JupyterHub keeps |
+| `postgres_password` | the PostgreSQL cluster superuser, generated at install |
 
 These are the names as shipped. If one of them collides with a podman secret your server
 already has, rename it in `buildtime.env` (the `SECRET_*` settings) and rebuild — the
@@ -245,16 +258,20 @@ commands below then use your name instead.
 
 ## Single sign-on
 People can sign in with their company account instead of a separate password here. Once it
-is on, opening the admin panel or Grafana sends them to your identity provider and straight
+is on, opening any part of the system sends them to your identity provider and straight
 back — someone who is already signed in elsewhere never sees a login page at all. It works
 with Entra ID, Keycloak, Authentik, Okta and Google, and is off until you configure it.
+
+There is one sign-in for the whole system, whether or not single sign-on is on: the admin
+panel's. Grafana and the notebooks recognise whoever is signed in there and never ask
+again.
 
 Their access is decided by three roles, which you assign to people at the provider:
 
 | Role | In Grafana | In the admin panel |
 | --- | --- | --- |
 | `Viewer` | may look at dashboards | may look at the data |
-| `Editor` | may build dashboards | may add and change data |
+| `Editor` | may build dashboards | may add and change data, and use the notebooks |
 | `Admin` | full access | full access |
 
 Someone who signs in successfully but holds none of the three is refused rather than let in
@@ -263,12 +280,11 @@ under **Access → Users** in the admin panel, which is the place to look when t
 what they can do disagree.
 
 **Set it up at your provider.** Register one application for the whole system and give it
-these two sign-in redirect addresses (with your own host name, and your own paths if you
-changed `CRUDMAN_PATH` or `GRAFANA_PATH`):
+this sign-in redirect address (with your own host name, and your own path if you changed
+`CRUDMAN_PATH`):
 
 ```
 https://SERVER_NAME/crudman/accounts/oidc/sso/login/callback/
-https://SERVER_NAME/grafana/login/generic_oauth
 ```
 
 Then define `Viewer`, `Editor` and `Admin` as the application's roles, assign your people to
@@ -314,12 +330,12 @@ story. Anything you grant someone by hand — extra groups in the admin panel, p
 a particular Grafana folder — stays with them. Signing in only ever updates their role, so
 your additions are not overwritten.
 
-**If you get locked out.** Both applications keep their own login for the admin account, in
-case the provider is unreachable or misconfigured:
+**If you get locked out.** The admin panel keeps its own login for the admin account, in
+case the provider is unreachable or misconfigured — and signing in there signs you in to
+Grafana and the notebooks as well:
 
 ```
 https://SERVER_NAME/crudman/login/?local
-https://SERVER_NAME/grafana/login?disableAutoLogin
 ```
 
 Client secrets expire — Entra ID allows two years at most. When one does, every sign-in
@@ -393,7 +409,7 @@ where `%h` is the home directory of the user running the containers, and an abso
 such as `/etc/pki/gefieder` works as well.
 
 ## Storage
-Persistent data lives in named volumes, one per service, that the quadlets create
+Persistent data is kept in named volumes, one per service, that the quadlets create
 automatically on the first start (the installer also pre-creates them so the rootless
 user owns their contents):
 
@@ -404,6 +420,13 @@ user owns their contents):
 - `sftp_data` — the host key of the SFTP upload endpoint, so uploaders' SFTP clients
   keep trusting the server across updates
 - `proxy_data` — the page-visit records the server statistics are built from
+- `models_data` — the analytics models: the working tree the engine runs, everyone's
+  notebook workspaces and, unless `REPO_MODELS` points at a git host, the repository
+  itself. **Back this one up.** With the default setting it is the only copy of your models
+  and their history; with a git host configured it is a clone and can be thrown away, apart
+  from work in a notebook that has not been pushed yet
+- `jupyter_data` — the notebook homes and JupyterHub's own state; removing it costs a
+  sign-in, not any work
 
 They survive stopping the stack. Inspect them with `podman volume ls`. To delete the
 data, remove the volume explicitly, e.g. `podman volume rm postgresql_data`.
@@ -444,7 +467,7 @@ and stores the numbers in the database, next to the per-query statistics it also
   Visitors are grouped by a hashed session, never by name, and the raw session cookie is
   never stored.
 
-It starts automatically after installation. The data lives in the `server_stats` schema;
+It starts automatically after installation. The data is stored in the `server_stats` schema;
 the dashboards that present it are added separately. A few controls:
 
 ```bash
@@ -510,53 +533,89 @@ writing your own.
 
 ## Writing analytics models
 This walks you through changing a model and getting it into production. It follows the
-example tenants that ship with the system, so you can do every step on a fresh
+example projects that ship with the system, so you can do every step on a fresh
 installation before writing anything of your own.
 
-The models live in `sqlmesh/`, and they are ordinary files in your repository: bronze
-models per tenant under `models/bronze/`, the per-tenant transforms and the harmonized
-`silver.issues` under `models/silver/`, and the precomputed metrics under `models/gold/`.
-The example data comes from the CSVs in `seeds/`, so the pipeline runs without any
-external tooling.
+The models are kept in a git repository of their own, separate from the system that runs
+them. Inside it, `sqlmesh/models/bronze/` holds one folder per project,
+`sqlmesh/models/silver/` the per-project transforms and the harmonized `silver.issues`, and
+`sqlmesh/models/gold/` the precomputed metrics. The example data comes from the CSVs in
+`sqlmesh/seeds/`, so the pipeline runs without any external tooling.
 
-### 1. Set up your machine
-You work on your own machine and connect to the server's database over the network. Get
-the password — it is the `sqlmesh_password` secret, so on the server run:
+Where that repository is kept is set by `REPO_MODELS` in `buildtime.env`. Out of the box it is a
+repository the system creates on its own volume the first time it starts, filled with the
+models shown here, so a fresh installation computes something immediately. Point it at your
+own git host — GitHub, GitLab, anything `git clone` accepts — and that becomes the origin.
+**System → Models → Versions** in the admin panel shows the address to clone and every
+commit on `main`; the notebooks show the same address under **File → Clone this
+repository…**, and so does the cheat sheet. It takes the editor rank, choosing what production computes being a
+change rather than a reading.
+
+### 1. Choose where you work
+There are two ways to write models, and they are the same models in the same repository.
+
+**In the browser.** Open the admin panel and follow **Notebooks** at the bottom of the
+sidebar, or go to `https://SERVER_NAME/jupyter/` directly. You are already signed in, and
+everything is set up for you: your own copy of the models, a database connection of your
+own, and the git panel on the left to commit and push with. Nothing to install. Skip to
+step 2.
+
+You need two things, and the link only appears once you have both: the editor rank, and a
+database account an administrator switches on under **Database access** on your user page.
+
+**On your own machine**, if you would rather use your own editor. Ask an
+administrator for a database account; they switch it on in the admin panel under a
+person's **Database access**.
+
+Then create an access token for yourself: sign in to the admin panel, open the menu
+behind your name at the bottom of the sidebar and follow **Access token**. It is shown to
+you once.
+
+With the repository the system keeps itself, git signs in with an SSH key: add yours
+under **SSH keys** in the same menu (paste your `~/.ssh/id_ed25519.pub`; `ssh-keygen -t
+ed25519` creates one). It works from the editor rank upwards. A git host of your own
+manages its access itself.
 
 ```bash
-podman secret inspect --showsecret sqlmesh_password
+git clone <the address on the Versions page> models
+cd models/sqlmesh
+uv sync                                       # creates .venv
+echo "SQLMESH_TOKEN=<your token>" > .env
 ```
 
-Then, in your checkout:
+`.env` is gitignored and holds the only thing that is yours alone. SQLMesh fetches a
+database password with the token and renews it by itself, so no password is ever stored on
+your machine. Nothing else needs configuring: the repository carries a `server.env` naming
+this system's address and database, and `config.py` reads it.
 
-```bash
-uv sync --project sqlmesh                     # creates sqlmesh/.venv
-echo "SQLMESH_PASSWORD=<the secret>" > sqlmesh/.env
-```
-
-`sqlmesh/.env` is gitignored and never reaches an image; exporting `SQLMESH_PASSWORD`
-works just as well. Nothing else needs configuring: `sqlmesh/config.py` notices where it
-is running and connects to the database next to it in the container, or to `SERVER_NAME`
-from `runtime.env` on port 5432 from your machine.
+If you lose the token, or it ends up somewhere it should not, create a new one on the same
+page — the old one stops working. Switching your database access off does the same.
 
 For the editor, install the **SQLMesh** extension, then run *Python: Select Interpreter*
-from the command palette and pick `sqlmesh/.venv/bin/python` — the extension needs an
+from the command palette and pick `.venv/bin/python` — the extension needs an
 interpreter that has SQLMesh installed. Its `sqlmesh` output channel tells you which one
 it found. After changing the config, run *SQLMesh: Restart Servers*. You then get column
 completion, lineage and errors as you type; the commands below stay the same either way.
 
 ### 2. Change a model
-Open `sqlmesh/models/gold/issue_metrics.sql` and add a column to the query — say
+Open `models/gold/issue_metrics.sql` and add a column to the query — say
 `AVG(effort) AS average_effort`. Models are plain SQL wrapped in a `MODEL (...)` block
 that names the model and says how it is materialized: `VIEW` for the thin harmonizing
 layer, `FULL` for the gold tables dashboards read, `SEED` for the example CSVs.
+
+In the notebooks a model opens as a notebook: the file is one cell, and running it
+(Shift+Enter) checks the definition, shows the SQL it compiles to and the first rows it
+produces. Ctrl+S saves it back as the same `.sql` file, so what you commit is SQL and
+nothing is generated behind your back. Add cells below to explore — a cell starting with
+`SELECT` returns a table, and `%evaluate <model>` runs a model and shows its rows. Prose
+written in a cell above the definition becomes the model's description on the documentation
+pages. Notebooks with charts and saved output belong in `notebooks/` beside the models.
 
 ### 3. Plan it into your own environment
 A *plan* compares your files against a target environment and shows what would change
 before anything happens:
 
 ```bash
-cd sqlmesh
 uv run sqlmesh plan
 ```
 
@@ -621,20 +680,48 @@ MODEL (
 
 For anything else, write a query that selects the rows that should not exist. Gefieder
 ships one: `sqlmesh/audits/assert_known_tenant.sql` returns any row missing `tenant_id`
-or `issue_id`, and every per-tenant staging model references it, so a transform that
+or `issue_id`, and every per-project staging model references it, so a transform that
 forgets the canonical key columns fails the plan instead of quietly polluting
 `silver.issues`. Audits block by default — the run stops rather than passing bad data on.
 
 ### 7. Ship it
-Commit your models. The server rebuilds its image from the repository, and the engine
-applies whatever it finds to `prod` when it starts, so committing is what makes a change
-permanent. Running `uv run sqlmesh plan prod` yourself applies it to production right
-away, which is useful when you cannot wait for a deployment — but if you skip the commit,
-the next deployment puts the old version back.
+Push to `main`. That is the whole deployment: the server notices within
+`MODELS_POLL_INTERVAL` seconds, checks your commit out and applies it to `prod`. Nothing is
+built and nothing restarts, because promoting a plan in SQLMesh swaps views rather than
+moving data. No release of the system is involved, and nobody has to log in to the server.
+
+**System → Models → Versions** then shows your commit as live, or tells you why it is not.
+Every earlier commit has a **Use this version** button beside it, so putting one back is a
+click and takes the same few seconds. That choice stands until somebody pushes again, and
+the push wins.
+
+One kind of change still needs a release of the system: editing `sqlmesh/pyproject.toml`.
+Dependencies are installed when the images are built, so such a commit is refused with that
+explanation rather than being checked out into an engine that cannot run it.
+
+### 7a. Let the people who know the numbers check it first
+A metric can be built correctly and still be wrong, and the only people who can tell are
+the ones whose work the data is about. They need no account anywhere else and nothing
+explained to them.
+
+On **System → Models → Versions**, press **Ask for approval** beside a commit and tick the
+people who should look at it. The next time each of them signs in, their dashboards simply
+*are* that version — they pick nothing and switch nothing on — and the bar at the foot of
+every page offers **Approve** and **Reject** with a box for anything they want to say. As
+soon as they answer they are back on the live version.
+
+**Use this version** stays greyed out until everyone asked has approved. A version nobody
+was asked about still deploys, after a confirmation — and a push to `main` still goes live
+on its own, so this is a way of asking, not a lock on the system.
+
+### 8. If something is wrong
+The engine reports what happened on the **Versions** page, including the plan's own
+output when it fails. A bad model is undone the same way it arrived — push a revert, or
+press **Use this version** on the commit before it.
 
 ### A note on state
 SQLMesh keeps its own record of every model version, what has been built and which
-version each environment points at. In Gefieder that lives in the `sqlmesh` schema of the
+version each environment points at. In Gefieder that record is kept in the `sqlmesh` schema of the
 same PostgreSQL database, which is why your machine and the server agree about
 environments at all, and why the ordinary backup of `postgresql_data` already covers it.
 Two consequences worth knowing: dashboards have no business reading that schema (Grafana
@@ -657,25 +744,37 @@ systemctl --user stop  main-pod.service   # stop the whole pod
 systemctl --user restart crudman.service  # restart a single service
 podman pod ps                             # show the pod and its containers
 podman logs -f sqlmesh                    # follow a container's live log
+podman exec sqlmesh sqlmesh test          # run a SQLMesh command on the deployed models
 ```
 
 ## Connecting directly
 - **Admin panel / Grafana**: log in with `SUPERUSER_NAME` and the `superuser_password`.
-- **PostgreSQL** (with the same password): the pod publishes `PG_PORT` (5432), so reporting
-  tools and the tools that fill the bronze schemas connect straight to `SERVER_NAME`:
+- **PostgreSQL**: the pod publishes `PG_PORT` (5432), so reporting tools and the tools that
+  fill the bronze schemas connect straight to `SERVER_NAME`. Connect as your own database
+  user, which an administrator switches on under **Database access**.
+
+  There is no standing password. Ask for one with the access token from your **Access
+  token** page; it lasts twelve hours, and asking again replaces it:
 
   ```bash
-  psql "host=SERVER_NAME port=PG_PORT dbname=PG_DATABASE user=SUPERUSER_NAME"
+  curl -s -X POST https://SERVER_NAME/crudman/dbusers/password/ \
+       -H "Authorization: Bearer <your token>"
   ```
-
-  On the server itself you can also skip the network:
 
   ```bash
-  podman exec -it postgresql psql -U SUPERUSER_NAME -d PG_DATABASE
+  psql "host=SERVER_NAME port=PG_PORT dbname=PG_DATABASE user=<your user>"
   ```
 
-  `SUPERUSER_NAME` is `admin` and `PG_DATABASE` is `postgres` unless you changed them
-  in `buildtime.env`.
+  SQLMesh does this for you, so a clone of the models repository needs only the token.
+
+  On the server itself you can also skip the network, as the cluster superuser:
+
+  ```bash
+  podman exec -it postgresql psql -U PG_SUPERUSER_ROLE -d PG_DATABASE
+  ```
+
+  `PG_SUPERUSER_ROLE` is `postgres` and `PG_DATABASE` is `postgres` unless you changed
+  them in `buildtime.env`.
 
 ## Using custom ports
 The system is published on ports 80 and 443 for the web services, 5432 for the database,
@@ -689,7 +788,8 @@ systemctl --user restart main-pod.service
 ```
 
 The dropzone ports need nothing further: each dropzone's admin page reads `SFTP_PORT` and
-`FLIGHT_PORT` for the address it shows uploaders, so the page follows the change by itself.
+`FLIGHT_PORT` for the address it shows uploaders, and the clone address of the analytics
+models follows `SFTP_PORT` the same way.
 
 The two web ports have one exception. Opening the system over plain `http://` still sends
 the browser to the standard HTTPS port rather than yours, because the proxy cannot know
@@ -738,6 +838,6 @@ The software it builds on keeps its own license. Two cases to be aware of:
   Licenses and quality vary, so trim both lists to what you actually use before going to
   production.
 
-Everything else — the base images (PostgreSQL/pgduckdb, nginx, Python) and the Python
+Everything else — the base images (PostgreSQL, nginx, Python) and the Python
 dependencies (Django, gunicorn, SQLMesh, ...) — is permissively licensed; check the
 individual projects if you need the details.

@@ -16,11 +16,13 @@ git history). Correct that information (if not true or obsolete) or remove it (o
 obsolete). Do not consider other comments, docstrings and readme files as source of 
 truth. Just code and third-party documentation are valid sources of truth.
 
-2. For python, comments and docstrings shall be [Google style](https://google.github.io/styleguide/pyguide.html#Comments) 
+2. For python, comments and docstrings shall be 
+[Google style](https://google.github.io/styleguide/pyguide.html#Comments) 
 (fetch and read the resource).
 
 3. After this, go through all python files (do not touch third-party libraries, e.g. do 
-not touch files in venv) and refactor the comments and docstrings so that only the most important information, paragraph structure, correct grammar and correct spelling is 
+not touch files in venv) and refactor the comments and docstrings so that only the most 
+important information, paragraph structure, correct grammar and correct spelling is 
 kept. The desired comment and docstrings lengths are:
 
 * *Module/files:* 1 line brief. Description is optional, 15 lines or less.
@@ -51,6 +53,12 @@ truth. Just code and third-party documentation are valid sources of truth.
 
 # Style
 - Keep gramatically correct sentences in docstrings and full-line comments.
-- Only shorten one line comments by removing fill words. Not content.
-- Only shorten docstrings which already have only three lines or less by removing fill words. Not content.  
+- One line comments: Only remove fill words. Not content.
 - Focus on why something is done (design decision rationale). Now how something is done.
+- Do not repeat default values, or types already given in type annotations.
+- Avoid phrases typical of AI writing, including:
+  - "[not actually living thing] lives in", e.g. "the code lives in folder xyz". So, do
+    not use animate words for inanimate things.
+  - "it is worth stating plainly".
+  - Contrastive negation ("not X, but Y"), e.g. "metrics document, they don't
+    compute".

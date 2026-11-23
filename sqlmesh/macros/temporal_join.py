@@ -1,9 +1,9 @@
 """@temporal_join — join two change histories on the union of their timestamps.
 
-One ASOF join follows one history and misses the other's changes; this follows both,
-exposing ``tck`` (every timestamp at which either side may have changed, per item),
-``lhs`` (the left row in effect at that tick) and ``rhs`` (the right row in effect there,
-looked up through that left row).
+One ASOF join misses the other history's changes; this follows both, exposing ``tck``
+(every timestamp at which either side may have changed, per item), ``lhs`` (the left row
+in effect at that tick) and ``rhs`` (the right row in effect there, looked up through
+that left row).
 
 Typical usage example:
 
@@ -15,10 +15,9 @@ Typical usage example:
       on     := (rhs.component_id = lhs.component_id)
     )
 
-Each lookup takes one row per tick, so both sources must be unique on (key, timestamp)
-and on (join columns, timestamp). The tick list over-collects, so every column of both
-*sources* is compared with the tick before and only a change survives; a SELECT folding
-two columns into one can still show identical rows, which the example's audits catch.
+Both sources must be unique on (key, timestamp) and on (join columns, timestamp). Ticks
+without a change in any source column are dropped; a SELECT folding two columns into one
+can still show identical rows.
 """
 
 from sqlglot import exp
@@ -29,11 +28,7 @@ from sqlmesh.utils import columns_to_types_all_known
 from sqlmesh.utils.errors import SQLMeshError
 
 TICKS, LEFT, RIGHT = "tck", "lhs", "rhs"
-"""The aliases a calling model selects from.
-
-Fixed rather than configurable: a name changing with the call site would only make the
-models harder to read.
-"""
+"""The aliases a calling model selects from; fixed to keep the models readable."""
 
 DUCKDB_GATEWAY = "duckdb"
 """The gateway whose engine has an ASOF JOIN, named as config.py names it.
@@ -176,8 +171,7 @@ def temporal_join(
     # Both forms say the same thing -- the latest row at or before the tick -- with the
     # right one hanging off the left row rather than off the tick.
     #
-    # PostgreSQL has no ASOF JOIN and pg_duckdb cannot lend it one, parsing the statement
-    # long before DuckDB sees it. LATERAL ... ORDER BY ... LIMIT 1 is the same lookup
+    # PostgreSQL has no ASOF JOIN. LATERAL ... ORDER BY ... LIMIT 1 is the same lookup
     # written out, and an index on (key, timestamp) serves it directly.
     if asof:
         lookups = (

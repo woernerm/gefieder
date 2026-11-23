@@ -9,37 +9,31 @@ import os
 import secrets
 from pathlib import Path
 
-from django.urls import Resolver404, resolve
-
 from sso.scopes import scopes_for
 
 APP_NAME = os.environ.get("APP_NAME", "app").capitalize()
 
 
-def secret_path(setting, default):
-    """The file podman mounts one of our secrets at.
+def read_secret(setting, default, fallback):
+    """One of our secrets, from the file podman mounts it at.
 
     Args:
         setting: Environment variable naming the secret, which buildtime.env may rename.
         default: The name this repository ships, used when the variable is unset.
+        fallback: The value when the secret is not mounted, as in a checkout.
 
     Returns:
-        The path to read the secret from.
+        The secret's value.
     """
-    return Path("/run/secrets") / os.environ.get(setting, default)
+    path = Path("/run/secrets") / os.environ.get(setting, default)
+    return path.read_text().strip() if path.exists() else fallback
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY_FILE = secret_path("SECRET_DJANGO_KEY", "django_secret_key")
-
 # A throwaway key when the secret is missing: it keeps a checkout runnable and
 # invalidates every session on restart, rather than shipping a known key.
-SECRET_KEY = (
-    SECRET_KEY_FILE.read_text().strip()
-    if SECRET_KEY_FILE.exists()
-    else secrets.token_hex(100)
-)
+SECRET_KEY = read_secret("SECRET_DJANGO_KEY", "django_secret_key", secrets.token_hex(100))
 
 DEBUG = os.environ.get("DEBUG", "false").strip().lower() == "true"
 
@@ -48,6 +42,11 @@ SERVER_NAME = os.environ.get("SERVER_NAME", "localhost")
 
 # Must match CRUDMAN_PATH of the proxy service and the URL configuration in urls.py.
 CRUDMAN_PATH = os.environ.get("CRUDMAN_PATH", "crudman")
+
+# Where the proxy serves Grafana and the notebooks, from buildtime.env. Neither is served
+# here; the bar below every page links to them (shell/stages.py).
+GRAFANA_PATH = os.environ.get("GRAFANA_PATH", "grafana")
+NOTEBOOK_PATH = os.environ.get("NOTEBOOK_PATH", "jupyter")
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", SERVER_NAME]
 
@@ -123,7 +122,10 @@ INSTALLED_APPS = [
     # An empty "manage.py startapp" scaffold: where a data model of this template's own
     # would go. Nothing else refers to it.
     'example.apps.ExampleConfig',
-    'tenants.apps.TenantsConfig',
+    # Administering the system itself: which version of the analytics models runs. Before
+    # sso, whose post_migrate receiver hands this app's permissions to the ranks; Django
+    # creates them when this app's own post_migrate fires.
+    'system.apps.SystemConfig',
     'dropzones.apps.DropzonesConfig',
     # After sso, whose role groups decide the database rank a person is provisioned with.
     'dbusers.apps.DbUsersConfig',
@@ -132,6 +134,10 @@ INSTALLED_APPS = [
     'sso.apps.SsoConfig',
     # The SQLMesh model documentation, open from the viewer rank up.
     'docs.apps.DocsConfig',
+    # What JupyterHub asks who a visitor is; it registers no admin page of its own.
+    'notebooks.apps.NotebooksConfig',
+    # The bar below every page, and the frame it puts the apps in.
+    'shell.apps.ShellConfig',
 ]
 
 MIDDLEWARE = [
@@ -145,18 +151,27 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+# The admin panel is shown inside the shell's frame (see shell/middleware.py), which
+# Django's default of DENY would leave blank. Same origin only: the frame is served from
+# the same host as the page in it.
+X_FRAME_OPTIONS = 'SAMEORIGIN'
+
 ROOT_URLCONF = 'crudman.urls'
 
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        # Searched before any app's own, which is what lets templates/unfold/ override
+        # a template Unfold ships: INSTALLED_APPS lists unfold first, so an app-level
+        # copy would lose to it.
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'system.context_processors.default_theme',
             ],
         },
     },
@@ -168,13 +183,7 @@ WSGI_APPLICATION = 'crudman.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-PG_PASSWORD_FILE = secret_path("SECRET_CRUDMAN_PASSWORD", "crudman_password")
-
-PG_PASSWORD = (
-    PG_PASSWORD_FILE.read_text().strip()
-    if PG_PASSWORD_FILE.exists()
-    else secrets.token_hex(100)
-)
+PG_PASSWORD = read_secret("SECRET_CRUDMAN_PASSWORD", "crudman_password", secrets.token_hex(100))
 
 DATABASES = {
     'default': {
@@ -254,21 +263,21 @@ STORAGES = {
 }
 
 
-def _site_url(request):
-    """Target for Unfold's "Return to site" link, evaluated per request.
+
+def _palette_url(request):
+    """The stylesheet holding the system's colours, for Unfold's STYLES.
 
     Args:
         request: The request Unfold is rendering for, unused.
 
     Returns:
-        "/" once a root route exists, otherwise None to hide the link. Nothing serves a
-        site root today, so the default "/" would lead to a broken page.
+        The URL of css/palette.css under the static root.
     """
-    try:
-        resolve("/")
-        return "/"
-    except Resolver404:
-        return None
+    # Imported here: the static tag needs the app registry, which is not ready while this
+    # module is being loaded.
+    from django.templatetags.static import static
+
+    return static("css/palette.css")
 
 
 # Single sign-on
@@ -295,13 +304,7 @@ OIDC_PROVIDER_ID = "sso"
 OIDC_SCOPES = scopes_for(OIDC_ISSUER, os.environ.get("OIDC_SCOPES", ""))
 
 # The placeholder the installer creates is inert while OIDC_ENABLED is false.
-OIDC_CLIENT_SECRET_FILE = secret_path("SECRET_OIDC_CLIENT", "oidc_client_secret")
-
-OIDC_CLIENT_SECRET = (
-    OIDC_CLIENT_SECRET_FILE.read_text().strip()
-    if OIDC_CLIENT_SECRET_FILE.exists()
-    else ""
-)
+OIDC_CLIENT_SECRET = read_secret("SECRET_OIDC_CLIENT", "oidc_client_secret", "")
 
 if OIDC_ENABLED:
     INSTALLED_APPS += [
@@ -339,9 +342,9 @@ if OIDC_ENABLED:
         },
     }
 
-    # Where a sign-in that named no destination ends up; allauth's default
-    # /accounts/profile/ is not served here.
-    LOGIN_REDIRECT_URL = f'/{CRUDMAN_PATH}/'
+    # Where a sign-in that named no destination ends up: the home page, which the proxy
+    # sends on to the dashboards. allauth's default /accounts/profile/ is not served here.
+    LOGIN_REDIRECT_URL = '/'
 
     # Roles are applied on every login, in the adapter.
     SOCIALACCOUNT_ADAPTER = 'sso.adapters.SSOAccountAdapter'
@@ -356,6 +359,10 @@ if OIDC_ENABLED:
     # Nothing calls the provider's API on the user's behalf, so the tokens are unused.
     SOCIALACCOUNT_STORE_TOKENS = False
 
+# Last: it answers a page request with the shell, drawn from what the middlewares before
+# it attached to the request -- the user, and their picture.
+MIDDLEWARE += ['shell.middleware.shell']
+
 
 UNFOLD = {
     # Browser tab title
@@ -364,6 +371,62 @@ UNFOLD = {
     # Header text in the admin
     "SITE_HEADER": APP_NAME,
 
-    # The "Return to site" link, hidden until there is a site root to return to.
-    "SITE_URL": _site_url,
+    # No "Return to site" link: the bar's home link, drawn beside this menu, is that.
+    "SITE_URL": None,
+
+    # The menu behind one's own name at the foot of the sidebar. A dotted path since the
+    # function is defined in an app, which cannot be imported while settings are read.
+    "ACCOUNT": {"navigation": "dbusers.admin.account_links"},
+
+    # The system's colours, shared with Grafana and the notebooks. Unfold renders these as
+    # --color-* variables into every page, so the values are var() references into the
+    # palette the stylesheet below defines; the palette itself is grafana/palette.css,
+    # copied into this image, and STYLES is how it gets onto the page.
+    #
+    # "base" is a lightness scale, not a set of roles: Unfold reads base-300 as a light-mode
+    # border and as dark-mode text, base-800 as a dark-mode card and as its border. So it
+    # gets the palette's grey ramp, each step the Grafana grey nearest the lightness
+    # Unfold's own step has -- which keeps the contrast between steps its design relies
+    # on, and lands the dark end on Grafana's canvas, panel and raised surface.
+    "STYLES": [_palette_url],
+    "COLORS": {
+        "base": {
+            "50": "var(--app-gray-100)",
+            "100": "var(--app-gray-95)",
+            "200": "var(--app-gray-90)",
+            "300": "var(--app-gray-80)",
+            "400": "var(--app-gray-60)",
+            "500": "var(--app-gray-45)",
+            "600": "var(--app-gray-35)",
+            "700": "var(--app-gray-25)",
+            "800": "var(--app-gray-15)",
+            "900": "var(--app-gray-10)",
+            "950": "var(--app-gray-05)",
+        },
+        # The accent, the same way: 600 is the light-mode button, 500 the dark-mode one,
+        # 400 a link on a dark ground, and the low steps a tint of it for a selected row's
+        # background. The tints are mixed from the accent rather than listed in the
+        # palette, which names no pale blue because Grafana draws none.
+        "primary": {
+            "50": "color-mix(in srgb, var(--app-light-accent) 6%, white)",
+            "100": "color-mix(in srgb, var(--app-light-accent) 12%, white)",
+            "200": "color-mix(in srgb, var(--app-light-accent) 24%, white)",
+            "300": "color-mix(in srgb, var(--app-light-accent) 45%, white)",
+            "400": "var(--app-dark-accent-text)",
+            "500": "var(--app-dark-accent)",
+            "600": "var(--app-light-accent)",
+            "700": "var(--app-light-accent-text)",
+            "800": "color-mix(in srgb, var(--app-light-accent-text) 80%, black)",
+            "900": "color-mix(in srgb, var(--app-light-accent-text) 65%, black)",
+            "950": "color-mix(in srgb, var(--app-light-accent-text) 50%, black)",
+        },
+        "font": {
+            "subtle-light": "var(--app-light-text-2)",
+            "subtle-dark": "var(--app-dark-text-2)",
+            "default-light": "var(--app-light-text-0)",
+            "default-dark": "var(--app-dark-text-0)",
+            "important-light": "var(--app-light-text-max)",
+            "important-dark": "var(--app-dark-text-max)",
+        },
+    },
 }

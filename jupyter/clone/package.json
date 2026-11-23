@@ -1,0 +1,14 @@
+{
+  "name": "models-clone",
+  "version": "1.0.0",
+  "description": "Shows the address the models repository is cloned from.",
+  "private": true,
+  "jupyterlab": {
+    "extension": true,
+    "schemaDir": "schemas",
+    "_build": {
+      "load": "static/remoteEntry.js",
+      "extension": "./extension"
+    }
+  }
+}

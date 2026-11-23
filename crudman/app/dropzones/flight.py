@@ -1,14 +1,13 @@
 """The dropzones Arrow Flight endpoint (run by ``manage.py flightserver``).
 
-Arrow Flight sends tables, not files, so every table is written to one parquet file and
-the set handed to the same pipeline the other methods use. A client names each table in
-the flight descriptor (``<dropzone>/<table>``).
+Every table is written to one parquet file, and the set goes through the same pipeline
+as the other methods. A client names each table in the flight descriptor
+(``<dropzone>/<table>``).
 
 One upload spans several ``DoPut`` calls, tied together by the bearer token minted during
-authentication, and ends with a ``commit`` action. The commit is explicit rather than
-inferred from the disconnect because a client killed mid-transfer looks exactly like one
-that finished. ``ServerCallContext.is_cancelled`` tells the two apart, so it guards every
-table and a session that saw a truncated one refuses to commit.
+authentication, and ends with an explicit ``commit`` action, as a client killed
+mid-transfer disconnects like one that finished. A session that saw a truncated table
+(``ServerCallContext.is_cancelled``) refuses to commit.
 """
 
 import logging
@@ -100,6 +99,17 @@ class AuthMiddlewareFactory(flight.ServerMiddlewareFactory):
         raise flight.FlightUnauthenticatedError(f"Unsupported scheme '{scheme}'.")
 
     def _open_session(self, credentials):
+        """Authenticate a basic-auth login and open an upload session.
+
+        Args:
+            credentials: The base64 ``name:secret`` pair from the header.
+
+        Returns:
+            The bearer token that ties the session's calls together.
+
+        Raises:
+            FlightUnauthenticatedError: The credentials are malformed or wrong.
+        """
         # pyarrow's authenticate_basic_token sends unpadded base64, which the standard
         # decoder rejects.
         import base64
@@ -126,6 +136,7 @@ class FlightEndpoint(flight.FlightServerBase):
     """Collects the tables of one upload and stores them when the client commits."""
 
     def _session(self, context):
+        """The token and session of a call, marked as active."""
         token = context.get_middleware("auth").token
         with _lock:
             session = _sessions.get(token)

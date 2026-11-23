@@ -11,16 +11,10 @@ Image=${REGISTRY}/grafana_mcp:${IMAGE_TAG}
 # The containers share one network namespace, so Grafana is on localhost. Its own address,
 # not the proxy's: the request is already inside the pod and needs no second TLS hop.
 Environment=GRAFANA_URL=http://localhost:3000/${GRAFANA_PATH}
-# What gives a caller exactly the rights the person behind it has in Grafana, and nothing
-# more. Each MCP call carries the caller's own credential -- a service-account token in
-# Authorization, or the grafana_session cookie a signed-in browser holds -- and the server
-# copies it onto every Grafana API request it makes. So Grafana, not this server, decides
-# what the call may do, and an Admin, Editor and Viewer differ here exactly as they do in
-# the user interface.
-#
-# There is deliberately no GRAFANA_SERVICE_ACCOUNT_TOKEN beside it: a shared account would
-# be the ceiling for everyone and would answer a caller who presented no credential at all.
-# Without one an unauthenticated call reaches Grafana unauthenticated and is refused.
+# Copies each caller's own credential (a service-account token or the grafana_session
+# cookie) onto every Grafana API request, so Grafana decides what the call may do, exactly
+# as in its user interface. Deliberately no GRAFANA_SERVICE_ACCOUNT_TOKEN: a shared account
+# would answer callers presenting no credential at all.
 Environment=GRAFANA_FORWARD_HEADERS=Authorization,Cookie,X-Grafana-Org-Id
 # The image carries neither wget nor curl, so the probe is bash's own /dev/tcp. Reading the
 # status line rather than only opening the socket: a listener that accepts and then answers

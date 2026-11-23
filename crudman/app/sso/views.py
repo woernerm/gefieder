@@ -14,15 +14,17 @@ LOCAL_LOGIN_PARAM = "local"
 """Query parameter that reaches the local login form while single sign-on is on.
 
 The way back in for the superuser when the provider is unreachable, so it is named in the
-README. Grafana's equivalent is /login?disableAutoLogin.
+README. It is the way back into Grafana and the notebooks as well, which take the
+signed-in person from here.
 """
 
 
 def login(request):
     """Redirect to the provider, or show the local form.
 
-    A visitor who still has a session with the provider is signed in without seeing a
-    page at all, which is the point of doing this instead of offering a button.
+    A visitor with a provider session is signed in without seeing a page. Inside the shell's
+    frame, the page hands itself to the window, as the provider refuses to be framed and the
+    bar has to be drawn for the new session.
 
     Args:
         request: The HTTP request. The local form posts back here without the query
@@ -31,6 +33,9 @@ def login(request):
     Returns:
         The admin's login page, or a redirect to the provider.
     """
+    if request.headers.get("Sec-Fetch-Dest") == "iframe":
+        return HttpResponse("<script>top.location.replace(location.href)</script>")
+
     local = request.method == "POST" or LOCAL_LOGIN_PARAM in request.GET
     if not settings.OIDC_ENABLED or local:
         return admin.site.login(request)

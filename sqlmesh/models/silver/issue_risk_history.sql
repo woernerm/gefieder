@@ -4,7 +4,7 @@
 --
 -- As thin as silver.issues, and for the same reason. Here that goes one step further: both
 -- halves come from the same macro, but project_a's was executed by PostgreSQL and
--- project_b's by DuckDB. This union cannot tell the difference -- both wrote into the same
+-- the project_b half by DuckDB. This union cannot tell the difference -- both wrote into the same
 -- database, and the macro guarantees they mean the same thing.
 MODEL (
   name silver.issue_risk_history,
@@ -12,7 +12,15 @@ MODEL (
   grain (tenant_id, issue_id, valid_from)
 );
 
-SELECT tenant_id, issue_id, valid_from, state, effort, component_id, safety_class, owner
+SELECT
+  tenant_id,
+  issue_id,
+  valid_from,    -- The first day the row's combination held; it ends where the issue's next row begins.
+  state,         -- todo, in_progress or closed.
+  effort,
+  component_id,
+  safety_class,  -- The component's safety classification in effect at valid_from.
+  owner
 FROM silver_staging.issue_risk_history__project_a
 UNION ALL
 SELECT tenant_id, issue_id, valid_from, state, effort, component_id, safety_class, owner

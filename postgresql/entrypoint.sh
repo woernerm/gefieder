@@ -12,12 +12,9 @@
 # which is what repairs a missing schema and carries a new grant onto an existing
 # deployment.
 #
-# Two scripts are deliberately excluded, marked by "once" in their filename:
+# A script marked by "once" in its filename is deliberately excluded:
 #   gf_0001_once_configure_settings.sh    appends to postgresql.conf; re-running it would
 #                                         duplicate every line on each boot.
-#   gf_0006_once_create_example_tenants.sql  seeds example tenants; an administrator is
-#                                         meant to delete them, and a re-run would
-#                                         resurrect them on the next restart.
 set -e
 
 INITDB_DIR=/docker-entrypoint-initdb.d
@@ -31,6 +28,12 @@ fi
 # On an empty data directory the base entrypoint runs initdb and executes every script
 # itself, "once" ones included, so the first install is left entirely to it.
 if [ -s "$PGDATA/PG_VERSION" ]; then
+  # The image starts as root, which pg_ctl refuses; the base entrypoint drops privileges
+  # the same way, so it is not reached as root either.
+  if [ "$(id -u)" = 0 ]; then
+    exec gosu postgres "$BASH_SOURCE" "$@"
+  fi
+
   # The scripts need a running server, and the base entrypoint starts PostgreSQL only
   # after this process execs into it. So a temporary one is bound to the unix socket
   # alone, unreachable from outside the container.

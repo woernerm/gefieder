@@ -4,7 +4,7 @@
 --
 -- The promise @temporal_join makes, checked on the finished table in its own terms:
 -- `payload` lists the columns of *this* model, so the audit fails whether the macro let a
--- repeat through or the model's SELECT folded two rows into one. The first row of each item
+-- repeat through or the SELECT in that model folded two rows into one. The first row of each item
 -- is exempt, having no predecessor to differ from.
 --
 --   audits (assert_every_row_is_a_change(

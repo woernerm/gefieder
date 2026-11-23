@@ -32,6 +32,9 @@ of role names beside them:
   it. The switch shows the account that exists rather than a stored intention, so a save
   that could not reach the database reports the failure and the next save retries.
 - A **database access** column and filter on the user list, beside staff status.
+- An **Access token** page in the menu behind one's own name, at the foot of the sidebar,
+  where a person creates the token their own checkout authenticates with. Their own and nobody else's: an administrator grants the
+  access, but the credential that mints passwords is the account holder's alone.
 
 The switch is disabled for someone holding no rank group, since there is no privilege set
 to grant them — except a superuser, who ranks as `admin` whatever their groups say.
@@ -45,20 +48,20 @@ PostgreSQL bridge and the login-time reconciliation.
 - Provision a login role per Django user, named `<prefix><slug>` from their username, with
   privileges from exactly one group role. The prefix is `DB_USER_PREFIX` in `buildtime.env`
   (`gf_` by default) and may be empty: an account is recognised by the marker role
-  `create_db_user` grants it, never by its name, so it cannot be confused with a tenant.
+  `create_db_user` grants it, never by its name, so it cannot be confused with a role
+  somebody else made.
 - Derive the rank from the single sign-on groups in `sso/roles.py`, so the identity provider
   stays the source of truth for who may do what. A group role and the Django group that
   earns it are one name, both `ROLE_PREFIX` in front of a rank, so neither set is
   listed twice.
 - Reconcile that rank on every login: a promotion or demotion in the provider reaches the
   database on the person's next sign-in.
-- Issue the credential once and never store it. A lost password is reset, not recovered.
-- Show the password to its owner and to nobody else. An administrator switches access on;
-  the password is generated on that person's next sign-in and shown only to them.
-  Enrolling therefore creates a role with no password, which under scram-sha-256 cannot
-  connect at all until it is claimed. This is why provisioning is split in two (`enroll` /
-  `issue_credential`): the alternative is either an administrator relaying a secret that is
-  not theirs, or storing a readable password until it is collected.
+- Never store a credential, and never hand one to anybody but the client about to use
+  it. An administrator switches access on; `enroll` creates a role with no password, which
+  under scram-sha-256 cannot connect at all. The password comes from `issue_password`,
+  called by a notebook spawn or by the person's own checkout, and expires on its own. So no
+  administrator relays a secret that is not theirs, and there is no readable password
+  waiting anywhere to be collected.
 - Disable, rather than drop, when someone is offboarded through the identity provider or
   their Django account is deleted — so objects a departed person created keep their owner
   and the audit trail survives. Switching access off is the deliberate exception and does
@@ -67,10 +70,19 @@ PostgreSQL bridge and the login-time reconciliation.
 - Refuse to touch the service roles — the superuser plus the three named by
   `CRUDMAN_DB_USER`, `SQLMESH_DB_USER` and `GRAFANA_DB_USER` — which the
   `is_protected_role` database function derives rather than lists, because the
-  superuser's name is configurable (`SUPERUSER_NAME`, `admin` by default). And refuse to
-  drop anything that is not a `<prefix>` account, the group roles excepted — a tenant
-  role owns a bronze schema, and dropping one by mistake would take a tenant's data with
-  it.
+  superuser's name is configurable (`PG_SUPERUSER_ROLE`, `postgres` by default). And refuse to
+  drop anything that is not a `<prefix>` account, the group roles excepted — a role may
+  own tables, and dropping one by mistake would take its data with it.
+- Issue a password that expires rather than one that stands. A notebook spawn and a
+  developer's checkout both call `issue_db_user_password`, which puts a fresh password on
+  the person's *own* role with a `VALID UNTIL` deadline. So a credential sitting in a
+  process environment or a laptop's cache stops being useful by itself, and there is no
+  second account to grant anything between: `current_user` is the person.
+- Give each person one access token, exchanged for such a password at
+  `<CRUDMAN_PATH>/dbusers/password/`. It is worth exactly the database access it stands
+  for and nothing else, which is why a laptop stores it rather than the sign-in that
+  administers the system. Creating a new one invalidates the old, and switching Database
+  access off clears it -- revoking is the same click as removing the access.
 
 ## What it deliberately does not do
 

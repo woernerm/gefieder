@@ -1,17 +1,12 @@
 -- The group roles behind per-admin database users.
 --
--- Every administrator who needs SQL access gets a login role of their own (create_db_user
--- in gf_0003) rather than sharing the sqlmesh secret. Nothing is granted to it directly:
--- it is a member of exactly one of the three group roles below, so changing what an editor
--- may do is one GRANT here rather than a loop over every person.
+-- Each person's login role (create_db_user in gf_0003) is a member of exactly one of the
+-- three group roles below, so changing what an editor may do is one GRANT here. The names
+-- match the single sign-on groups of crudman/app/sso/roles.py, so the provider's rank
+-- decides the database rights too. NOINHERIT is not set: members get the rights on connect.
 --
--- The three names are the single sign-on group names of crudman/app/sso/roles.py, both
--- built from ROLE_PREFIX, so the rank the identity provider sends decides the database
--- rights too. NOINHERIT is deliberately not set: a member gets the rights by connecting.
---
--- A fourth role, <prefix>person, grants nothing: it is the marker create_db_user puts on
--- every account it provisions, and the only thing that tells a personal role from a tenant
--- or a service role. See is_db_user in gf_0003.
+-- A fourth role, <prefix>person, grants nothing: it marks every provisioned account, the
+-- only thing telling a personal role from a service role (is_db_user in gf_0003).
 
 -- CREATE ROLE has no IF NOT EXISTS, and these scripts re-run on every start. The rights
 -- below are re-granted either way, which is what lets a re-run repair a tampered grant.
@@ -24,8 +19,8 @@ BEGIN
                                       '${ROLE_PREFIX}admin',
                                       '${ROLE_PREFIX}person']
     LOOP
-        -- create_db_user would hand out somebody else's login role as one of ours, and
-        -- an unprefixed "admin" is the cluster superuser.
+        -- create_db_user would hand out somebody else's login role as one of ours: the
+        -- ranks share a namespace with the login role each person is provisioned.
         IF EXISTS (SELECT 1 FROM pg_roles
                    WHERE rolname = group_role AND (rolsuper OR rolcanlogin)) THEN
             RAISE EXCEPTION '% is a login role already -- change ROLE_PREFIX', group_role;
@@ -68,7 +63,8 @@ GRANT ${ROLE_PREFIX}editor TO ${ROLE_PREFIX}admin;
 --
 -- This permits `sqlmesh plan prod` too: promoting is a view swap in exactly the schemas a
 -- developer must write to in order to plan at all, and separating the two would cost a
--- state and physical layer per person. The control is that production deploys from CI.
+-- state and physical layer per person. The control is that production deploys from the
+-- models repository's main branch.
 --------------------------------------------------------------------
 GRANT CREATE ON DATABASE ${PG_DATABASE} TO ${ROLE_PREFIX}editor;
 
@@ -126,15 +122,17 @@ GRANT ALL ON SCHEMA ${SILVER_SCHEMA}, ${GOLD_SCHEMA} TO ${ROLE_PREFIX}editor;
 --
 -- PostgreSQL grants EXECUTE on a new function to PUBLIC, which for a SECURITY DEFINER
 -- function that can CREATE ROLE would let every role in the cluster provision itself an
--- admin account. The functions live in gf_0003, but the grant waits until here because
+-- admin account. The functions are defined in gf_0003, but the grant waits until here because
 -- gf_0003 runs before gf_0004 creates the crudman role.
 --------------------------------------------------------------------
 REVOKE ALL ON FUNCTION create_db_user(text, text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION delete_db_user(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION clear_db_user_password(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION drop_db_user(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION issue_db_user_password(text, text, interval) FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION create_db_user(text, text, text) TO ${CRUDMAN_DB_USER};
 GRANT EXECUTE ON FUNCTION delete_db_user(text) TO ${CRUDMAN_DB_USER};
 GRANT EXECUTE ON FUNCTION clear_db_user_password(text) TO ${CRUDMAN_DB_USER};
 GRANT EXECUTE ON FUNCTION drop_db_user(text) TO ${CRUDMAN_DB_USER};
+GRANT EXECUTE ON FUNCTION issue_db_user_password(text, text, interval) TO ${CRUDMAN_DB_USER};

@@ -1,7 +1,7 @@
 """Unit tests for the @temporal_join macro itself (macros/temporal_join.py).
 
 The yaml tests beside this file cover the macro through a model, one per branch, but over
-different tenants and different data, so they never say "both branches agree". This file
+different projects and different data, so they never say "both branches agree". This file
 renders the macro twice over one fixture, once per gateway, and compares row for row.
 
 Both run on DuckDB, which understands either form; the integration suite is what proves
@@ -10,7 +10,10 @@ the PostgreSQL branch on PostgreSQL.
 A plain script rather than a pytest module, so it runs on the dependencies the sqlmesh
 image already ships:
 
-    uv run --project /sqlmesh python /sqlmesh/app/tests/test_temporal_join.py
+    uv run python tests/test_temporal_join.py
+
+from the project directory. tests/test_analytics.py runs it against the deployed checkout
+as well, where the engine's own dependencies are.
 """
 
 import sys

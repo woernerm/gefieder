@@ -5,14 +5,13 @@ the published port exactly as an uploader would: authenticate with the dropzone'
 secret, send one table per DoPut, close with the commit action. They use the default
 checker and converter baked into the image, so the whole pipeline is exercised.
 """
-import uuid
 from pathlib import Path
 
 import pyarrow
 import pyarrow.flight as flight
 import pytest
 
-from conftest import FLIGHT_PORT, volume_mountpoint
+from conftest import FLIGHT_PORT, dropzone_uploads, volume_mountpoint
 
 SECRET = "flight-suite-secret"
 
@@ -25,53 +24,9 @@ DROPZONES = {
 
 
 @pytest.fixture(scope="module")
-def flight_dropzones(crudman_db):
+def flight_dropzones(make_dropzones):
     """The suite's Flight dropzones, created for this module and removed afterwards."""
-    ids = {}
-    with crudman_db.cursor() as cur:
-        for name, (checker, converter) in DROPZONES.items():
-            cur.execute(
-                """
-                INSERT INTO crudman.dropzones_dropzone
-                    (name, description, upload_method, file_format, checker,
-                     converter, default_validity, token, secret, require_login,
-                     enabled, created_at)
-                VALUES (%s, '', 'flight', '', %s, %s, 'until_replaced', %s, %s, true,
-                        true, now())
-                RETURNING id
-                """,
-                (name, checker, converter, str(uuid.uuid4()), SECRET),
-            )
-            ids[name] = cur.fetchone()[0]
-        # A browser dropzone, whose name must not work as a Flight login.
-        cur.execute(
-            """
-            INSERT INTO crudman.dropzones_dropzone
-                (name, description, upload_method, file_format, checker, converter,
-                 default_validity, token, secret, require_login, enabled, created_at)
-            VALUES ('flight-suite-browser', '', 'browser', '', '', '', 'until_replaced',
-                    %s, %s, true, true, now())
-            RETURNING id
-            """,
-            (str(uuid.uuid4()), SECRET),
-        )
-        ids["flight-suite-browser"] = cur.fetchone()[0]
-    yield ids
-    # Raw cleanup, no Django signals: the stack and its volumes are throwaway.
-    with crudman_db.cursor() as cur:
-        cur.execute(
-            "DELETE FROM crudman.dropzones_uploadfile WHERE upload_id IN "
-            "(SELECT id FROM crudman.dropzones_upload WHERE dropzone_id = ANY(%s))",
-            (list(ids.values()),),
-        )
-        cur.execute(
-            "DELETE FROM crudman.dropzones_upload WHERE dropzone_id = ANY(%s)",
-            (list(ids.values()),),
-        )
-        cur.execute(
-            "DELETE FROM crudman.dropzones_dropzone WHERE id = ANY(%s)",
-            (list(ids.values()),),
-        )
+    return make_dropzones("flight", SECRET, DROPZONES)
 
 
 def _connect(name, secret=SECRET):
@@ -107,22 +62,6 @@ def _upload(name, tables, commit=True, secret=SECRET):
         client.close()
 
 
-def _uploads(db, dropzone_id):
-    """The (upload id, stored file paths) pairs recorded for a dropzone."""
-    with db.cursor() as cur:
-        cur.execute(
-            """
-            SELECT u.id, array_agg(f.file ORDER BY f.file)
-            FROM crudman.dropzones_upload u
-            JOIN crudman.dropzones_uploadfile f ON f.upload_id = u.id
-            WHERE u.dropzone_id = %s
-            GROUP BY u.id ORDER BY u.id
-            """,
-            (dropzone_id,),
-        )
-        return cur.fetchall()
-
-
 class TestFlightUpload:
     """Authenticate, send tables, commit — the commit is what stores the upload."""
 
@@ -134,7 +73,7 @@ class TestFlightUpload:
             {"issues": pyarrow.table({"id": [1, 2, 3], "state": ["a", "b", "c"]})},
         )
 
-        uploads = _uploads(crudman_db, flight_dropzones["flight-suite-plain"])
+        uploads = dropzone_uploads(crudman_db, flight_dropzones["flight-suite-plain"])
         assert len(uploads) == 1, f"expected exactly one upload, got {uploads}"
         _, stored = uploads[0]
         assert [Path(f).name for f in stored] == ["issues.parquet"]
@@ -155,7 +94,7 @@ class TestFlightUpload:
             },
         )
 
-        uploads = _uploads(crudman_db, flight_dropzones["flight-suite-multi"])
+        uploads = dropzone_uploads(crudman_db, flight_dropzones["flight-suite-multi"])
         assert len(uploads) == 1, f"expected exactly one upload, got {uploads}"
         _, stored = uploads[0]
         # One upload, one file per table, named after it.
@@ -190,7 +129,7 @@ class TestFlightUpload:
         # abandoned session's verdict is final rather than merely late.
         _upload("flight-suite-abandoned", {"marker": pyarrow.table({"m": [1]})})
 
-        uploads = _uploads(crudman_db, dropzone_id)
+        uploads = dropzone_uploads(crudman_db, dropzone_id)
         assert [
             sorted(Path(f).name for f in stored) for _, stored in uploads
         ] == [["marker.parquet"]], (

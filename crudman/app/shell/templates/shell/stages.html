@@ -1,0 +1,7 @@
+{# The stages of the bar, one link each; the frame they open in is read off the address. #}
+{% for stage, url in stages %}
+    <a href="{{ url }}" data-prefixes="{{ stage.prefixes|join:' ' }}" class="flex gap-1 items-center px-3">
+        <span class="material-symbols-outlined md-18">{{ stage.icon }}</span>
+        {{ stage.label }}
+    </a>
+{% endfor %}

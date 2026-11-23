@@ -15,6 +15,10 @@ MODEL (
     safety_class TEXT,
     owner_team TEXT
   ),
+  column_descriptions (
+    safety_class = 'The classification the safety case assigns; a reclassification is a new row.',
+    owner_team = 'The team responsible for the component at that time.'
+  ),
   grain (component_key, changed_at),
   audits (unique_combination_of_columns(columns := (component_key, changed_at)))
 );

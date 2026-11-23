@@ -123,6 +123,10 @@ from other systems, files agreed upon with their producers.
   cannot carry dates).
 - The server's ed25519 host key is generated on first start and kept on the sftp
   volume, so the server identity survives restarts and updates.
+- The same server serves the models repository to git (`system/ssh.py`, see
+  `system/requirements.md`). The sign-in decides which: a password signs in a dropzone,
+  which gets SFTP and scp and no command; a key signs in a person as `git`, who gets the
+  two git commands and no SFTP. Neither can reach what the other is for.
 
 # Arrow Flight upload
 - Dropzones with the Arrow Flight method are served by an Arrow Flight server the

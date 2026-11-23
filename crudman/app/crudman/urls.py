@@ -9,6 +9,7 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 
+from shell import views as shell_views
 from sso import views as sso_views
 
 from . import views
@@ -23,6 +24,15 @@ urlpatterns = [
     # The SQLMesh model documentation, open from the viewer rank up rather than to staff
     # only.
     path(f"{CRUDMAN_PATH}/docs/", include("docs.urls")),
+    # What JupyterHub authenticates its visitors against, so the notebooks have no
+    # accounts of their own.
+    path(f"{CRUDMAN_PATH}/notebooks/", include("notebooks.urls")),
+    # Where a stakeholder answers about a version they were asked to review. Outside the
+    # admin: they hold the viewer rank, which the versions page itself is closed to. Its
+    # own prefix rather than the app's name, which the admin already serves pages under.
+    path(f"{CRUDMAN_PATH}/review/", include("system.urls")),
+    # Where a developer's checkout exchanges its token for a database password.
+    path(f"{CRUDMAN_PATH}/dbusers/", include("dbusers.urls")),
     # The admin's own login address, claimed so an unauthenticated visitor is sent to the
     # identity provider instead of a form. Django redirects here by name, so nothing else
     # needs to change.
@@ -32,6 +42,9 @@ urlpatterns = [
     # Serves the profile picture fetched from the provider. Registered whether or not
     # single sign-on is on: a session without a picture simply has none.
     path(f"{CRUDMAN_PATH}/avatar/", sso_views.avatar, name="avatar"),
+    # The bar's own parts: the list behind its count of who is online, and its stages.
+    path(f"{CRUDMAN_PATH}/presence/", admin.site.admin_view(shell_views.presence), name="presence"),
+    path(f"{CRUDMAN_PATH}/stages/", admin.site.admin_view(shell_views.stages), name="stages"),
 ]
 
 # allauth's own views, including the callback the provider redirects back to, so the
@@ -42,10 +55,8 @@ urlpatterns = [
 if settings.OIDC_ENABLED:
     urlpatterns += [path(f"{CRUDMAN_PATH}/accounts/", include("allauth.urls"))]
 
-# A route that raises on purpose, so the integration suite can check that a 500's
-# traceback reaches the journal: only the container's main process is forwarded there, so
-# a "podman exec" cannot show it. Enabled by the test stack alone, since an always-present
-# route that raises is one URL guess away from being a nuisance.
+# Raises on purpose, so the integration suite can check that a 500's traceback reaches
+# the journal. Enabled by the test stack alone, as a route that raises is a nuisance.
 if os.environ.get("ERROR_LOGGING_PROBE", "").strip().lower() == "true":
     urlpatterns += [
         path(f"{CRUDMAN_PATH}/error-logging-probe/", views.error_logging_probe),

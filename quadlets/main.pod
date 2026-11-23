@@ -1,5 +1,5 @@
-# The pod groups all seven containers into one network namespace, so they reach each other
-# on localhost, and publishes their ports. Which ports comes from runtime.env: quadlet
+# The pod groups all containers into one network namespace, so they reach each other on
+# localhost, and publishes their ports. Which ports come from runtime.env: quadlet
 # copies these lines verbatim into the generated unit, where systemd expands them against
 # the EnvironmentFile -- which is why the pod needs one although it runs no container.
 #

@@ -8,7 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # Write stdout/stderr immediately, so errors appear in the container log in real time.
 ENV PYTHONUNBUFFERED=1
 
-WORKDIR /sqlmesh/app
+WORKDIR /sqlmesh
 
 # For the dependency install below, so the build works from behind a corporate proxy.
 # Scoped to this stage and not persisted in the image; empty means a direct connection.
@@ -26,9 +26,8 @@ COPY sqlmesh/pyproject.toml /sqlmesh/pyproject.toml
 # The dependencies from pyproject.toml.
 RUN UV_EXTRA_INDEX_URL=${PYTHON_INDEX} uv sync --project /sqlmesh --no-dev
 
-# The same list the database image gets: a query on config.py's DuckDB gateway has to reach
-# the same extensions a tenant reaches through use_duckdb(). Without a default, the list
-# living in DUCKDB_EXTENSIONS in buildtime.env.
+# The extensions config.py's duckdb gateway loads. No default, as the list is kept in
+# DUCKDB_EXTENSIONS in buildtime.env.
 ARG DUCKDB_EXTENSIONS
 
 # Kept in the image so config.py reads the list back rather than repeating it.
@@ -40,8 +39,8 @@ ENV DUCKDB_EXTENSIONS=${DUCKDB_EXTENSIONS}
 ENV HOME=/root
 
 # Installed with the interpreter that later loads them, so the files match its DuckDB
-# version exactly -- the database image has to work that out of libduckdb.so. One statement
-# per extension, so a failing download names it; an unset list stops the build here.
+# version exactly. One statement per extension, so a failing download names it; an unset
+# list stops the build here.
 RUN test -n "${DUCKDB_EXTENSIONS}" \
       || { echo "DUCKDB_EXTENSIONS is empty; build via build.sh, which reads buildtime.env." >&2; exit 1; } \
     && for ext in $(echo "${DUCKDB_EXTENSIONS}" | tr ',' ' '); do \
@@ -55,14 +54,21 @@ RUN test -n "${DUCKDB_EXTENSIONS}" \
 RUN uv run --project /sqlmesh python -c \
       "import duckdb; duckdb.connect().execute('INSTALL postgres')"
 
-# The engine logs to stdout and writes its files under /tmp, and the password comes from
-# the mounted secret, so a developer's sqlmesh/logs/ and sqlmesh/.env have no business
-# here. .dockerignore keeps them out of the context; the removal below is a second line of
-# defence for the password.
-COPY sqlmesh/ /sqlmesh/app/
-RUN rm -rf /sqlmesh/app/logs /sqlmesh/app/.env
+# The project itself is deliberately absent. crudman checks it out into the models volume
+# and the entrypoint runs whatever is there, so shipping a model is a commit rather than a
+# release, and this image changes only when its dependencies do.
+#
+# What is copied are the three container-side tools, and outside any project directory so
+# that a developer's clone never carries them. The venv installed above is theirs to use:
+# the engine runs "uv run --project /sqlmesh" from inside the checked-out tree, which keeps
+# the interpreter here and the models there.
+#
+# entrypoint.sh is committed executable, so a plain COPY preserves the mode without
+# BuildKit's --chmod.
+COPY sqlmesh/entrypoint.sh sqlmesh/docs_export.py sqlmesh/status.py sqlmesh/preview.py /sqlmesh/
 
-# Committed executable, so a plain COPY preserves the mode without BuildKit's --chmod.
-COPY sqlmesh/entrypoint.sh /sqlmesh/entrypoint.sh
+# On PATH, so "podman exec sqlmesh sqlmesh <command>" reaches the deployed project. The
+# file itself says why the CLI needs help finding it.
+COPY sqlmesh/sqlmesh.sh /usr/local/bin/sqlmesh
 
 CMD ["/sqlmesh/entrypoint.sh"]

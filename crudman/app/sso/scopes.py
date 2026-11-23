@@ -1,11 +1,9 @@
 """What a sign-in asks the provider for.
 
-The three standard OpenID Connect scopes carry every claim this project reads, except the
-profile picture: some providers keep it behind their own API and want a permission of
-their own. Which permission cannot be discovered — Entra ID's document advertises neither
-User.Read nor the ``picture`` claim — so the provider is recognised by its issuer instead.
-Asking everywhere would cost the sign-in, a provider refusing an authorization request
-naming a scope it has never heard of.
+The standard OpenID Connect scopes carry every claim read here except the profile
+picture, which some providers keep behind their own API and an extra permission. Entra
+ID's discovery document advertises neither, so the provider is recognised by its issuer.
+Asking everywhere would fail the sign-in at providers refusing unknown scopes.
 """
 from urllib.parse import urlparse
 

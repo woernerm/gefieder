@@ -5,14 +5,12 @@ the published port exactly as an uploader would: username = dropzone name, passw
 secret, put files, disconnect. They use the default checker and converter baked into the
 image, so the whole pipeline is exercised.
 """
-import time
-import uuid
 from pathlib import Path
 
 import paramiko
 import pytest
 
-from conftest import SFTP_PORT, volume_mountpoint
+from conftest import SFTP_PORT, dropzone_uploads, poll, volume_mountpoint
 
 SECRET = "sftp-suite-secret"
 
@@ -25,53 +23,9 @@ DROPZONES = {
 
 
 @pytest.fixture(scope="module")
-def sftp_dropzones(crudman_db):
+def sftp_dropzones(make_dropzones):
     """The suite's SFTP dropzones, created for this module and removed afterwards."""
-    ids = {}
-    with crudman_db.cursor() as cur:
-        for name, (checker, converter) in DROPZONES.items():
-            cur.execute(
-                """
-                INSERT INTO crudman.dropzones_dropzone
-                    (name, description, upload_method, file_format, checker,
-                     converter, default_validity, token, secret, require_login,
-                     enabled, created_at)
-                VALUES (%s, '', 'sftp', '', %s, %s, 'until_replaced', %s, %s, true,
-                        true, now())
-                RETURNING id
-                """,
-                (name, checker, converter, str(uuid.uuid4()), SECRET),
-            )
-            ids[name] = cur.fetchone()[0]
-        # A browser dropzone, whose name must not work as an SFTP login.
-        cur.execute(
-            """
-            INSERT INTO crudman.dropzones_dropzone
-                (name, description, upload_method, file_format, checker, converter,
-                 default_validity, token, secret, require_login, enabled, created_at)
-            VALUES ('sftp-suite-browser', '', 'browser', '', '', '', 'until_replaced',
-                    %s, %s, true, true, now())
-            RETURNING id
-            """,
-            (str(uuid.uuid4()), SECRET),
-        )
-        ids["sftp-suite-browser"] = cur.fetchone()[0]
-    yield ids
-    # Raw cleanup, no Django signals: the stack and its volumes are throwaway.
-    with crudman_db.cursor() as cur:
-        cur.execute(
-            "DELETE FROM crudman.dropzones_uploadfile WHERE upload_id IN "
-            "(SELECT id FROM crudman.dropzones_upload WHERE dropzone_id = ANY(%s))",
-            (list(ids.values()),),
-        )
-        cur.execute(
-            "DELETE FROM crudman.dropzones_upload WHERE dropzone_id = ANY(%s)",
-            (list(ids.values()),),
-        )
-        cur.execute(
-            "DELETE FROM crudman.dropzones_dropzone WHERE id = ANY(%s)",
-            (list(ids.values()),),
-        )
+    return make_dropzones("sftp", SECRET, DROPZONES)
 
 
 def _upload(name, files, password=SECRET):
@@ -88,32 +42,11 @@ def _upload(name, files, password=SECRET):
         transport.close()
 
 
-def _uploads(db, dropzone_id):
-    """The (upload id, stored file paths) pairs recorded for a dropzone."""
-    with db.cursor() as cur:
-        cur.execute(
-            """
-            SELECT u.id, array_agg(f.file ORDER BY f.file)
-            FROM crudman.dropzones_upload u
-            JOIN crudman.dropzones_uploadfile f ON f.upload_id = u.id
-            WHERE u.dropzone_id = %s
-            GROUP BY u.id ORDER BY u.id
-            """,
-            (dropzone_id,),
-        )
-        return cur.fetchall()
-
-
 def _wait_for_uploads(db, dropzone_id, count=1, timeout=60):
     # Stored asynchronously after the disconnect, so poll; a row and its files are
     # committed together, so a visible row is complete.
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        rows = _uploads(db, dropzone_id)
-        if len(rows) >= count:
-            return rows
-        time.sleep(2)
-    return _uploads(db, dropzone_id)
+    poll(lambda: len(dropzone_uploads(db, dropzone_id)) >= count, timeout)
+    return dropzone_uploads(db, dropzone_id)
 
 
 class TestSftpUpload:

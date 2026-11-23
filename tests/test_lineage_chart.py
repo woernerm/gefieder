@@ -21,7 +21,7 @@ from conftest import podman
 # hashes the staticfiles/ name, so only this path is stable.
 BUNDLE = "/crudman/app/docs/static/docs/echarts.min.js"
 
-# The shape of a real lineage: two tenants' bronze models feeding one silver model, which
+# The shape of a real lineage: two projects' bronze models feeding one silver model, which
 # feeds gold. Several parents is why the graph is a sankey; three columns is what makes a
 # dropped layer visible.
 MODELS = [
@@ -36,7 +36,7 @@ MODELS = [
 ]
 LINKS = 3  # bronze_a -> silver, bronze_b -> silver, silver -> gold
 
-# lineage.NODE_WIDTH, which lives in the crudman image rather than on this host. Only the
+# lineage.NODE_WIDTH, which exists in the crudman image rather than on this host. Only the
 # column check reads it, and a disagreement fails that check rather than passing quietly.
 NODE_WIDTH = 18
 

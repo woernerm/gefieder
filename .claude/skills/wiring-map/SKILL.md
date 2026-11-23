@@ -30,6 +30,11 @@ silently, which is the signal to add a case for it there.
 | the `manifest.env` block in `publish.yml` | `install.sh` runs from a release without a checkout; `manifest.env` is all it learns about the build |
 | `envsubst '${REPO} ${TEMPDIR}'` in `publish.yml` | those two are needed before `manifest.env` has been downloaded, so they are baked into the installer instead |
 
+Two versions are derived rather than set: `grafana/render.sh` reads the PostgreSQL major
+from `postgresql/Dockerfile`'s `FROM .../postgres:<major>` line into the data source's
+`postgresVersion`, so that line has to keep its shape; `jupyter/Dockerfile` pins the
+notebook environment's `jupyterhub` to what the base image's hub reports.
+
 `tests/test_build_args.py` covers the three builders: every `ARG` a Dockerfile declares whose
 name also appears in `buildtime.env` has to be passed by all of them.
 
@@ -58,7 +63,100 @@ The three build loops — `SERVICES=` in `build-lib.sh` (used by `build.sh`, `de
 ships an image of its own.
 `sftp` and `flight` run the crudman image in a different role and appear in none of them.
 
+## Notebooks and Grafana sign-in
+
+Neither the `jupyter` container nor Grafana has accounts of its own: both ask crudman who
+a visitor is (`crudman/app/notebooks/`). The hub asks `whoami` itself and crudman rotates
+the database login its servers connect with; for Grafana the proxy asks `grafana` as an
+nginx `auth_request` before every Grafana request and passes the answer on in
+`X-WEBAUTH-*` headers, which Grafana's `[auth.proxy]` trusts from the loopback. So the
+three move together.
+
+| Also touch | Because |
+|---|---|
+| `crudman/app/notebooks/views.py` | the hub reads exactly these fields out of `whoami`'s answer, so a renamed key is a spawn that fails with a KeyError; Grafana reads exactly these headers out of `grafana`'s |
+| `jupyter/crudman.py` | the other half of the hub's contract, and the only place the session cookie is presented back |
+| `proxy/locations.conf.template` | the other half of Grafana's: the `auth_request` location, the `auth_request_set`/`proxy_set_header` pairs that carry each header, the nested `auth-tokens/rotate` location that sends a rotation Grafana refuses (a stale token beside a good admin session) through `/login` rather than letting the frontend reload forever, and the `X-WEBAUTH-USER ""` on the MCP location, which forwards a caller's headers to Grafana from the same loopback Grafana trusts |
+| `grafana/custom.ini` `[auth.proxy]` | `header_name` and `headers` name the same headers; `whitelist` is why only the proxy may set them; `enable_login_token` stays on, and the proxy's sign-in redirect leads through `/login` because that route alone issues the token Grafana's frontend then rotates on every page -- without it the page reloads forever |
+| `tests/test_grafana_auth.py` | asserts the chain end to end, the forgery guards included |
+| `postgresql/initdb/gf_0003_*.sql` | `issue_db_user_password` is what a spawn calls: it puts an expiring password on the person's *own* role, so a notebook session simply is them. `crudman/app/dbusers/views.py` calls it too, for a developer's checkout |
+| `jupyter/spawn.py` | the Unix account is named as `dbusers.utils.role_name_for` names the database role — that is what lets `sqlmesh/config.py` derive the connection unchanged. A change to either derivation is a change to both |
+| `jupyter/requirements.txt` | what the workflow itself depends on; `JUPYTER_EXTENSIONS` in `buildtime.env` is the operator's list and a **build-time setting**, so that table applies |
+| `jupyter/tests/` | run inside the image by `run-tests.sh`, against `sqlmesh/models/` — the round trip that keeps opening a model from rewriting it |
+
+`NOTEBOOK_PATH` is a **build-time setting** and reaches three places: the proxy (template,
+`entrypoint.sh` envsubst list, `proxy.container`), the hub's `base_url`, and
+`crudman.container`, which passes it to Django only so the bar can link to it.
+`GRAFANA_PATH` reaches `crudman.container` for the same reason alone.
+
+## The shell
+
+Every page a browser asks for by address is crudman's to answer, whichever app the path
+names: the proxy tells that request (`Sec-Fetch-Dest: document`) from the one the shell's
+frame then makes for the same path (`iframe`) and sends it to port 8000, where
+`crudman/app/shell/middleware.py` answers with the bar and the frame. So the apps never
+know they are framed, and each has to allow being framed from its own origin.
+
+| Also touch | Because |
+|---|---|
+| `proxy/maps.conf.template` | the `$grafana_port` and `$notebook_port` maps; a new app behind the bar needs one, and its location a `proxy_pass` through it |
+| `crudman/app/shell/middleware.py` | `is_page` is the other half of that classification; it also refuses a request without `X-Forwarded-For`, which is how the proxy's Grafana identity subrequest (headers copied from the browser's) keeps answering with the identity rather than a page |
+| `crudman/app/shell/stages.py` | the stages, where each leads, who may enter it, and which admin apps belong to it -- the sidebar (`templates/unfold/helpers/navigation.html`, via `templatetags/shell.py`) shows the apps of the stage the page is under. A new admin app a rank should reach is named here as well as in `MANAGED_APPS` |
+| `X_FRAME_OPTIONS` in `settings.py`, `allow_embedding` in `grafana/custom.ini`, `tornado_settings` in both `jupyter/jupyterhub_config.py` and `jupyter/jupyter_server_config.py` | Django's, Grafana's, the hub's and (under the hub) a notebook server's defaults all refuse every frame |
+| `sso/views.py` `login` | asked for inside the frame, hands itself to the window: the provider refuses to be framed |
+| `crudman/app/templates/unfold/helpers/navigation.html`, `docs/templates/docs/navigation.html` | draw the sidebar's user menu only outside a frame, the bar carrying it inside one. Copies of Unfold's template; an Unfold upgrade that changes it needs them re-based |
+| `tests/test_shell.py`, `tests/test_proxy_config.py` | the chain end to end, and the proxy's classification on its own |
+
+The bar's theme switch is the only one: it writes the choice into each app's own store and
+reloads the frames. Grafana through its preferences API, the hub's pages through the
+storage key `jupyter/templates/page.html` seeds, a notebook server through Lab's settings
+API under the theme names `jupyter/entrypoint.sh` sets as the default, the admin panel
+through Unfold's own storage key it shares. `tests/test_theme_wiring.py` guards the names;
+the hub's own navigation bar, toggle included, is left out in `page.html`; the admin's toggle is drawn only outside a frame.
+
 `uninstall.sh` derives its unit list from the quadlet directory, so it needs nothing.
+
+## Models repository
+
+The SQLMesh project is not in an image. `crudman/app/system/repo.py` clones
+`REPO_MODELS` onto the `models_data` volume, checks a commit out under `deployed/` and
+writes the sha to `deployed.sha`; `sqlmesh/entrypoint.sh` watches that one file. So the
+handoff between the two containers is a path and a marker, not an API.
+
+| Also touch | Because |
+|---|---|
+| `crudman/Dockerfile` | `/seed` is what a repository is created from, and the container-side tools are stripped from it there — a file added to `sqlmesh/` reaches a developer's clone through this COPY |
+| `sqlmesh/Dockerfile` | the mirror image: it copies only `entrypoint.sh`, `sqlmesh.sh`, `docs_export.py` and `status.py`, so a new container-side tool is named in *both* Dockerfiles or it ends up in the clone |
+| `crudman/app/system/migrations/` | the engine writes one table from another container; the grant to `SQLMESH_DB_USER` lives in the initial migration, so a new column it has to write is a new grant |
+| `sqlmesh/status.py` | raw SQL against `crudman.system_deployment`, Django being absent from that image: a renamed field is a renamed column here |
+| `crudman/app/docs/views.py` | the docs pages read the export out of the deployment row rather than a file, so the export's shape is a contract between `docs_export.py` and these pages |
+| `tests/test_models_repository.py` | the end-to-end path — push, poll, plan, document — and the refusal that protects a running engine |
+| `clone_url()` in `crudman/app/system/repo.py` | the clone address; `CLONE_URL` in `install.sh` and `dev.sh` derive it again for the cheat sheets, the notebooks get it from `whoami` (`jupyter/crudman.py` → `MODELS_CLONE_URL` → `jupyter_server_config.py` → `jupyter/clone/`). The default origin is served over SSH by the `sftp` container (`system/ssh.py`), which is why that quadlet mounts `models_data` and `REPO_MODELS` is in the release's `manifest.env` |
+| `SEED_PROJECTS` in `crudman/app/system/repo.py` | the seed becomes one commit per example project, and a file belongs to a project by having the name in its path. Renaming or adding an example means this list; `tests/test_models_repository.py` carries a second copy for its parameterized version tests and guards the two against drifting |
+
+`REPO_MODELS` is a **build-time setting**, so that table applies too. `MODELS_POLL_INTERVAL`
+is a **runtime setting**, so that one does.
+
+## Approval and the preview database
+
+A version under review is a second environment: a second checkout on the models volume, a
+SQLMesh environment of its own, a second database holding foreign tables over the first,
+and a second Grafana data source. Which of the two a person reads is decided by one string
+— the data source uid — that four files spell out.
+
+| Also touch | Because |
+|---|---|
+| `grafana/provisioning/datasources/postgresql.yaml` | both uids are declared here, and the preview one names the preview database; both sit in the default organisation because provisioning runs before Grafana can be asked to create another one |
+| `proxy/maps.conf.template`, `proxy/locations.conf.template` | the map supplying the production uid as the default, and the `sub_filter` that replaces it in Grafana's answers — with `Accept-Encoding ""` upstream, since a compressed body has nothing to substitute in. `APP_NAME` is in the proxy's envsubst list and in `proxy.container` for this one substitution — and in the second copy of that list, which `tests/test_proxy_config.py` renders the templates with |
+| `crudman/app/notebooks/views.py` | `PREVIEW_DATASOURCE`, and the `X-Preview-Datasource` header the proxy reads it from — so Grafana's sign-in fan-out above applies as well |
+| `postgresql/initdb/gf_0009_create_preview.sh` | the database, the foreign server, and `refresh_preview()`, which publishes `<layer>__<environment>` under the bare layer name. `gf_0005`'s Grafana grant has to reach those copies, which is why it matches on the part before the separator |
+| `sqlmesh/entrypoint.sh`, `sqlmesh/preview.py`, `sqlmesh/sqlmesh.sh` | the loop watches a second marker, `apply()` takes the environment, `SQLMESH_TREE` points the CLI at that environment's checkout, and `preview.py` is the call to `refresh_preview` after the plan. A new tool in this image is named in **both** Dockerfiles (see the models-repository table) |
+| `sqlmesh/status.py` | the environment is part of what identifies a deployment row now: the same commit can be planned into production and into a review at once |
+| `crudman/app/system/repo.py` | `tree_of()` derives a checkout and a marker from the environment name; the engine's side of that is the `apply()` row above |
+| `tests/test_preview_database.py` | the schema names end to end, and the one class that guards the four spellings of the uid against drifting |
+
+`crudman/app/system/requirements.md` carries the reasoning, including why one review at a
+time and what a second would cost.
 
 ## Volume
 
@@ -79,7 +177,7 @@ quadlets' `Secret=` lines, so it needs nothing. A quadlet naming it needs `Secre
 `dev.sh` turns into `--secret` by itself.
 
 Whatever reads the file back out of `/run/secrets/` needs the name as well, which is what
-the `Environment=SECRET_*=` lines in the quadlets are for: `settings.py` (`secret_path()`),
+the `Environment=SECRET_*=` lines in the quadlets are for: `settings.py` (`read_secret()`),
 `crudman/entrypoint.sh`, `sqlmesh/entrypoint.sh` and `sqlmesh/config.py` each take it from
 the environment with the shipped name as the fallback. `postgresql/Dockerfile` takes it as an
 `ARG` instead, because its `ENV POSTGRES_PASSWORD_FILE` is baked in; `gf_0004` and the two
@@ -126,7 +224,7 @@ The silver staging layer is not among them — nothing outside the SQLMesh model
 `tests/conftest.py` derives it from `SILVER_SCHEMA`. So a role or
 schema name is written once there and never spelled out again — in the quadlet that connects
 as it (`POSTGRES_USER=`), the Grafana data source, the `dbusers` role
-derivation, `tenants/utils.py`'s tenant discovery, `sqlmesh/config.py`, or the tests. A schema, a container and a
+derivation, `sqlmesh/config.py`, or the tests. A schema, a container and a
 podman secret keep the component's name instead, so `SECRET_CRUDMAN_PASSWORD` does not move
 when `CRUDMAN_DB_USER` does. `tests/test_render_templates.py` guards both allowlists: an
 unlisted `${TOKEN}` renders as literal text rather than failing.
@@ -140,10 +238,17 @@ ending in `_` would otherwise be read as a single-character wildcard.
 
 ## Identity-provider rank
 
+`MANAGED_APPS` in `sso/roles.py` is which apps a rank may hold permissions for, so an app
+whose admin pages a rank should reach is named there — and its `AppConfig` has to be listed
+*before* `sso` in `INSTALLED_APPS`, since Django creates an app's permissions when that
+app's own `post_migrate` fires and `create_role_groups` hands them out when `sso`'s does.
+
 The three ranks (`viewer`, `editor`, `admin`) are named once, in `sso.roles.RANKS`, and
 `ROLE_PREFIX` goes in front of all of them: it names the Django group that carries the
 permissions and the database group role `gf_0008` creates, which is why the two are spelled
-the same. `DB_USER_PREFIX` is unrelated — it prefixes the login role of a person.
+the same. `DB_USER_PREFIX` is unrelated — it prefixes the login role of a person, and the
+two must stay distinct: a person named after a rank would otherwise be provisioned the
+rank's own group role, which `gf_0008` refuses to start on at the next boot.
 Both are in `buildtime.env`; `crudman.container` passes them in, dev included.
 
 `GROUP_ACTIONS` in `sso/roles.py` is what a rank may do, so adding a rank is an edit there
@@ -151,11 +256,14 @@ and in `gf_0008` — not a configuration change.
 
 ## Documentation
 
+`crudman/app/docs/` renders what the *deployed* models describe about themselves, exported
+by the engine at deploy time. It follows the commit, not the release.
+
 `README.md` addresses someone *running* the system: novice level, no technical details. The
 cheat sheet `install.sh` prints at the end tells the same story, so the two tend to move
 together. `CLAUDE.md` (root, `crudman/`, `sqlmesh/`) and `.github/copilot-instructions.md`
 describe the repo to agents. The `requirements.md` files (in `quadlets/` and in
-`crudman/app/{dropzones,tenants,dbusers}/`) state what a component must do and why — they
+`crudman/app/{dropzones,system,dbusers}/`) state what a component must do and why — they
 follow a changed requirement, not a changed implementation.
 
 ## Before calling it done

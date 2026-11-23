@@ -10,7 +10,7 @@
 -- The storage is PostgreSQL either way: the gateway attaches this database as its only
 -- catalog, so the silver union cannot tell which engine produced which half.
 --
--- The status mapping stays one-to-one for the reason project_a's does; this tenant's tool
+-- The status mapping stays one-to-one for the reason project_a's does; this project's tool
 -- never reports in_progress.
 MODEL (
   name silver_staging.issue_risk_history__project_b,
@@ -32,12 +32,12 @@ MODEL (
 SELECT
   'project_b'                                                               AS tenant_id,
   tck.id::TEXT                                                              AS issue_id,
-  tck.updated                                                               AS valid_from,
+  tck.updated                                                               AS valid_from,   -- The first day this combination of state, effort and classification held.
   CASE WHEN lhs.state IN ('closed', 'merged') THEN 'closed' ELSE 'todo' END AS state,
-  CASE lhs.priority WHEN 'high' THEN 8 WHEN 'medium' THEN 5 ELSE 2 END      AS effort,
+  CASE lhs.priority WHEN 'high' THEN 8 WHEN 'medium' THEN 5 ELSE 2 END      AS effort,       -- Derived from the priority label, as in issues__project_b.
   lhs.area                                                                  AS component_id,
   rhs.classification                                                        AS safety_class,
-  rhs.team                                                                  AS owner
+  rhs.team                                                                  AS owner         -- The team owning the area that day.
 FROM @temporal_join(
   lhs_ts := bronze_project_b.issue_history.updated,
   rhs_ts := bronze_project_b.component_history.updated,

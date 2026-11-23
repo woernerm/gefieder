@@ -18,12 +18,12 @@ class TestRouting:
     def test_all_apps_shall_be_reachable_through_the_proxy(self, http_follow, path):
         assert http_follow.get(path).status_code == 200
 
-    def test_root_shall_redirect_to_the_admin_panel(self, http):
+    def test_root_shall_redirect_to_the_dashboards(self, http):
         resp = http.get("/")
         assert resp.status_code in (301, 302)
         # The Location has to be the bare path: nginx builds an absolute URL from the
         # port it listens on inside the pod, not the one the request came in on.
-        assert resp.headers["location"] == f"/{CRUDMAN_PATH}/", (
+        assert resp.headers["location"] == f"/{GRAFANA_PATH}/?kiosk", (
             "the redirect is absolute; it drops the port the client is talking to"
         )
 
@@ -40,16 +40,15 @@ class TestStaticFiles:
         assert resp.status_code == 200
         assert "text/css" in resp.headers["content-type"]
 
-    def test_grafana_static_files_shall_be_served(self, http_follow):
-        # Grafana references assets relative to its <base href="/GRAFANA_PATH/">, and the
-        # bundle names change between releases, so match any of them: what is under test
-        # is the proxy serving the asset.
-        html = http_follow.get(GRAFANA_LOGIN).text
-        match = re.search(r"public/build/grafana\.[^\"']+\.css", html)
-        assert match, "no grafana static asset referenced on the login page"
-        resp = http_follow.get(f"/{GRAFANA_PATH}/" + match.group(0))
+    def test_grafana_static_files_shall_be_served(self, http):
+        # Grafana's assets are served to anyone, signed in or not: the proxy exempts
+        # /public/ from the identity check so a page load is not one subrequest per
+        # script. The bundle names change between releases, so this asks for one file
+        # Grafana always ships; what is under test is the proxy serving it without a
+        # session.
+        resp = http.get(f"/{GRAFANA_PATH}/public/img/grafana_icon.svg")
         assert resp.status_code == 200
-        assert "text/css" in resp.headers["content-type"]
+        assert "svg" in resp.headers["content-type"]
 
 
 class TestTransportSecurity:

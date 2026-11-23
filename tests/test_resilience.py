@@ -3,9 +3,7 @@
 These kill containers, so they run after the read-only startup, http and database tests
 (pytest collects files alphabetically) and restore the stack as they go.
 """
-import time
-
-from conftest import inspect_container, podman
+from conftest import inspect_container, podman, poll
 
 
 def _container_id(container):
@@ -22,13 +20,10 @@ def _wait_replaced(container, old_id, timeout=180):
     so a liveness check can pass on the *old* container. Requiring a new id makes the
     check independent of how long the recreate takes.
     """
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    def replaced():
         info = inspect_container(container)
-        if info and info["Id"] != old_id and info["State"]["Running"] is True:
-            return True
-        time.sleep(2)
-    return False
+        return info and info["Id"] != old_id and info["State"]["Running"] is True
+    return bool(poll(replaced, timeout))
 
 
 class TestAutoRestart:

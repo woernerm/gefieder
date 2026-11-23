@@ -27,7 +27,7 @@ class MultipleFileField(forms.FileField):
 class UploadForm(forms.Form):
     """The upload form: the files plus one validity period for the whole set."""
 
-    # The modes live on the model, being also a dropzone's default validity; the aliases
+    # Defined on the model, as they are also a dropzone's default validity. The aliases
     # keep the form self-describing.
     ALWAYS = Dropzone.Validity.ALWAYS
     UNTIL_REPLACED = Dropzone.Validity.UNTIL_REPLACED

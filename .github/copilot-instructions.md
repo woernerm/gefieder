@@ -20,8 +20,8 @@
   satisfy reporting requirements of third parties.
 
 ## Technical context
-- The application is a multi-tenant data analytics application. A tenant can refer to a 
-  real person or a project that shall be kept separate from other projects. 
+- The application is a data analytics application. Data is organized by project, which
+  keeps the models legible; it is not a security or resource boundary.
 - The application is deployed as podman quadlets to a linux server.
 - It supports at least Ubuntu and Red Hat. 
 - There is a django service `crudman` for administration and data entry (CRUD).
@@ -37,8 +37,7 @@
 - Engineering data is acquired by external tools that write directly to the database. 
 - The database uses multiple schemas in a medallion architecture (bronze, silver, gold).
 - The bronze schema contains raw data. There can be multiple bronze schemas, one for 
-  each tenant/project, because the raw data can be in vastly different formats and 
-  models.
+  each project, because the raw data can be in vastly different formats and models.
 - The silver schema contains data in a standardized model. 
 - The gold schema contains materialized tables with precomputed metrics and statistics
   derived from standardized model data in the silver schema.  
@@ -168,16 +167,15 @@
   the actual python function names.
 - Keep your final responses concise. Try to stay below 120 words.
 
-# Example Tenants
-- There are three example tenants "Project A", "Project B" and "Project C"
+# Example Projects
+- There are three example projects "Project A", "Project B" and "Project C"
 - "Project A" and "Project B" use sql transformations while "Project C" uses Python,
   specifically Polars.
-- The example tenants are always created when the system first starts.
-- Having two example tenants should nicely illustrate to the user where to place files 
-  for real tenants.
-- The example tenants are intended to be deleted by the user when developing for
+- The example projects ship in the seed models repository, one commit each.
+- They illustrate to the user where to place files for real projects.
+- The example projects are intended to be deleted by the user when developing for
   production.
-- There is some example seed data for both example tenants.
+- There is some example seed data for each example project.
 
 # Data Sources
 - The system is designed to be used with multiple data sources.

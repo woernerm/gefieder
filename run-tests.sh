@@ -14,8 +14,9 @@ PROFILE=dev
 case "${1:-}" in
   dev|production) PROFILE="$1"; shift ;;
 esac
-REPO="$(cd "$(dirname "$0")" && pwd)"
-cd "$REPO"
+# Not REPO: buildtime.env carries a REPO of its own (the GitHub URL) and is sourced below.
+CHECKOUT="$(cd "$(dirname "$0")" && pwd)"
+cd "$CHECKOUT"
 
 # Checked up front, so a missing one fails in a second rather than after the image build.
 
@@ -108,6 +109,7 @@ make_tempdir() {
 create_service_secrets
 # The build-time default rather than a random value, so the tests run unattended.
 create_secret "$SECRET_SUPERUSER_PASSWORD" "$SUPERUSER_DEFAULT_PASSWORD"
+create_secret "$SECRET_PG_SUPERUSER_PASSWORD" "$SUPERUSER_DEFAULT_PASSWORD"
 
 # Isolated host ports, so a stack on the default ports is undisturbed. Grafana is not
 # among them: the suite reaches it through the proxy, as a browser does.
@@ -117,11 +119,9 @@ PG_PORT=15432
 SFTP_PORT=12222
 FLIGHT_PORT=18815
 
-# The stand-in identity provider the single sign-on tests authenticate against. It runs in
-# the pod, so the services reach it on localhost, and the pod publishes the same port
-# number it listens on: it advertises an issuer built from the address it was asked on, and
-# a sign-in validates only if the browser and the services see one identical URL. 127.0.0.1
-# for the same reason, and because the server crashes on the IPv6 address.
+# The stand-in identity provider for the single sign-on tests. Published on the port it
+# listens on, as it builds its issuer from the address asked, and browser and services must
+# see one identical URL. 127.0.0.1, as the server also crashes on the IPv6 address.
 OIDC_PORT=18099
 OIDC_ISSUER="http://127.0.0.1:${OIDC_PORT}/default"
 OIDC_CLIENT_ID="${APP_NAME}-test"
@@ -145,6 +145,7 @@ done
 # The suite connects as each role to check its access boundary.
 GRAFANA_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_GRAFANA_PASSWORD")"
 SUPERUSER_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_SUPERUSER_PASSWORD")"
+PG_SUPERUSER_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_PG_SUPERUSER_PASSWORD")"
 CRUDMAN_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_CRUDMAN_PASSWORD")"
 SQLMESH_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_SQLMESH_PASSWORD")"
 
@@ -168,14 +169,10 @@ QUADLET_DIR="$HOME/.config/containers/systemd"
 SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 mkdir -p "$QUADLET_DIR"
 
-UNITS="postgresql crudman sftp flight sqlmesh grafana grafana_mcp proxy"
-# The volumes the current deployment uses, plus crudman_data/sqlmesh_data, which held the
-# logs that now go to journald and linger on an older installation.
-VOLUMES="postgresql_data grafana_data sftp_data proxy_data uploads_data \
-  crudman_data sqlmesh_data"
+VOLUMES="$(basename -s .volume quadlets/*.volume)"
 
 # Stop the services and drop the pod, volumes and unit files. Shared by our own teardown
-# and by the removal of a pre-existing deployment, both living under the same names.
+# and by the removal of a pre-existing deployment, as both use the same names.
 remove_deployment() {
   stack_stop="$(date +%s)"
   # In one go, as uninstall.sh does. Quadlet binds every container unit to
@@ -224,11 +221,8 @@ if [ -e "$QUADLET_DIR/main.pod" ]; then
   esac
 fi
 
-# As the release workflow does: only the known tokens, so nginx's $host and Grafana's
-# %(domain)s survive.
-VARS='${REGISTRY} ${IMAGE_TAG} ${APP_NAME} ${SUPERUSER_NAME} ${SUPERUSER_EMAIL} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${CERTIFICATE_PATH} ${SERVER_STATS_INTERVAL} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${CRUDMAN_DB_USER} ${SQLMESH_DB_USER} ${DB_USER_PREFIX} ${ROLE_PREFIX} ${BRONZE_SCHEMA_PREFIX} ${SECRET_SUPERUSER_PASSWORD} ${SECRET_CRUDMAN_PASSWORD} ${SECRET_SQLMESH_PASSWORD} ${SECRET_GRAFANA_PASSWORD} ${SECRET_DJANGO_KEY} ${SECRET_OIDC_CLIENT}'
 for f in quadlets/*; do
-  envsubst "$VARS" < "$f" > "$QUADLET_DIR/$(basename "$f")"
+  envsubst "$QUADLET_VARS" < "$f" > "$QUADLET_DIR/$(basename "$f")"
 done
 
 # The isolated ports arrive by the path a deployment's do: envsubst leaves the ${*_PORT}
@@ -253,23 +247,20 @@ UNIT_SECRET_DIR=""
 APP_CONFIG_DIR="$HOME/.config/${APP_NAME}"
 mkdir -p "$SYSTEMD_USER_DIR" "$APP_CONFIG_DIR/serverstats"
 for u in serverstats/server-stats.service serverstats/server-stats.timer; do
-  envsubst "$VARS" < "$u" > "$SYSTEMD_USER_DIR/$(basename "$u")"
+  envsubst "$QUADLET_VARS" < "$u" > "$SYSTEMD_USER_DIR/$(basename "$u")"
 done
 install -m 0755 serverstats/collect.sh "$APP_CONFIG_DIR/serverstats/collect.sh"
-# The quadlets read SERVER_NAME and DEBUG from here, so the profile's values are written
-# rather than the repository defaults, which would put the production profile back into
-# DEBUG. The ports likewise: 80/443 would collide with a deployment and be unbindable for a
-# rootless run. Everything else is copied unchanged, "|| true" keeping a file without those
-# keys from aborting under set -e.
-#
-# The single sign-on settings point at the stand-in provider but arrive switched off, the
-# state every installation runs in; the sign-in tests turn OIDC_ENABLED on themselves.
-# ERROR_LOGGING_PROBE adds the route test_logs.py makes the server raise on, set only here
-# so no deployment serves it.
+# The profile's SERVER_NAME and DEBUG and the isolated ports replace the repository
+# defaults; everything else is copied, "|| true" keeping a file without those keys from
+# aborting under set -e. Single sign-on points at the stand-in provider but starts off, as
+# in every installation; the sign-in tests turn it on. ERROR_LOGGING_PROBE adds the route
+# test_logs.py makes the server raise on.
 {
   echo "SERVER_NAME=${SERVER_NAME}"
   echo "DEBUG=${DEBUG}"
   echo "ERROR_LOGGING_PROBE=true"
+  # Faster than a deployment's, so test_models_repository does not wait out a real poll.
+  echo "MODELS_POLL_INTERVAL=5"
   echo "HTTP_PORT=${HTTP_PORT}"
   echo "HTTPS_PORT=${HTTPS_PORT}"
   echo "PG_PORT=${PG_PORT}"
@@ -277,18 +268,19 @@ install -m 0755 serverstats/collect.sh "$APP_CONFIG_DIR/serverstats/collect.sh"
   echo "FLIGHT_PORT=${FLIGHT_PORT}"
   echo "OIDC_ENABLED=false"
   echo "OIDC_ISSUER=${OIDC_ISSUER}"
-  echo "OIDC_AUTH_URL=${OIDC_ISSUER}/authorize"
-  echo "OIDC_TOKEN_URL=${OIDC_ISSUER}/token"
-  echo "OIDC_USERINFO_URL=${OIDC_ISSUER}/userinfo"
   echo "OIDC_LOGOUT_URL=${OIDC_ISSUER}/endsession"
   echo "OIDC_CLIENT_ID=${OIDC_CLIENT_ID}"
   grep -v -e '^SERVER_NAME=' -e '^DEBUG=' -e '^OIDC_' -e '^HTTP_PORT=' \
           -e '^HTTPS_PORT=' -e '^PG_PORT=' -e '^SFTP_PORT=' -e '^FLIGHT_PORT=' \
-          -e '^ERROR_LOGGING_PROBE=' \
+          -e '^ERROR_LOGGING_PROBE=' -e '^MODELS_POLL_INTERVAL=' \
           runtime.env || true
 } > "$APP_CONFIG_DIR/runtime.env"
 
 cleanup() {
+  # The status the script is exiting with, saved before anything here overwrites it: the
+  # trap's own last command is what the shell would otherwise report, which turned a failed
+  # test run into a successful script.
+  status=$?
   # On EXIT, after pytest's summary. Silenced, so it is announced: this is the pause
   # between the result and the prompt returning.
   echo "Tearing down the test stack ..."
@@ -297,6 +289,7 @@ cleanup() {
   # The unit tests' password file, should they have failed before removing it. Unset
   # until they run, so guard against rm -rf on an empty path.
   if [ -n "$UNIT_SECRET_DIR" ]; then rm -rf "$UNIT_SECRET_DIR"; fi
+  exit "$status"
 }
 trap cleanup EXIT INT TERM
 
@@ -315,18 +308,11 @@ for u in $UNITS; do
 done
 
 # --- the stand-in identity provider ---------------------------------------------------
-# A throwaway OpenID Connect server, so a sign-in can be tested end to end without a real
-# directory. It joins the pod rather than taking a network of its own, which puts it on the
-# localhost the services already use.
-#
-# interactiveLogin false makes it usable from a test: the authorization endpoint answers
-# with the redirect instead of a login form. "roles" is what an Entra ID app role arrives
-# in, and Editor is the middle rank, so both a granted and a withheld permission can be
-# asserted.
-#
-# The mapping is keyed on grant_type because it is matched against the token request, not
-# the code request: a parameter appearing only on the latter never matches, and the claims
-# are silently left out.
+# A throwaway OpenID Connect server in the pod, so a sign-in can be tested end to end.
+# interactiveLogin false answers the authorization request with the redirect instead of a
+# form. "roles" is where an Entra ID app role arrives, and Editor is the middle rank, so
+# both granted and withheld permissions can be asserted. The mapping is keyed on grant_type,
+# as it is matched against the token request; other keys silently drop the claims.
 printf '  %-12s ' "identity"
 podman run -d --pod "$APP_NAME" --name mock-oidc \
   -e SERVER_PORT="$OIDC_PORT" \
@@ -376,6 +362,7 @@ export TEST_SFTP_PORT="$SFTP_PORT"
 export TEST_FLIGHT_PORT="$FLIGHT_PORT"
 export TEST_GRAFANA_PASSWORD="$GRAFANA_PASSWORD"
 export TEST_SUPERUSER_PASSWORD="$SUPERUSER_PASSWORD"
+export TEST_PG_SUPERUSER_PASSWORD="$PG_SUPERUSER_PASSWORD"
 export TEST_CRUDMAN_PASSWORD="$CRUDMAN_PASSWORD"
 export TEST_SQLMESH_PASSWORD="$SQLMESH_PASSWORD"
 
@@ -383,16 +370,12 @@ export TEST_SQLMESH_PASSWORD="$SQLMESH_PASSWORD"
 export TEST_SERVER_STATS_SCHEMA="${SERVER_STATS_SCHEMA:-server_stats}"
 export TEST_COLLECTOR="$APP_CONFIG_DIR/serverstats/collect.sh"
 
-# The application logic the integration suite only sees from outside. Run first, in a
-# throwaway container from the crudman image, so a broken pipeline fails here rather than
-# as a puzzling HTTP result and against the dependencies the deployment ships.
-#
-# Django's test runner creates and drops its own test_<db> database, needing the CREATEDB
-# the deployed crudman role deliberately lacks -- hence the superuser connection, its
-# password mounted where settings.py reads the database password from.
+# The crudman unit tests, first, in a throwaway container from the crudman image, so a
+# broken pipeline fails here rather than as a puzzling HTTP result. As the superuser, as
+# Django's test runner needs the CREATEDB the crudman role lacks.
 echo "Running the crudman unit tests ..."
 UNIT_SECRET_DIR="$(make_tempdir)"
-podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_SUPERUSER_PASSWORD" \
+podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_PG_SUPERUSER_PASSWORD" \
   > "$UNIT_SECRET_DIR/$SECRET_CRUDMAN_PASSWORD"
 # collectstatic first: the tests render admin pages, and the manifest storage resolves
 # every asset through the manifest the entrypoint builds at startup. UPLOADS_DIR and
@@ -402,10 +385,9 @@ unit_tests() {  # extra podman arguments, e.g. the single sign-on settings
     -v "$UNIT_SECRET_DIR/$SECRET_CRUDMAN_PASSWORD:/run/secrets/$SECRET_CRUDMAN_PASSWORD:ro,Z" \
     -e SECRET_CRUDMAN_PASSWORD="$SECRET_CRUDMAN_PASSWORD" \
     -e POSTGRES_HOST=localhost -e POSTGRES_PORT="$PG_PORT" \
-    -e POSTGRES_USER="$SUPERUSER_NAME" -e POSTGRES_DB="$PG_DATABASE" \
+    -e POSTGRES_USER="$PG_SUPERUSER_ROLE" -e POSTGRES_DB="$PG_DATABASE" \
     -e DB_USER_PREFIX="$DB_USER_PREFIX" \
     -e ROLE_PREFIX="$ROLE_PREFIX" \
-    -e BRONZE_SCHEMA_PREFIX="$BRONZE_SCHEMA_PREFIX" \
     -e UPLOADS_DIR=/tmp/uploads -e SFTP_DIR=/tmp/sftp \
     "$@" \
     --entrypoint sh "${REGISTRY}/crudman:${IMAGE_TAG}" -c \
@@ -424,6 +406,17 @@ unit_tests \
   -e OIDC_ISSUER="$OIDC_ISSUER" \
   -e OIDC_CLIENT_ID="$OIDC_CLIENT_ID"
 rm -rf "$UNIT_SECRET_DIR"
+
+# The notebook translation, in a throwaway container from the jupyter image: it is what
+# stands between a model file and being rewritten the first time somebody opens it, and it
+# runs against the models this release ships.
+echo "Running the notebook unit tests ..."
+podman run --rm \
+  -v "${CHECKOUT}/jupyter/tests:/jupyter/tests:ro,Z" \
+  -v "${CHECKOUT}/sqlmesh/models:/sqlmesh/models:ro,Z" \
+  -e TEST_MODELS_DIR=/sqlmesh/models \
+  --entrypoint sh "${REGISTRY}/jupyter:${IMAGE_TAG}" -c \
+  'python -m pytest /jupyter/tests -q -p no:cacheprovider'
 
 # Run the suite. uv provides the test dependencies from tests/pyproject.toml.
 echo "Running the integration test suite ..."

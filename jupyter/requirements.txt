@@ -1,0 +1,30 @@
+# What a notebook server needs beyond the SQLMesh engine's own dependencies, which come
+# from sqlmesh/pyproject.toml so a notebook plans with production's version.
+#
+# Deliberately short. Every entry here is something the workflow depends on; an operator's
+# own additions go in JUPYTER_EXTENSIONS in buildtime.env, where they can be trimmed
+# without touching this image.
+jupyterlab
+
+# jupyterhub -- which provides jupyterhub-singleuser, the server spawned per person -- is
+# installed by the Dockerfile instead, pinned to the base image's version.
+
+# Registers a file type per kernel language, which is what makes JupyterLab open a .sql
+# model as a notebook. It also opens Python models as notebooks with their "# %%" cells.
+jupytext
+
+# The git panel: commit, branch, push and diff without leaving Lab. Shipping a model is a
+# commit, so this is the last step of the workflow rather than a convenience.
+jupyterlab-git
+
+# Reclaims servers nobody is using; the hub registers it as a service.
+jupyterhub-idle-culler
+
+# The kernel itself. Named explicitly because the kernelspec launches it by module.
+ipykernel
+
+# What %fetchdf and %evaluate hand back, and what a chart is drawn from.
+matplotlib
+
+# Runs jupyter/tests inside this image, against the models the release ships.
+pytest
