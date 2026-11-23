@@ -16,7 +16,7 @@ datasources:
     jsonData:
       database: ${PG_DATABASE}
       sslmode: disable
-      postgresVersion: 1600
+      postgresVersion: ${POSTGRES_VERSION}
     secureJsonData:
       password: $__file{/run/secrets/${SECRET_GRAFANA_PASSWORD}}
 
@@ -37,6 +37,6 @@ datasources:
     jsonData:
       database: ${PG_DATABASE}_preview
       sslmode: disable
-      postgresVersion: 1600
+      postgresVersion: ${POSTGRES_VERSION}
     secureJsonData:
       password: $__file{/run/secrets/${SECRET_GRAFANA_PASSWORD}}

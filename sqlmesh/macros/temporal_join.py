@@ -176,8 +176,7 @@ def temporal_join(
     # Both forms say the same thing -- the latest row at or before the tick -- with the
     # right one hanging off the left row rather than off the tick.
     #
-    # PostgreSQL has no ASOF JOIN and pg_duckdb cannot lend it one, parsing the statement
-    # long before DuckDB sees it. LATERAL ... ORDER BY ... LIMIT 1 is the same lookup
+    # PostgreSQL has no ASOF JOIN. LATERAL ... ORDER BY ... LIMIT 1 is the same lookup
     # written out, and an index on (key, timestamp) serves it directly.
     if asof:
         lookups = (

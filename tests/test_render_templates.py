@@ -69,8 +69,9 @@ def test_every_referenced_token_shall_be_substituted(script, tree, skip, ours):
 @pytest.mark.parametrize("script,tree,skip,ours", RENDERERS, ids=[r[1] for r in RENDERERS])
 def test_every_substituted_token_shall_be_declared(script, tree, skip, ours):
     # A listed name buildtime.env does not declare renders as empty: the same silent
-    # failure from the other direction.
-    missing = allowlisted(script) - declared_settings()
+    # failure from the other direction. A name the script derives itself counts too.
+    derived = set(re.findall(r"^([A-Z_][A-Z0-9_]*)=", (REPO / script).read_text(), re.MULTILINE))
+    missing = allowlisted(script) - declared_settings() - derived
     assert not missing, f"{script} substitutes settings buildtime.env lacks: {sorted(missing)}"
 
 

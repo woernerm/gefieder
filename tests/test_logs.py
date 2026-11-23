@@ -137,14 +137,8 @@ def journal(unit, *args):
     return out.stdout
 
 
-def _container_lines(unit):
-    """The service's own output since the unit last started.
-
-    Two filters, both needed. `-t <unit>` keeps the container's stdout and drops the
-    systemd and podman records that also land in a unit's journal, whose stamps no service
-    setting reaches. `--since` the last start keeps the assertion about the code running
-    now, the journal outliving a release.
-    """
+def _since_start(unit):
+    """journalctl arguments limiting it to the unit's last start."""
     # InactiveExitTimestamp is when the unit began starting; the units gate "active" on
     # their healthcheck, so everything logged while coming up falls before that mark.
     started = subprocess.run(
@@ -154,16 +148,26 @@ def _container_lines(unit):
     ).stdout.split()
     # journalctl takes neither the weekday nor the zone name. An unparsable value means
     # no window rather than a failure, which only widens what is checked.
-    since = ["--since", " ".join(started[1:3])] if len(started) >= 3 else []
+    return ["--since", " ".join(started[1:3])] if len(started) >= 3 else []
+
+
+def _container_lines(unit):
+    """The service's own output since the unit last started.
+
+    Two filters, both needed. `-t <unit>` keeps the container's stdout and drops the
+    systemd and podman records that also land in a unit's journal, whose stamps no service
+    setting reaches. `--since` the last start keeps the assertion about the code running
+    now, the journal outliving a release.
+    """
     out = subprocess.run(
         ["journalctl", "--user", "-u", f"{unit}.service", "-t", unit, "--no-pager",
-         "-o", "short-iso", *since],
+         "-o", "short-iso", *_since_start(unit)],
         capture_output=True, text=True, check=True,
     ).stdout
     return [ln for ln in out.splitlines() if ln.strip() and not ln.startswith("-- ")]
 
 
-def _journal_lines(unit, timeout=60):
+def _journal_lines(unit, *args, timeout=60):
     """The unit's journal lines, waiting for the first one to appear.
 
     Polled: some services emit their first line only after the readiness the suite waits
@@ -171,7 +175,7 @@ def _journal_lines(unit, timeout=60):
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
-        lines = [ln for ln in journal(unit).splitlines() if ln.strip()]
+        lines = [ln for ln in journal(unit, *args).splitlines() if ln.strip()]
         # journalctl prints "-- No entries --" when the unit logged nothing.
         lines = [ln for ln in lines if not ln.startswith("-- ")]
         if lines:
@@ -220,7 +224,9 @@ class TestLogTimestamps:
 
     @pytest.mark.parametrize("unit", LOGGING_UNITS)
     def test_every_log_line_shall_carry_a_timestamp(self, unit):
-        lines = _journal_lines(unit)
+        # Since this stack's pod started: the journal outlives a release, so a line an
+        # older image wrote would otherwise fail the code running now.
+        lines = _journal_lines(unit, *_since_start("main-pod"))
         assert lines, f"{unit} wrote nothing to its journal"
         missing = [ln for ln in lines if not TIMESTAMP.search(ln)]
         assert not missing, (

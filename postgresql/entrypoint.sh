@@ -28,6 +28,12 @@ fi
 # On an empty data directory the base entrypoint runs initdb and executes every script
 # itself, "once" ones included, so the first install is left entirely to it.
 if [ -s "$PGDATA/PG_VERSION" ]; then
+  # The image starts as root, which pg_ctl refuses; the base entrypoint drops privileges
+  # the same way, so it is not reached as root either.
+  if [ "$(id -u)" = 0 ]; then
+    exec gosu postgres "$BASH_SOURCE" "$@"
+  fi
+
   # The scripts need a running server, and the base entrypoint starts PostgreSQL only
   # after this process execs into it. So a temporary one is bound to the unix socket
   # alone, unreachable from outside the container.

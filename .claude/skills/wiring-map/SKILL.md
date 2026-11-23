@@ -30,6 +30,11 @@ silently, which is the signal to add a case for it there.
 | the `manifest.env` block in `publish.yml` | `install.sh` runs from a release without a checkout; `manifest.env` is all it learns about the build |
 | `envsubst '${REPO} ${TEMPDIR}'` in `publish.yml` | those two are needed before `manifest.env` has been downloaded, so they are baked into the installer instead |
 
+Two versions are derived rather than set: `grafana/render.sh` reads the PostgreSQL major
+from `postgresql/Dockerfile`'s `FROM .../postgres:<major>` line into the data source's
+`postgresVersion`, so that line has to keep its shape; `jupyter/Dockerfile` pins the
+notebook environment's `jupyterhub` to what the base image's hub reports.
+
 `tests/test_build_args.py` covers the three builders: every `ARG` a Dockerfile declares whose
 name also appears in `buildtime.env` has to be passed by all of them.
 
@@ -229,11 +234,6 @@ renaming it there too; `tests/test_medallion_schemas.py` fails when the two disa
 
 An event trigger matching a configured prefix uses `starts_with()`, not `LIKE` — a name
 ending in `_` would otherwise be read as a single-character wildcard.
-
-DuckDB execution inside PostgreSQL (`duckdb.force_execution`, `duckdb.query()`) is a
-privilege of its own: pg_duckdb admits only the members of the role `duckdb.postgres_role`
-names, which `gf_0008` creates as `<ROLE_PREFIX>duckdb` and grants to `SQLMESH_DB_USER` and
-the editor rank. Widening it is a `GRANT` there, not a setting.
 
 ## Identity-provider rank
 

@@ -176,7 +176,7 @@ adjust:
 | `PG_DATABASE` | the database everything lives in; change it if the cluster already has one named `postgres` |
 | `SERVER_STATS_SCHEMA` | the schema that holds the server-usage and query statistics (see [Server statistics](#server-statistics)) |
 | `SERVER_STATS_INTERVAL` | how often, in seconds, the server statistics are sampled (default 60) |
-| `DUCKDB_EXTENSIONS` | the DuckDB extensions baked into the database image, comma-separated; they are downloaded at build time, so the server needs no internet access to use them |
+| `DUCKDB_EXTENSIONS` | the DuckDB extensions baked into the SQLMesh engine and notebook images, comma-separated; they are downloaded at build time, so the server needs no internet access to use them |
 | `GRAFANA_PLUGINS` | the extra panel types baked into the Grafana image, comma-separated plugin ids; downloaded at build time as well, so the dashboards can use them offline |
 | `GRAFANA_MCP_TOOLS` | what an AI assistant may ask the system to do, comma-separated (see [AI assistant access](#ai-assistant-access)) |
 | `JUPYTER_EXTENSIONS` | extra JupyterLab extensions baked into the notebook image, comma-separated package names; empty by default, and downloaded at build time like the two lists above |
@@ -832,6 +832,6 @@ The software it builds on keeps its own license. Two cases to be aware of:
   Licenses and quality vary, so trim both lists to what you actually use before going to
   production.
 
-Everything else — the base images (PostgreSQL/pgduckdb, nginx, Python) and the Python
+Everything else — the base images (PostgreSQL, nginx, Python) and the Python
 dependencies (Django, gunicorn, SQLMesh, ...) — is permissively licensed; check the
 individual projects if you need the details.

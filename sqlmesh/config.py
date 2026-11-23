@@ -248,9 +248,8 @@ config = Config(
         # attached as DuckDB's only catalog, so a model here reads and writes PostgreSQL
         # tables like any other.
         #
-        # It buys DuckDB's *grammar* -- ASOF JOIN, QUALIFY, PIVOT -- which pg_duckdb
-        # cannot offer, PostgreSQL parsing the statement long before DuckDB sees it. It
-        # costs a second engine and a round trip per row, so it is for a query the
+        # It buys DuckDB's *grammar* -- ASOF JOIN, QUALIFY, PIVOT -- which PostgreSQL
+        # lacks. It costs a second engine and a round trip per row, so it is for a query the
         # grammar makes simpler or faster, not a default. Worked example:
         # models/silver/project_b/issue_risk_history.sql.
         "duckdb": GatewayConfig(
@@ -267,7 +266,12 @@ config = Config(
                         ),
                     )
                 },
-                extensions=["postgres", *duckdb_extensions],
+                # From the repository they were installed from: DuckDB 2.0 refuses an
+                # INSTALL whose origin differs from the copy already on disk.
+                extensions=[
+                    "postgres",
+                    *({"name": e, "repository": "community"} for e in duckdb_extensions),
+                ],
             )
         ),
     },

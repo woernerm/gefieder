@@ -8,9 +8,10 @@ eye would notice. This reads the theme definitions out of the running Grafana's 
 bundle and compares every value the palette claims to have taken from it.
 
 The bundle is minified and its file name carries a hash, so it is found by a marker
-rather than named, and the theme is parsed by shape: a named table of hex constants, then
-one class per mode whose fields either point into that table (``canvas:s.gray05``) or
-build a colour from the mode's base tint (``rgba(${this.whiteBase}, 0.12)``).
+rather than named, and the theme is parsed by shape: one class per mode whose fields hold
+a hex literal (``canvas:"#111217"``), name a minified constant declared just before the
+classes (``page:o``), or build a colour from the mode's base tint
+(``rgba(${this.whiteBase}, 0.12)``).
 """
 import re
 import subprocess
@@ -79,33 +80,36 @@ def grafana_theme():
     ).stdout
     assert 'mode="dark"' in bundle and 'mode="light"' in bundle, "theme classes not found"
 
-    # The named constants, one table for both modes, just before the classes use them.
-    anchor = bundle.index('gray05:"')
-    constants = dict(re.findall(r'(\w+):"(#[0-9a-fA-F]{6})"', bundle[anchor - 200:anchor + 2000]))
-
-    # Each class runs from its mode marker to the next class's, the light one to the
-    # function that follows both; cut there, or the later class's fields overwrite the
-    # earlier's.
     dark = bundle.index('mode="dark"')
     light = bundle.index('mode="light"')
-    bodies = {"dark": bundle[dark:light], "light": bundle[light:bundle.index("}}function", light)]}
+
+    # The minified names the classes use for shared colours (let s="#ffffff",o=...),
+    # declared shortly before the first class.
+    constants = dict(re.findall(r'\b(\w+)="(#[0-9a-fA-F]{6})"', bundle[dark - 2000:dark]))
+
+    # Each class runs from its mode marker to the next class's, the light one to its
+    # closing brace; cut there, or the later class's fields overwrite the earlier's.
+    light_end = bundle.index("tonalOffset=", light)
+    bodies = {"dark": bundle[dark:light], "light": bundle[light:bundle.index("}", light_end)]}
 
     # A field block is {...} whose only nested braces are the ${...} of a template literal.
-    block_pattern = r"this\.(\w+)=\{((?:[^{}]|\$\{[^{}]*\})*)\}"
+    block_pattern = r"(?<![\w.$])(\w+)=\{((?:[^{}]|\$\{[^{}]*\})*)\}"
 
     themes = {}
     for mode, body in bodies.items():
-        base = re.search(r'this\.(?:white|black)Base="([^"]+)"', body).group(1)
+        base = re.search(r'(?:white|black)Base="([^"]+)"', body).group(1)
         fields = {}
         for name, block in re.findall(block_pattern, body):
-            for key, ref in re.findall(r"(\w+):s\.(\w+)", block):
-                fields[f"{name}.{key}"] = constants[ref]
+            for key, value in re.findall(r'(\w+):"(#[0-9a-fA-F]{6})"', block):
+                fields[f"{name}.{key}"] = value
+            for key, ref in re.findall(r"(\w+):(\w+)(?=[,}]|$)", block):
+                if ref in constants:
+                    fields[f"{name}.{key}"] = constants[ref]
             for key, alpha in re.findall(r"(\w+):`rgba\(\$\{this\.\w+Base\}, *([\d.]+)\)`", block):
                 fields[f"{name}.{key}"] = f"rgba({base}, {alpha})"
             for key in re.findall(r"(\w+):`rgb\(\$\{this\.\w+Base\}\)`", block):
                 fields[f"{name}.{key}"] = f"rgb({base})"
         themes[mode] = fields
-    themes["constants"] = constants
     return themes
 
 
@@ -126,16 +130,6 @@ def test_the_palette_matches_grafanas_theme(grafana_theme, mode, name):
     assert actual == expected, (
         f"--app-{mode}-{name} is {actual}, but Grafana's {mode} {field} is {expected}"
     )
-
-
-@pytest.mark.parametrize("step", ["05", "10", "15", "20", "25", "30", "35", "40", "45", "50",
-                                  "55", "60", "65", "70", "75", "80", "85", "90", "95", "100"])
-def test_the_grey_ramp_matches_grafanas_constants(grafana_theme, step):
-    """--app-gray-NN is Grafana's grayNN, the table both themes above are picked from."""
-    assert f"gray{step}" in grafana_theme["constants"], f"Grafana no longer names gray{step}"
-    expected = rgba(grafana_theme["constants"][f"gray{step}"])
-    actual = rgba(palette()[f"--app-gray-{step}"])
-    assert actual == expected, f"--app-gray-{step} is {actual}, Grafana's gray{step} is {expected}"
 
 
 def test_every_transcribed_variable_is_in_the_palette():

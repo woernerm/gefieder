@@ -4,7 +4,7 @@
    so it is the fixed point the other two follow. It lives here to say where the values
    came from; Grafana itself never reads it -- the admin and notebook images copy it in.
 
-   Values matched to Grafana 13.2.1 (packages/grafana-data, createColors). Written from
+   Values matched to Grafana 13.3.1 (packages/grafana-data, createColors). Written from
    observation of the rendered theme, not copied from its source, and unlikely to move
    between minor releases; check against the version in grafana/Dockerfile after a major
    upgrade.
@@ -63,7 +63,8 @@
     --app-light-error-text: #cf0e5b;
 
     /* The greys themselves, the ramp the two sets above are picked from: Grafana's
-       gray05 to gray100, opaque and evenly stepped. For a framework that wants a
+       gray05 to gray100 as of 13.2, opaque and evenly stepped (13.3 no longer names the
+       ramp; its ends are still the theme colours above). For a framework that wants a
        lightness scale rather than named roles -- Tailwind's base-50 to base-950 in the
        admin panel -- because a role like "secondary text" is translucent and mode-bound,
        and a scale step is read as a border in one mode and as text in the other. */

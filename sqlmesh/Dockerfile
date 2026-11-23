@@ -26,9 +26,8 @@ COPY sqlmesh/pyproject.toml /sqlmesh/pyproject.toml
 # The dependencies from pyproject.toml.
 RUN UV_EXTRA_INDEX_URL=${PYTHON_INDEX} uv sync --project /sqlmesh --no-dev
 
-# The same list the database image gets: a query on config.py's DuckDB gateway has to reach
-# the same extensions a session reaches through use_duckdb(). Without a default, the list
-# living in DUCKDB_EXTENSIONS in buildtime.env.
+# The extensions config.py's duckdb gateway loads. Without a default, the list living in
+# DUCKDB_EXTENSIONS in buildtime.env.
 ARG DUCKDB_EXTENSIONS
 
 # Kept in the image so config.py reads the list back rather than repeating it.
@@ -40,8 +39,8 @@ ENV DUCKDB_EXTENSIONS=${DUCKDB_EXTENSIONS}
 ENV HOME=/root
 
 # Installed with the interpreter that later loads them, so the files match its DuckDB
-# version exactly -- the database image has to work that out of libduckdb.so. One statement
-# per extension, so a failing download names it; an unset list stops the build here.
+# version exactly. One statement per extension, so a failing download names it; an unset
+# list stops the build here.
 RUN test -n "${DUCKDB_EXTENSIONS}" \
       || { echo "DUCKDB_EXTENSIONS is empty; build via build.sh, which reads buildtime.env." >&2; exit 1; } \
     && for ext in $(echo "${DUCKDB_EXTENSIONS}" | tr ',' ' '); do \

@@ -4,9 +4,9 @@
 ARG DOCKER_IO_MIRROR=docker.io
 ARG GHCR_IO_MIRROR=ghcr.io
 
-# Pinned: jupyterhub is installed into the notebook environment below and has to match the
-# hub running here, and an unpinned base would drift out from under it.
-ARG JUPYTERHUB_VERSION=5.5.1
+# Pinned, so a rebuild does not drift to a new hub. The notebook environment below reads the
+# exact version back out of this image rather than repeating it.
+ARG JUPYTERHUB_VERSION=6.2.0
 
 # uv itself, copied in below rather than downloaded, so the build needs no second network
 # source and the version matches the one every other image here uses.
@@ -45,23 +45,25 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/python
 COPY sqlmesh/pyproject.toml /opt/notebook-project/pyproject.toml
 COPY jupyter/requirements.txt /opt/notebook-project/requirements.txt
 
-# Repeated after the FROM: an ARG declared before it is out of scope here.
-ARG JUPYTERHUB_VERSION
-
 # SQLMesh from the engine's own pyproject.toml, so a notebook plans with the version
 # production runs -- a difference there would show up as a plan that works in one place and
 # not the other. Lab and its extensions from requirements.txt beside it.
 #
-# jupyterhub itself goes in as well, pinned to the base image's version: it is what provides
-# jupyterhub-singleuser, the server spawned per person, and that has to run in *this*
-# environment because it imports JupyterLab. PATH below puts this environment first, so it
-# is the one the hub finds.
-RUN UV_EXTRA_INDEX_URL=${PYTHON_INDEX} uv venv --python 3.13 ${NOTEBOOK_VENV} \
+# jupyterhub itself goes in as well, pinned to the version the base image's hub reports: it
+# provides jupyterhub-singleuser, the server spawned per person, and that has to run in
+# *this* environment because it imports JupyterLab. PATH below puts this environment first,
+# so it is the one the hub finds.
+#
+# From the project directory, because uv pip takes pyproject.toml's [tool.uv] overrides only
+# from there; elsewhere it settles for an older sqlmesh than production's.
+RUN hub_version="$(jupyterhub --version)" \
+    && UV_EXTRA_INDEX_URL=${PYTHON_INDEX} uv venv --python 3.13 ${NOTEBOOK_VENV} \
+    && cd /opt/notebook-project \
     && UV_EXTRA_INDEX_URL=${PYTHON_INDEX} VIRTUAL_ENV=${NOTEBOOK_VENV} \
        uv pip install --requirement /opt/notebook-project/pyproject.toml \
     && UV_EXTRA_INDEX_URL=${PYTHON_INDEX} VIRTUAL_ENV=${NOTEBOOK_VENV} \
        uv pip install --requirement /opt/notebook-project/requirements.txt \
-            "jupyterhub==${JUPYTERHUB_VERSION}"
+            "jupyterhub==${hub_version}"
 
 # The extensions an operator adds in buildtime.env, installed the way the Grafana plugins
 # and DuckDB extensions are: at build time, so the target machine needs no package index.
@@ -72,8 +74,8 @@ RUN if [ -n "${JUPYTER_EXTENSIONS}" ]; then \
         uv pip install $(echo "${JUPYTER_EXTENSIONS}" | tr ',' ' ') || exit 1; \
     fi
 
-# The same list the database and engine images get, so a query on config.py's DuckDB
-# gateway reaches the extensions a model asks for without downloading them.
+# The same list the engine image gets, so a query on config.py's DuckDB gateway reaches
+# the extensions a model asks for without downloading them.
 ARG DUCKDB_EXTENSIONS
 ENV DUCKDB_EXTENSIONS=${DUCKDB_EXTENSIONS}
 
@@ -130,7 +132,11 @@ RUN git config --system core.excludesFile "~/.gitignore" \
 # The contents manager that makes a .sql model open as a notebook, and the kernel-side
 # cell routing. On the notebook environment's path rather than installed as a package: it
 # is configuration of this system, not a library anyone imports.
-COPY jupyter/sqlnotebook/ ${NOTEBOOK_VENV}/lib/python3.13/site-packages/sqlnotebook/
+#
+# Moved into place rather than copied there, as only the interpreter knows where its
+# site-packages is.
+COPY jupyter/sqlnotebook/ /tmp/sqlnotebook/
+RUN mv /tmp/sqlnotebook "$(${NOTEBOOK_VENV}/bin/python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')/"
 COPY jupyter/jupyter_server_config.py /usr/local/etc/jupyter/jupyter_server_config.py
 # Which Lab plugins never load: the menus requirements.md lists as taken out. labconfig/
 # under a config directory is where Lab looks; a list instead of the object here makes
@@ -152,5 +158,9 @@ COPY jupyter/entrypoint.sh /jupyter/entrypoint.sh
 ENV PATH=${NOTEBOOK_VENV}/bin:${PATH}
 
 EXPOSE 8888
+
+# The Ubuntu base image's description spans several lines, and podman repeats every label
+# in the journal's container events, leaving lines without a timestamp.
+LABEL org.opencontainers.image.description="JupyterHub for the SQLMesh model notebooks"
 
 CMD ["/jupyter/entrypoint.sh"]

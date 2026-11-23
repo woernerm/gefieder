@@ -33,24 +33,6 @@ BEGIN
 END;
 $$;
 
--- Function a session can call to toggle duckdb.force_execution
-CREATE OR REPLACE FUNCTION use_duckdb(enable boolean)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
--- Pinned search_path, so a caller cannot shadow what this definer-owned function
--- resolves.
-SET search_path = pg_catalog
-AS $$
-BEGIN
-    IF enable THEN
-        PERFORM set_config('duckdb.force_execution', 'true', false);
-    ELSE
-        PERFORM set_config('duckdb.force_execution', 'false', false);
-    END IF;
-END;
-$$;
-
 --------------------------------------------------------------------
 -- The roles the user-provisioning functions below must never touch.
 --

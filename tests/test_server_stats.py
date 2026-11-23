@@ -71,13 +71,6 @@ class TestQueryStatistics:
             cur.execute("SELECT count(*) FROM pg_stat_statements")
             assert cur.fetchone()[0] >= 0
 
-    def test_duckdb_shall_still_be_preloaded(self, admin_db):
-        # The preload line re-lists pg_duckdb, so check it survived.
-        with admin_db.cursor() as cur:
-            cur.execute("SHOW shared_preload_libraries")
-            libs = cur.fetchone()[0]
-        assert "pg_duckdb" in libs and "pg_stat_statements" in libs, libs
-
 
 class TestGrafanaAccess:
     """grafana reads the server-statistics data (for the later dashboards) but cannot write."""

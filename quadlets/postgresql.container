@@ -13,8 +13,10 @@ Notify=healthy
 Environment=POSTGRES_DB=${PG_DATABASE}
 Environment=POSTGRES_USER=${PG_SUPERUSER_ROLE}
 Environment=POSTGRES_PASSWORD_FILE=/run/secrets/${SECRET_PG_SUPERUSER_PASSWORD}
-# RHEL/Fedora SELinux needs a relabeled volume for rootless podman to mount it.
-Volume=postgresql_data.volume:/var/lib/postgresql/data:z
+# RHEL/Fedora SELinux needs a relabeled volume for rootless podman to mount it. The parent
+# of PGDATA (/var/lib/postgresql/<major>/docker) rather than PGDATA itself, as the image
+# expects since PostgreSQL 18.
+Volume=postgresql_data.volume:/var/lib/postgresql:z
 Secret=${SECRET_PG_SUPERUSER_PASSWORD}
 Secret=${SECRET_CRUDMAN_PASSWORD}
 Secret=${SECRET_SQLMESH_PASSWORD}

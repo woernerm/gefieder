@@ -27,7 +27,7 @@
 - `sqlmesh/` — SQLMesh project: `config.py`, `macros/`, `models/{bronze,silver,gold}`.
   Not baked into the image: it is the *seed* of the models repository crudman keeps on the
   `models_data` volume, and the engine runs whatever commit is checked out there.
-- `postgresql/` — pgduckdb image; `initdb/gf_000N_*.{sh,sql}` for initialization,
+- `postgresql/` — PostgreSQL image; `initdb/gf_000N_*.{sh,sql}` for initialization,
   `render.sh`: substitute the database role names at build time.
 - `grafana/` — `custom.ini`: configuration, `provisioning/`: default dashboards, 
   `render.sh`: replace template placeholders at build time.

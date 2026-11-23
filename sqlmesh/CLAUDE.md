@@ -41,15 +41,14 @@ which is mounted read-only.
 as the compute engine over the *same* PostgreSQL storage: it attaches this database as its
 only catalog, so a model with `gateway duckdb` reads and writes PostgreSQL tables like any
 other and nothing downstream can tell which engine built it. It buys DuckDB's grammar —
-`ASOF JOIN`, `QUALIFY`, `PIVOT` — which pg_duckdb cannot offer however hard it accelerates
-execution, because PostgreSQL parses the statement first. It costs a second engine and a
+`ASOF JOIN`, `QUALIFY`, `PIVOT` — which PostgreSQL lacks. It costs a second engine and a
 round trip per row, so it is for a query the grammar makes simpler or faster, not a
 default. Such a model also needs `dialect duckdb`. `models/silver/project_a` and
 `models/silver/project_b` build the same history from the same macro, one per gateway: the
 `gateway` line is what decides which join `@temporal_join` writes for them.
 
-The extensions in `DUCKDB_EXTENSIONS` (buildtime.env) are installed into the sqlmesh image
-too, so the gateway offers offline what a session reaches through `use_duckdb()`.
+The extensions in `DUCKDB_EXTENSIONS` (buildtime.env) are installed into the sqlmesh and
+jupyter images, so the gateway loads them offline.
 
 ## Rules
 
