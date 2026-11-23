@@ -9,11 +9,12 @@ its own, and a commit that would break the engine reaches none of them.
 The pushes below are made from inside the crudman container, which is where the repository
 and a git binary both are, so they arrive exactly as a developer's push would.
 """
+import re
 import time
 
 import pytest
 
-from conftest import CRUDMAN_PATH, crudman, django, poll
+from conftest import CRUDMAN_PATH, SFTP_PORT, crudman, django, poll
 
 MODELS_DIR = "/var/lib/app/models"
 PROJECT = "sqlmesh"
@@ -311,8 +312,8 @@ class TestWhoMayReadAndDeploy:
         page = admin_session.get(f"/{CRUDMAN_PATH}/docs/").text
         assert "system/deployment/" not in page
 
-    def test_no_clone_address_is_offered_that_nobody_can_reach(self, admin_session):
-        # The default repository exists on this volume alone, reachable from inside the
-        # container and nowhere else. A clone command that cannot work is worse than none.
+    def test_the_clone_address_offered_is_the_one_served(self, admin_session):
+        # The default repository is served over SSH on the SFTP port; test_models_ssh.py
+        # clones from exactly this address.
         page = admin_session.get(f"/{CRUDMAN_PATH}/system/deployment/").text
-        assert "git clone" not in page
+        assert re.search(rf"git clone ssh://git@[\w.-]+:{SFTP_PORT}/models\.git", page)

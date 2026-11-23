@@ -152,6 +152,16 @@ else
   BASE_URL="${SCHEME}://${SERVER_NAME}:${WEB_PORT}"
 fi
 
+# Where a laptop clones the models from: the repository on the models volume, served over
+# SSH on the SFTP port, or the git host REPO_MODELS names. crudman's repo.clone_url() says
+# the same on the Versions page.
+case "${REPO_MODELS}" in
+  /*) CLONE_URL="ssh://git@${SERVER_NAME}:${SFTP_PORT}/models.git"
+      CLONE_HINT="Add your SSH key first: the menu behind your name > SSH keys." ;;
+  *)  CLONE_URL="${REPO_MODELS}"
+      CLONE_HINT="Kept on that git host, which manages its own access." ;;
+esac
+
 # --- preflight: the published ports must be bindable and reachable ---------------------
 # Read from runtime.env, as main.pod's PublishPort lines are. No failure aborts the install,
 # as the stack is worth having with only some ports open; this reports the fix instead.
@@ -488,6 +498,7 @@ if systemctl --user restart main-pod.service 2>/dev/null; then
          printf '  %-12s NOT reachable (%s)\n' "$app" "${code:-no response}${why}" >&2 ;;
     esac
   done
+  printf '  %-12s clone from %s\n' "models" "${CLONE_URL}"
   if [ "$served" = "true" ]; then
     echo "  system is up and running"
   else
@@ -527,6 +538,8 @@ ${APP_NAME} Cheat sheet
   PostgreSQL:   host=${SERVER_NAME} port=${PG_PORT} dbname=${PG_DATABASE}
                 Connect as your own database user, which an administrator switches on
                 under Database access; the password is shown at your next sign-in.
+  Models:       git clone ${CLONE_URL}
+                ${CLONE_HINT}
 
 ${PORT_SECTION}Follow the combined live log of all components:
   journalctl --user -f -u main-pod -u postgresql -u crudman -u sftp -u flight -u sqlmesh -u grafana -u proxy

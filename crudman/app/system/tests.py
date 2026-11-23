@@ -3,13 +3,14 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import asyncssh
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from sso.testing import make_user
 
-from . import repo
-from .models import Approval, Deployment
+from . import repo, ssh
+from .models import Approval, Deployment, SSHKey
 
 # ---------------------------------------------------------------------------------------
 # The models repository, exercised against a real git binary in a temporary directory.
@@ -619,3 +620,122 @@ class LostOriginTest(RepositoryTestCase):
         # Seeding again would have made this a one-commit repository of examples.
         self.assertNotEqual(repo.deployed_sha(), deployed)
         self.assertEqual(repo.MARKER.read_text().strip(), repo.deployed_sha())
+
+
+def public_key():
+    """A fresh key as a person pastes it: one line out of their .pub file."""
+    key = asyncssh.generate_private_key("ssh-ed25519", comment="jean@laptop")
+    return key.export_public_key().decode()
+
+
+class CloneAddressTest(TestCase):
+    """The address every place that shows one derives from the same function."""
+
+    @override_settings(SERVER_NAME="reports.example.com", SFTP_PORT=2222)
+    def test_the_local_origin_is_served_on_the_sftp_port(self):
+        with patch.object(repo, "ORIGIN", "/var/lib/app/models/origin.git"):
+            self.assertEqual(
+                repo.clone_url(), "ssh://git@reports.example.com:2222/models.git"
+            )
+
+    def test_a_git_host_is_shown_as_it_is(self):
+        with patch.object(repo, "ORIGIN", "git@example.com:team/models.git"):
+            self.assertEqual(repo.clone_url(), "git@example.com:team/models.git")
+
+
+class SSHKeyTest(TestCase):
+    """Who a key lets in: decided when they connect, never stored with the key."""
+
+    def _key(self, user):
+        line, fingerprint, _ = ssh.parse_key(public_key())
+        SSHKey.objects.create(user=user, public_key=line, fingerprint=fingerprint)
+        return fingerprint
+
+    def test_a_pasted_key_is_read_with_its_comment(self):
+        line, fingerprint, comment = ssh.parse_key(public_key() + "\n")
+
+        self.assertTrue(line.startswith("ssh-ed25519 "))
+        self.assertTrue(fingerprint.startswith("SHA256:"))
+        self.assertEqual(comment, "jean@laptop")
+
+    def test_anything_else_is_refused_in_words_a_person_can_act_on(self):
+        for text in ("", "not a key"):
+            with self.assertRaisesRegex(ValueError, "not an SSH public key"):
+                ssh.parse_key(text)
+
+    def test_a_private_key_is_refused_rather_than_read(self):
+        private = asyncssh.generate_private_key("ssh-ed25519").export_private_key()
+
+        with self.assertRaisesRegex(ValueError, "private key"):
+            ssh.parse_key(private.decode())
+
+    def test_an_editor_is_admitted(self):
+        user = make_user("paul", "editor")
+
+        self.assertEqual(ssh.key_owner(self._key(user)), "paul")
+
+    def test_a_viewer_is_not(self):
+        """Pushing is deploying, so it takes the rank that may change what runs."""
+        self.assertIsNone(ssh.key_owner(self._key(make_user("jean", "viewer"))))
+
+    def test_a_deactivated_editor_is_not(self):
+        user = make_user("paul", "editor")
+        fingerprint = self._key(user)
+        user.is_active = False
+        user.save()
+
+        self.assertIsNone(ssh.key_owner(fingerprint))
+
+    def test_an_unknown_key_is_not(self):
+        self.assertIsNone(ssh.key_owner("SHA256:unknown"))
+
+
+class SSHKeyPageTest(TestCase):
+    """The page in the user menu: one's own keys, added and removed by oneself."""
+
+    def setUp(self):
+        self.page = reverse("admin:system_sshkey_changelist")
+        self.user = make_user("jean", "viewer", is_staff=True)
+        self.client.force_login(self.user)
+
+    def test_a_key_is_added_and_listed(self):
+        self.client.post(self.page, {"title": "Work laptop", "key": public_key()})
+
+        key = SSHKey.objects.get(user=self.user)
+        self.assertEqual(key.title, "Work laptop")
+        self.assertContains(self.client.get(self.page), key.fingerprint)
+
+    def test_the_key_comment_stands_in_for_a_missing_title(self):
+        self.client.post(self.page, {"key": public_key()})
+
+        self.assertEqual(SSHKey.objects.get(user=self.user).title, "jean@laptop")
+
+    def test_the_same_key_twice_is_refused(self):
+        key = public_key()
+        self.client.post(self.page, {"key": key})
+        self.client.post(self.page, {"key": key})
+
+        self.assertEqual(SSHKey.objects.count(), 1)
+
+    def test_a_key_is_deleted(self):
+        self.client.post(self.page, {"key": public_key()})
+        fingerprint = SSHKey.objects.get().fingerprint
+
+        self.client.post(self.page, {"delete": fingerprint})
+
+        self.assertFalse(SSHKey.objects.exists())
+
+    def test_somebody_elses_key_is_neither_shown_nor_deleted(self):
+        other = make_user("paul", "editor")
+        line, fingerprint, _ = ssh.parse_key(public_key())
+        SSHKey.objects.create(user=other, public_key=line, fingerprint=fingerprint)
+
+        self.assertNotContains(self.client.get(self.page), fingerprint)
+        self.client.post(self.page, {"delete": fingerprint})
+        self.assertTrue(SSHKey.objects.filter(user=other).exists())
+
+    def test_the_page_is_in_the_user_menu(self):
+        from dbusers.admin import account_links
+
+        request = self.client.get(self.page).wsgi_request
+        self.assertIn(self.page, [link["link"] for link in account_links(request)])

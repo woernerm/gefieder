@@ -135,7 +135,7 @@ is `main.pod`, so the systemd unit is `main-pod.service`) of nine containers:
   published on `PG_PORT` (5432 by default) so external tools can read and write it
 - `crudman` — the Django administration panel, reachable through the proxy
 - `sftp` — the SFTP endpoint for dropzone uploads (the crudman image in a second role),
-  published on `SFTP_PORT` (2222 by default)
+  published on `SFTP_PORT` (2222 by default); it also lets you clone the analytics models
 - `flight` — the Arrow Flight endpoint for dropzone uploads (the crudman image in a
   third role), published on `FLIGHT_PORT` (8815 by default)
 - `sqlmesh` — the SQLMesh analytics engine, running models on their cron schedules
@@ -199,7 +199,7 @@ on a reinstall, so your edits survive an upgrade.
 | `PG_PORT` | the port PostgreSQL is reached on; `5432` |
 | `MODELS_POLL_INTERVAL` | how often, in seconds, the system looks for a new commit of the analytics models; `20`, and `0` switches the automatic deployment off |
 | `DEFAULT_THEME` | whether the dashboards, the admin panel and the notebooks open in `dark` or `light` colours; `dark`. Everyone can still pick the other one for themselves |
-| `SFTP_PORT`, `FLIGHT_PORT` | the ports the two dropzone upload endpoints are reached on; `2222` and `8815` |
+| `SFTP_PORT`, `FLIGHT_PORT` | the ports the two dropzone upload endpoints are reached on; `2222` and `8815`. The analytics models are cloned over `SFTP_PORT` too |
 | `OIDC_ENABLED` | whether people sign in with their company account (see [Single sign-on](#single-sign-on)); `false` by default |
 | `OIDC_ISSUER` | the address of your identity provider |
 | `OIDC_LOGOUT_URL` | where signing out sends people, so their session at the provider ends too |
@@ -547,7 +547,8 @@ repository the system creates on its own volume the first time it starts, filled
 models shown here, so a fresh installation computes something immediately. Point it at your
 own git host — GitHub, GitLab, anything `git clone` accepts — and that becomes the origin.
 **System → Models → Versions** in the admin panel shows the address to clone and every
-commit on `main`. It takes the editor rank, choosing what production computes being a
+commit on `main`; the notebooks show the same address under **File → Clone this
+repository…**, and so does the cheat sheet. It takes the editor rank, choosing what production computes being a
 change rather than a reading.
 
 ### 1. Choose where you work
@@ -569,6 +570,11 @@ person's **Database access**.
 Then create an access token for yourself: sign in to the admin panel, open the menu
 behind your name at the bottom of the sidebar and follow **Access token**. It is shown to
 you once.
+
+With the repository the system keeps itself, git signs in with an SSH key: add yours
+under **SSH keys** in the same menu (paste your `~/.ssh/id_ed25519.pub`; `ssh-keygen -t
+ed25519` creates one). It works from the editor rank upwards. A git host of your own
+manages its access itself.
 
 ```bash
 git clone <the address on the Versions page> models
@@ -782,7 +788,8 @@ systemctl --user restart main-pod.service
 ```
 
 The dropzone ports need nothing further: each dropzone's admin page reads `SFTP_PORT` and
-`FLIGHT_PORT` for the address it shows uploaders, so the page follows the change by itself.
+`FLIGHT_PORT` for the address it shows uploaders, and the clone address of the analytics
+models follows `SFTP_PORT` the same way.
 
 The two web ports have one exception. Opening the system over plain `http://` still sends
 the browser to the standard HTTPS port rather than yours, because the proxy cannot know

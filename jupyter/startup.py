@@ -56,6 +56,17 @@ def _themed_widget(quak):
 
     # _esm is anywidget's FileContents, whose str() is the bundle itself.
     bundle = str(quak.Widget._esm)
+    # A numeric column holding one value has a zero range, which Mosaic's bin function turns
+    # into NaN bounds: every row lands in the null bin and the axis reads -Infinity and
+    # Infinity on top of each other. Widened around the value instead, so it is one bar.
+    # Matched by the only function destructuring {step:...,steps:...=25}, for the same reason
+    # the export is; a release without it keeps the bug rather than failing to load.
+    bundle = re.sub(
+        r"(function [\w$]+\(([\w$]+),([\w$]+),[\w$]+\)\{)(let\{step:[\w$]+,steps:[\w$]+=25\})",
+        r"\1\2===\3&&(\2-=1,\3+=1);\4",
+        bundle,
+        count=1,
+    )
     # Its last statement, naming the factory under whatever minified identifier this
     # release happens to use. Rewritten rather than matched, so no name is hardcoded.
     export = re.search(r"export\{([A-Za-z0-9_$]+) as default[^}]*\};?\s*$", bundle)

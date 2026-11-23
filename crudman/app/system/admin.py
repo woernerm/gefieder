@@ -3,11 +3,15 @@ from django.contrib.auth.models import User
 from django.shortcuts import redirect
 from django.template.response import TemplateResponse
 from django.core.exceptions import PermissionDenied
+from django.db import IntegrityError, transaction
 from django.urls import path
 from unfold.admin import ModelAdmin
 
-from . import repo
-from .models import Deployment
+from dbusers.utils import db_role_for_user
+from notebooks.utils import EDITOR_GROUPS
+
+from . import repo, ssh
+from .models import Deployment, SSHKey
 
 CHANGELIST = "admin:system_deployment_changelist"
 NOT_ON_BRANCH = "That commit is not on the branch and was not deployed."
@@ -121,6 +125,7 @@ class DeploymentAdmin(ModelAdmin):
                 is_active=True, last_login__isnull=False
             ).order_by("first_name", "username"),
             "clone_url": repo.clone_url(),
+            "is_local": repo.is_local(),
             "project": repo.PROJECT,
             **(extra_context or {}),
         }
@@ -179,3 +184,75 @@ class DeploymentAdmin(ModelAdmin):
             "Version {sha} is being applied. The engine picks it up within a few seconds; "
             "this page shows the result.",
         )
+
+
+@admin.register(SSHKey)
+class SSHKeyAdmin(ModelAdmin):
+    """One page, listing the signed-in person's own keys, with a form to add one.
+
+    Reached from the user menu beside Access token: a key is a credential of one's own, so
+    nobody administers anybody else's. Who may then use it is decided when they connect
+    (``ssh.key_owner``), which is why the page itself is open to every rank.
+    """
+
+    def _add(self, request):
+        """Store the pasted key for the signed-in person, or say why it was not."""
+        try:
+            line, fingerprint, comment = ssh.parse_key(request.POST.get("key", ""))
+        except ValueError as error:
+            messages.error(request, str(error))
+            return
+        title = request.POST.get("title", "").strip() or comment
+        try:
+            # Its own savepoint, so a duplicate leaves the request's transaction usable.
+            with transaction.atomic():
+                SSHKey.objects.create(
+                    user=request.user,
+                    title=title[:100],
+                    public_key=line,
+                    fingerprint=fingerprint,
+                )
+        except IntegrityError:
+            messages.error(request, "That key has already been added.")
+            return
+        messages.success(request, f"Key {fingerprint} added.")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_authenticated
+
+    def has_module_permission(self, request):
+        """Never listed: the way in is the user menu, see dbusers.admin.account_links."""
+        return False
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            if "delete" in request.POST:
+                SSHKey.objects.filter(
+                    user=request.user, fingerprint=request.POST["delete"]
+                ).delete()
+                messages.success(request, "The key no longer works.")
+            else:
+                self._add(request)
+            # Back to the page as a GET, so reloading it does not post the form again.
+            return redirect("admin:system_sshkey_changelist")
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "SSH keys",
+            "keys": SSHKey.objects.filter(user=request.user),
+            "clone_url": repo.clone_url(),
+            "is_local": repo.is_local(),
+            "may_push": db_role_for_user(request.user) in EDITOR_GROUPS,
+            **(extra_context or {}),
+        }
+        return TemplateResponse(request, "system/sshkeys.html", context)

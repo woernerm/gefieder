@@ -131,6 +131,7 @@ handoff between the two containers is a path and a marker, not an API.
 | `sqlmesh/status.py` | raw SQL against `crudman.system_deployment`, Django being absent from that image: a renamed field is a renamed column here |
 | `crudman/app/docs/views.py` | the docs pages read the export out of the deployment row rather than a file, so the export's shape is a contract between `docs_export.py` and these pages |
 | `tests/test_models_repository.py` | the end-to-end path — push, poll, plan, document — and the refusal that protects a running engine |
+| `clone_url()` in `crudman/app/system/repo.py` | the clone address; `CLONE_URL` in `install.sh` and `dev.sh` derive it again for the cheat sheets, the notebooks get it from `whoami` (`jupyter/crudman.py` → `MODELS_CLONE_URL` → `jupyter_server_config.py` → `jupyter/clone/`). The default origin is served over SSH by the `sftp` container (`system/ssh.py`), which is why that quadlet mounts `models_data` and `REPO_MODELS` is in the release's `manifest.env` |
 | `SEED_PROJECTS` in `crudman/app/system/repo.py` | the seed becomes one commit per example project, and a file belongs to a project by having the name in its path. Renaming or adding an example means this list; `tests/test_models_repository.py` carries a second copy for its parameterized version tests and guards the two against drifting |
 
 `REPO_MODELS` is a **build-time setting**, so that table applies too. `MODELS_POLL_INTERVAL`

@@ -77,6 +77,17 @@ const STYLES = `
   .quak div[title] {
     border-color: var(--app-quak-separator) !important;
   }
+
+  /* A column whose values are all distinct is one "unique" bar, filled with a literal light
+     grey -- a bright slab on a dark theme, carrying the on-primary label set above. Given
+     the background-bar colour of the numeric histograms instead, and quak's own label. */
+  .quak div[title="__quak_unique__"] {
+    background: var(--moon-gray) !important;
+  }
+
+  .quak div[title="__quak_unique__"] > span {
+    color: var(--mid-gray) !important;
+  }
 `;
 
 /** Add the stylesheet to the shadow root quak rendered its table into, once. */

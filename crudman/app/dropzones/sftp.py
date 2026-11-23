@@ -3,6 +3,10 @@
 Running the server rather than watching a directory means completeness needs no
 signalling: one session becomes one upload, and a session that breaks off mid-file
 stores nothing. Every session is chrooted into its own throwaway directory.
+
+The same port serves the models repository to git (``system/ssh.py``): a dropzone signs in
+with a password, a person with a key, and each connection gets only what its sign-in
+was for.
 """
 
 import asyncio
@@ -15,6 +19,8 @@ import asyncssh
 from asgiref.sync import sync_to_async
 from django.conf import settings
 
+from system import repo, ssh
+
 from . import endpoint
 from .models import Dropzone
 from .services import UploadError
@@ -24,6 +30,9 @@ logger = logging.getLogger(__name__)
 # The dropzone identity of every connected client, keyed by its SSH connection: written
 # at authentication, read by the sessions on that connection, removed when it closes.
 _sessions = {}
+
+# The same for a person who signed in with a key: their username, for the git commands.
+_people = {}
 
 # asyncio holds tasks only weakly, so an unreferenced one could vanish mid-run.
 _tasks = set()
@@ -92,6 +101,21 @@ class SFTPEndpoint(asyncssh.SSHServer):
     def password_auth_supported(self):
         return True
 
+    def public_key_auth_supported(self):
+        return True
+
+    async def validate_public_key(self, username, key):
+        if username != repo.SSH_USER:
+            return False
+        owner = await sync_to_async(endpoint.fresh)(ssh.key_owner, key.get_fingerprint())
+        if owner is None:
+            # Info, not a warning: a client offers each of its keys in turn, and only one
+            # of them is expected to be known here.
+            logger.info("Key %s from %s not admitted", key.get_fingerprint(), self._peer)
+            return False
+        _people[self._conn] = owner
+        return True
+
     async def validate_password(self, username, password):
         dropzone = await sync_to_async(endpoint.fresh)(
             endpoint.authenticate, Dropzone.Method.SFTP, username, password
@@ -105,6 +129,7 @@ class SFTPEndpoint(asyncssh.SSHServer):
 
     def connection_lost(self, exc):
         _sessions.pop(self._conn, None)
+        _people.pop(self._conn, None)
 
 
 class SessionSFTPServer(asyncssh.SFTPServer):
@@ -117,6 +142,8 @@ class SessionSFTPServer(asyncssh.SFTPServer):
 
     def __init__(self, chan):
         conn = chan.get_connection()
+        if conn not in _sessions:
+            raise PermissionError("SFTP is for dropzones, which sign in with a password")
         self._name, self._dropzone_id = _sessions[conn]
         peer = conn.get_extra_info("peername")
         self._peer = peer[0] if peer else "unknown"
@@ -164,10 +191,22 @@ def _host_key():
     return path
 
 
+async def _command(process):
+    """A command or shell: git's, for a person who signed in with a key, and nothing else."""
+    username = _people.get(process.get_extra_info("connection"))
+    if username is None:
+        process.stderr.write(b"This account offers SFTP and scp only.\n")
+        process.exit(1)
+        return
+    await ssh.serve(process, username)
+
+
 async def serve(port):
     """Listen forever: one endpoint per connection, one chroot per session.
 
-    ``allow_scp`` accepts uploads from scp clients through the same chroot.
+    ``allow_scp`` accepts uploads from scp clients through the same chroot. Every other
+    command goes to ``_command``, as bytes: git's pack protocol is binary, and the SFTP and
+    scp sessions switch to bytes by themselves anyway.
 
     Args:
         port: TCP port to listen on.
@@ -179,6 +218,8 @@ async def serve(port):
         server_factory=SFTPEndpoint,
         sftp_factory=SessionSFTPServer,
         allow_scp=True,
+        process_factory=_command,
+        encoding=None,
     )
     logger.info("Dropzones SFTP endpoint listening on port %d", port)
     await server.wait_closed()

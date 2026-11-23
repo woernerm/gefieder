@@ -39,6 +39,12 @@ corresponds to a commit somebody can point at.
 - **Ship a model the way everything else ships**: a commit pushed to `REPO_MODELS`, deployed
   by the poll crudman already runs. There is no path from a notebook to production that does
   not go through a commit.
+- **Say where else the models can be worked on.** File ▸ Clone this repository… and a
+  button on the file browser's toolbar open the same dialog: the address a laptop clones
+  from, a copy button, and the way to the SSH keys page. The address is crudman's, handed
+  over at spawn, so it is the one the Versions page shows. The plugin (`clone/`) is
+  written without a build: it imports nothing, so the federated-module contract is the
+  two functions it puts on `window._JUPYTERLAB`, and node stays out of the image.
 - **Never write to the branch that deploys.** A save while the workspace is on `main` moves
   it onto a branch of its own first. Nothing is ever refused: a person with edits and no way
   to save them has lost work, which is worse than an untidy branch.
@@ -170,7 +176,8 @@ the image, so a change is a rebuild, never an edit on the target machine.
   pairs a notebook with a second file, is hidden by `custom/custom.css`.
 - **Git Clone button** -- `gitClone` under `filebrowser-extension:widget` in overrides.
   The file browser's toolbar button beside refresh and upload. The workspace is the clone,
-  made at spawn; a second repository beside it would be shipped nowhere.
+  made at spawn; a second repository beside it would be shipped nowhere. Its place is
+  taken by the button below, which goes the other way.
 - **Hub menu** -- `hub-extension:menu` in page_config. File ▸ Hub Control Panel and Log
   Out. Log Out left the hub only and the admin session signed the person straight back
   in; sign-out is the shell bar's account menu. Stop My Server is still at

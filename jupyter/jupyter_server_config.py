@@ -4,6 +4,8 @@ Makes a .sql model open as a notebook. The rest of JupyterLab keeps its defaults
 for the menus requirements.md lists under "What was taken out of JupyterLab", switched
 off in overrides/ and labconfig/.
 """
+import os
+
 c = get_config()  # noqa: F821 -- Jupyter injects this into the file's namespace.
 
 # What makes a model file a notebook. The frontend asks for a .sql file as a notebook
@@ -33,6 +35,13 @@ c.LabApp.custom_css = True
 # The server is seen inside the shell's frame (crudman/app/shell/). Under the hub it
 # refuses every frame unless told otherwise here, the hub's mixin keeping whatever policy
 # this file sets. Its own origin only, jupyter_server's own default.
+#
+# page_config_data is what Lab writes into the page as its configuration, read back there by
+# the clone plugin (clone/): the address the spawn put into this server's environment.
 c.ServerApp.tornado_settings = {
     "headers": {"Content-Security-Policy": "frame-ancestors 'self'"},
+    "page_config_data": {
+        "modelsCloneUrl": os.environ.get("MODELS_CLONE_URL", ""),
+        "modelsSshKeysUrl": os.environ.get("MODELS_SSH_KEYS_URL", ""),
+    },
 }

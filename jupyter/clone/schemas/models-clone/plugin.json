@@ -1,0 +1,20 @@
+{
+  "title": "Clone this repository",
+  "description": "Where the clone dialog is offered: the File menu and the file browser's toolbar.",
+  "jupyter.lab.menus": {
+    "main": [
+      {
+        "id": "jp-mainmenu-file",
+        "items": [{"command": "models-clone:open", "rank": 1.9}]
+      }
+    ]
+  },
+  "jupyter.lab.toolbars": {
+    "FileBrowser": [
+      {"name": "clone-repository", "command": "models-clone:open", "rank": 31}
+    ]
+  },
+  "properties": {},
+  "additionalProperties": false,
+  "type": "object"
+}

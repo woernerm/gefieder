@@ -233,6 +233,11 @@ run_quadlet proxy -e DEBUG=true -e "SERVER_NAME=${SERVER_NAME}"
 start_stats_loop
 
 # --- summary --------------------------------------------------------------------------
+# As crudman's repo.clone_url() derives it for the Versions page and the notebooks.
+case "${REPO_MODELS}" in
+  /*) CLONE_URL="ssh://git@${SERVER_NAME}:${SFTP_PORT}/models.git" ;;
+  *)  CLONE_URL="${REPO_MODELS}" ;;
+esac
 cat <<EOF
 
 ${APP_NAME} is starting in development mode (plain HTTP, no certificate).
@@ -249,6 +254,9 @@ ${APP_NAME} is starting in development mode (plain HTTP, no certificate).
 
   Arrow Flight: port ${FLIGHT_PORT} for dropzones with the Arrow Flight method
                 (each dropzone's admin page shows its address and a ready-to-run client)
+
+  Models:       git clone ${CLONE_URL}
+                (add your SSH key first: the menu behind your name > SSH keys)
 
   Follow logs:  ./dev.sh logs
   Stop:         ./dev.sh down

@@ -109,4 +109,7 @@ class WorkspaceSpawner(LocalProcessSpawner):
         # default_url below, so the file browser lands where the models are.
         self.notebook_dir = str(workspace)
         self.default_url = f"/lab/tree/{PROJECT}"
+        # What the terminal treats as its top folder (bash_prompt.sh). A fresh dict, as
+        # crudman.py explains for its own entries.
+        self.environment = {**self.environment, "TERMINAL_ROOT": str(workspace / PROJECT)}
         return super().start()

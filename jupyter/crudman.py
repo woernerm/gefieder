@@ -189,4 +189,7 @@ class CrudmanAuthenticator(LocalAuthenticator):
             "GIT_AUTHOR_EMAIL": identity["email"],
             "GIT_COMMITTER_NAME": identity["name"],
             "GIT_COMMITTER_EMAIL": identity["email"],
+            # What the Clone dialog shows; jupyter_server_config.py hands it to the page.
+            "MODELS_CLONE_URL": identity["clone_url"],
+            "MODELS_SSH_KEYS_URL": identity["ssh_keys_url"],
         }

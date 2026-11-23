@@ -1,0 +1,72 @@
+{# The keys a person clones and pushes the models repository with. Their own and nobody #}
+{# else's, like the access token beside it in the user menu. #}
+{% extends "admin/base_site.html" %}
+
+{% block breadcrumbs %}
+    <div class="px-4">
+        <div class="container mb-6 mx-auto -my-3 lg:mb-12">
+            <ul class="flex flex-wrap">
+                {% url 'admin:index' as link %}
+                {% include "unfold/helpers/breadcrumb_item.html" with link=link name=_("Home") %}
+                {% include "unfold/helpers/breadcrumb_item.html" with name=title %}
+            </ul>
+        </div>
+    </div>
+{% endblock %}
+
+{% block content %}
+    <div class="{{ form_classes.prose }} max-w-4xl">
+        {% if not is_local %}
+            {# Keys here open the repository this system hosts; another host has its own. #}
+            <p>The models repository is kept on a git host of its own, which manages its own keys:</p>
+            <pre class="not-prose"><code>git clone {{ clone_url }}</code></pre>
+        {% else %}
+            <pre class="not-prose"><code>git clone {{ clone_url }}</code></pre>
+            <p>
+                Cloning the models repository to your own machine works with an SSH key,
+                which git uses by itself once it is added here. Pushing to
+                <code>main</code> puts that version into production.
+            </p>
+            {% if not may_push %}
+                <p>
+                    Keys work from the editor rank upwards. You can add one now; it starts
+                    working once an administrator grants you that rank.
+                </p>
+            {% endif %}
+
+            {% if keys %}
+                <ul>
+                    {% for key in keys %}
+                        <li>
+                            <form method="post" class="flex flex-wrap gap-2 items-center">
+                                {% csrf_token %}
+                                <strong>{{ key.title|default:"Untitled" }}</strong>
+                                <code>{{ key.fingerprint }}</code>
+                                <span>added {{ key.added_on|date:"SHORT_DATE_FORMAT" }}</span>
+                                <button type="submit" name="delete" value="{{ key.fingerprint }}" class="text-red-600 dark:text-red-500">Delete</button>
+                            </form>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p>You have no key yet.</p>
+            {% endif %}
+
+            <h3>Add a key</h3>
+            <p>
+                Paste the contents of your public key file, usually
+                <code>~/.ssh/id_ed25519.pub</code>. If you have none, create one with
+                <code>ssh-keygen -t ed25519</code>. Never paste the file without
+                <code>.pub</code>: that one is the private key.
+            </p>
+            <form method="post" class="not-prose flex flex-col gap-4">
+                {% csrf_token %}
+                <input type="text" name="title" maxlength="100" placeholder="Title, e.g. Work laptop" class="{{ form_classes.text_input }}">
+                <textarea name="key" rows="4" required placeholder="ssh-ed25519 AAAA… you@example.com" class="{{ form_classes.textarea }}"></textarea>
+                <div>
+                    <button type="submit" class="{{ form_classes.button }}">Add key</button>
+                </div>
+            </form>
+        {% endif %}
+    </div>
+{% endblock %}

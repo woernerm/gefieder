@@ -36,6 +36,16 @@ is kept, because a deployment *is* a commit; the wait is not, because nothing is
   command and no git host. Set it to a git host and that
   host is the origin instead. An empty value is refused: with no origin at all the working
   tree would be the only copy of the history, and nothing would say so.
+- **Be clonable from a laptop.** The default origin is served over SSH on the port the
+  dropzones' SFTP endpoint already publishes, so no new port has to be opened, as
+  `ssh://git@<SERVER_NAME>:<SFTP_PORT>/models.git`. A person signs in with a key they
+  added on their own SSH keys page, beside the access token; nobody manages anybody else's.
+  Whether the key is admitted is decided at every connection -- an active account with the
+  editor rank upwards, the notebooks' line, because pushing to `main` is deploying -- so a
+  demotion needs nothing revoked. A push may extend history but not rewrite or delete it:
+  production must correspond to a commit somebody can still point at. The address is shown
+  on the versions page, in the notebooks and in the cheat sheets; with a git host
+  configured, that host's address is shown instead.
 - **Deploy what `main` points at**, within `MODELS_POLL_INTERVAL` seconds of a push, without
   anyone logging in to the server.
 - **Let a person put an earlier version back**, and leave that choice standing until someone
@@ -58,7 +68,9 @@ is kept, because a deployment *is* a commit; the wait is not, because nothing is
 
 ### How it is arranged
 
-crudman is the only writer of the volume. It clones into `deployed/` and checks out a commit
+crudman is the only writer of the deployed tree; a push over SSH (the crudman image in its
+`sftp` role, `ssh.py`) writes the bare origin beside it and is deployed by the same poll as
+any other. It clones into `deployed/` and checks out a commit
 there, detached, then writes `deployed.sha`. The engine mounts the same volume read-only,
 watches that one file and plans when it changes -- so the marker is both the answer to "what
 is deployed" and the signal that it is safe to read: a checkout in progress has not written
@@ -75,12 +87,10 @@ version keeps with them -- has somewhere to go without moving anything.
 
 ### What it deliberately does not do
 
-**It does not host git.** The default origin is a repository on this volume, reachable from
-inside the container and nowhere else, which the versions page says plainly. Serving it over
-the network means authentication, authorisation, branch protection and hooks -- a body of
-work with its own risks, and one that changes nothing for an installation whose developers
-already have a git host. It is additive when it is wanted: the bare repository is already
-there.
+**It is not a git host.** The default origin is served over SSH so it can be cloned at
+all, and no further: no web interface, no merge requests, no hooks, no protection per
+branch. An installation whose developers want those points `REPO_MODELS` at a git host that
+has them, and the address shown follows.
 
 **It does not install dependencies at deploy time.** It could, and then a dependency change
 would deploy like any other. It would also mean this server needs a package index reachable

@@ -115,7 +115,8 @@ def account_links(request):
         The links as Unfold expects them, title and link.
     """
     links = [
-        {"title": "Access token", "link": reverse("admin:auth_accesstoken_changelist")}
+        {"title": "Access token", "link": reverse("admin:auth_accesstoken_changelist")},
+        {"title": "SSH keys", "link": reverse("admin:system_sshkey_changelist")},
     ]
     if request.user.is_authenticated and request.user.has_usable_password():
         links.append(

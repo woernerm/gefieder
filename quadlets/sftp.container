@@ -2,7 +2,7 @@
 #
 # The crudman image in its "sftp" role: an SFTP server that authenticates uploaders
 # against the dropzones and feeds every cleanly finished session into the pipeline the
-# browser and API uploads use. Ordering after crudman, plus the entrypoint's own wait,
+# browser and API uploads use, and serves the models repository to git. Ordering after crudman, plus the entrypoint's own wait,
 # applies the migrations first. Notify=healthy waits for the port to answer.
 [Unit]
 Description=${APP_NAME} sftp (dropzones SFTP endpoint)
@@ -27,6 +27,12 @@ Environment=UPLOADS_DIR=/var/lib/app/uploads
 Volume=uploads_data.volume:/var/lib/app/uploads:z
 Environment=SFTP_DIR=/var/lib/app/sftp
 Volume=sftp_data.volume:/var/lib/app/sftp:z
+# The same port serves the models repository to git (system/ssh.py), fetching from and
+# pushing to the origin crudman hosts on this volume when REPO_MODELS is the local default.
+# The deployed tree beside it stays crudman's: a push is deployed by crudman's own poll.
+Environment=MODELS_DIR=/var/lib/app/models
+Volume=models_data.volume:/var/lib/app/models:z
+Environment=REPO_MODELS=${REPO_MODELS}
 # So the code reading a file back out of /run/secrets looks for the name podman put
 # there (see SECRET_* in buildtime.env).
 Environment=SECRET_DJANGO_KEY=${SECRET_DJANGO_KEY}

@@ -174,3 +174,35 @@ class Approval(models.Model):
 
     def __str__(self):
         return f"{self.user} on {self.deployment.short_sha}"
+
+
+class SSHKey(models.Model):
+    """A public key someone clones and pushes the models repository with.
+
+    Belongs to the person rather than to a database account: reaching the repository is a
+    question of rank, decided when they connect, so a demotion takes effect on their next
+    fetch and nothing here has to be revoked by hand.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="ssh_keys"
+    )
+
+    title = models.CharField(max_length=100, blank=True, default="")
+
+    # The OpenSSH line as asyncssh exports it, so the same key pasted twice is the same text.
+    public_key = models.TextField(editable=False)
+
+    # What a connecting client is recognised by. Unique, since a key naming two people would
+    # make the push it signs nobody's in particular.
+    fingerprint = models.CharField(max_length=100, unique=True, editable=False)
+
+    added_on = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "SSH key"
+        verbose_name_plural = "SSH keys"
+        ordering = ("added_on",)
+
+    def __str__(self):
+        return self.title or self.fingerprint

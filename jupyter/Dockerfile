@@ -119,6 +119,10 @@ RUN git config --system core.excludesFile "~/.gitignore" \
     # it, which is root's.
     && git config --system --add safe.directory '*'
 
+# /etc/bash.bashrc is what every interactive bash reads, login shell or not.
+COPY jupyter/bash_prompt.sh /etc/bash_prompt.sh
+RUN echo '. /etc/bash_prompt.sh' >> /etc/bash.bashrc
+
 # The contents manager that makes a .sql model open as a notebook, and the kernel-side
 # cell routing. On the notebook environment's path rather than installed as a package: it
 # is configuration of this system, not a library anyone imports.
@@ -137,6 +141,11 @@ COPY jupyter/labconfig/page_config.json /usr/local/etc/jupyter/labconfig/page_co
 # opens in the text editor instead.
 COPY jupyter/overrides/overrides.json \
      ${NOTEBOOK_VENV}/share/jupyter/lab/settings/overrides.json
+
+# File > Clone this repository and its toolbar button, a plugin written without a build
+# (see clone/static/remoteEntry.js). Into the venv's labextensions, where Lab finds the
+# prebuilt extensions it installs.
+COPY jupyter/clone/ ${NOTEBOOK_VENV}/share/jupyter/labextensions/models-clone/
 
 # The hub's own configuration and the two modules it imports, its page template, and the
 # palette that template inlines.

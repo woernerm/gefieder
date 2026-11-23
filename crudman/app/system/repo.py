@@ -69,6 +69,12 @@ dashboards, notebooks, whatever a later version keeps with them -- has somewhere
 without moving anything.
 """
 
+SSH_USER = "git"
+"""Whom the clone address names. One for everybody, as the key says who is connecting."""
+
+SSH_REPOSITORY = "models.git"
+"""The path the clone address names, served from the origin on the volume."""
+
 BRANCH = "main"
 """The one branch that deploys. Others are for collaboration and are never checked out."""
 
@@ -116,13 +122,16 @@ def is_local() -> bool:
     return ORIGIN.startswith("/")
 
 
-def clone_url() -> str | None:
-    """The address a developer clones, or None when there is nothing they can reach.
+def clone_url() -> str:
+    """The address a developer clones.
 
-    The local default is reachable only from inside the container, so rather than print an
-    address that does not work, the page says so and names the setting that changes it.
+    The repository on the volume is served over SSH by the dropzones' endpoint (see
+    ``ssh.py``), on the port that endpoint publishes anyway.
     """
-    return None if is_local() else ORIGIN
+    if is_local():
+        host = f"{settings.SERVER_NAME}:{settings.SFTP_PORT}"
+        return f"ssh://{SSH_USER}@{host}/{SSH_REPOSITORY}"
+    return ORIGIN
 
 
 def _narrow_unions(work: Path, projects: list[str]) -> None:

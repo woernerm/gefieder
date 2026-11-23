@@ -9,11 +9,13 @@ come through the proxy.
 """
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
+from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from dbusers.utils import db_role_for_user
 from sso.roles import GROUP_FOR_RANK
+from system import repo
 from system.models import Approval, Deployment
 
 from .utils import issue_notebook_credential, may_use_notebooks, refusal
@@ -71,6 +73,12 @@ def whoami(request):
         "name": user.get_full_name() or user.username,
         "email": user.email,
         "admin": user.is_superuser,
+        # For the notebook's Clone dialog, so the address is derived in one place. The keys
+        # page only where it admits anyone: a git host manages access of its own.
+        "clone_url": repo.clone_url(),
+        "ssh_keys_url": (
+            reverse("admin:system_sshkey_changelist") if repo.is_local() else ""
+        ),
     }
 
     if request.method == "POST":

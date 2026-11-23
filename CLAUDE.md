@@ -17,7 +17,8 @@
 - Components: PostgreSQL, Django admin, SQLMesh, Grafana, nginx proxy, dropzone SFTP and
   Arrow Flight endpoints.
 - Reachable from outside: Grafana and Django admin through the nginx proxy (80/443);
-  PostgreSQL (5432), SFTP (2222) and Flight (8815) publish their own port.
+  PostgreSQL (5432), SFTP (2222, also git over SSH for the models repository) and Flight
+  (8815) publish their own port.
 
 
 ## Where things are
