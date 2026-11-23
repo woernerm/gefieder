@@ -26,6 +26,11 @@ const Dashboards = (() => {
     percent: (value) => `${number(value)} %`,
   };
 
+  const note = (element, text) => {
+    element.appendChild(document.createElement("p")).className = "dashboards-note";
+    element.lastChild.textContent = text;
+  };
+
   const formatter = (unit) =>
     !unit ? number : UNITS[unit] || ((value) => `${number(value)} ${unit}`);
 
@@ -86,110 +91,51 @@ const Dashboards = (() => {
     new ResizeObserver(() => chart.resize()).observe(box);
   }
 
-  // How a column filter compares, by the kind of column; "any of" is the list of values
-  // beside it, which every column has.
+  // A column's header filter, all of it Tabulator's own: "any of" is its list editor with
+  // several values picked, the rest its built-in comparisons on a typed value. The header
+  // menu switches between them.
+  const ANY_OF = { headerFilter: "list", headerFilterFunc: "in",
+    headerFilterParams: { valuesLookup: true, multiselect: true, clearable: true } };
   const OPERATORS = {
-    number: { "=": (a, b) => a === b, "≠": (a, b) => a !== b, ">": (a, b) => a > b,
-      "≥": (a, b) => a >= b, "<": (a, b) => a < b, "≤": (a, b) => a <= b },
-    text: { contains: (a, b) => a.includes(b), "=": (a, b) => a === b, "≠": (a, b) => a !== b,
-      "starts with": (a, b) => a.startsWith(b), "ends with": (a, b) => a.endsWith(b) },
+    number: { "any of": "in", "=": "=", "≠": "!=", ">": ">", "≥": ">=", "<": "<", "≤": "<=" },
+    text: { "any of": "in", contains: "like", "=": "=", "≠": "!=", "starts with": "starts", "ends with": "ends" },
   };
+  const filtering = (label, func, numeric) => func === "in" ? { ...ANY_OF, headerFilterPlaceholder: label }
+    : { headerFilter: numeric ? "number" : "input", headerFilterFunc: func, headerFilterParams: {},
+      headerFilterPlaceholder: label };
 
-  const make = (tag, properties = {}, ...children) => {
-    const node = Object.assign(document.createElement(tag), properties);
-    node.append(...children);
-    return node;
-  };
-
-  // A column's filter menu, as Grafana's: a condition, and the values to keep, searchable.
-  function filterMenu(filter, values, refresh) {
-    const operator = make("select", {}, ...Object.keys(filter.operators).map((name) =>
-      make("option", { value: name, textContent: name, selected: name === filter.operator })));
-    const operand = make("input", { placeholder: "Value", value: filter.operand });
-    const search = make("input", { placeholder: "Search values" });
-    const boxes = values.map((value) => make("input", {
-      type: "checkbox", value, checked: !filter.anyOf || filter.anyOf.has(value),
-    }));
-    const list = make("div", { className: "dashboards-values" },
-      ...boxes.map((box) => make("label", {}, box, box.value || "(empty)")));
-    const every = make("button", { type: "button", textContent: "All / none" });
-    const clear = make("button", { type: "button", textContent: "Clear" });
-    const apply = () => {
-      filter.operator = operator.value;
-      filter.operand = operand.value;
-      const kept = boxes.filter((box) => box.checked).map((box) => box.value);
-      filter.anyOf = kept.length === boxes.length ? null : new Set(kept);
-      refresh();
-    };
-    operator.addEventListener("change", apply);
-    operand.addEventListener("input", apply);
-    list.addEventListener("change", apply);
-    search.addEventListener("input", () => boxes.forEach((box) => {
-      box.parentElement.hidden = !box.value.toLowerCase().includes(search.value.toLowerCase());
-    }));
-    every.addEventListener("click", () => {
-      const all = !boxes.every((box) => box.checked);
-      boxes.forEach((box) => { box.checked = all; });
-      apply();
-    });
-    clear.addEventListener("click", () => {
-      operand.value = "";
-      boxes.forEach((box) => { box.checked = true; });
-      apply();
-    });
-    return make("div", { className: "dashboards-filter" },
-      make("div", {}, operator, operand), search, list, make("div", {}, every, clear));
-  }
-
-  // Tabulator: sorted by a click on a heading, filtered through the menu beside it. Fields
-  // are named by position, a column's own name possibly holding a dot, which Tabulator
-  // reads as a path.
+  // Tabulator: sorted by a click on a heading, filtered under it. Fields are named by
+  // position, a column's own name possibly holding a dot, which Tabulator reads as a path.
   function table(element, { columns, rows, total, unit }) {
     const format = formatter(unit);
-    const numeric = columns.map((_, i) => rows.some((row) => typeof row[i] === "number"));
-    const filters = columns.map((_, i) => {
-      const operators = OPERATORS[numeric[i] ? "number" : "text"];
-      return { operators, operator: Object.keys(operators)[0], operand: "", anyOf: null };
-    });
-    const text = (value) => String(value ?? "");
-    const keeps = (data) => filters.every((filter, i) => {
-      const value = data[`c${i}`];
-      if (filter.anyOf && !filter.anyOf.has(text(value))) return false;
-      if (filter.operand === "") return true;
-      return numeric[i]
-        ? value !== null && filter.operators[filter.operator](value, Number(filter.operand))
-        : filter.operators[filter.operator](text(value).toLowerCase(), filter.operand.toLowerCase());
-    });
-    const grid = new Tabulator(element.appendChild(document.createElement("div")), {
+    new Tabulator(element.appendChild(document.createElement("div")), {
       data: rows.map((row) => Object.fromEntries(row.map((value, i) => [`c${i}`, value]))),
-      columns: columns.map((title, i) => ({
-        title,
-        field: `c${i}`,
-        headerPopup: () => filterMenu(filters[i], [...new Set(rows.map((row) => text(row[i])))].sort(
-          (a, b) => a.localeCompare(b, undefined, { numeric: true })), () => {
-          grid.setFilter(keeps);
-          grid.getColumn(`c${i}`).getElement().classList.toggle("filtered",
-            filters[i].operand !== "" || filters[i].anyOf !== null);
-        }),
-        headerPopupIcon: '<span class="material-symbols-outlined md-18">filter_list</span>',
-        sorter: numeric[i] ? "number" : "alphanum",
-        hozAlign: numeric[i] ? "right" : "left",
-        // Text is set as text; only the number, formatted here, is written as markup.
-        formatter: numeric[i] ? (cell) => format(cell.getValue()) : "plaintext",
-        tooltip: true,
-        // A long text -- a query, a description -- is cut at this and shown in full on
-        // hover, rather than widening the table past the page.
-        maxInitialWidth: 480,
-      })),
+      columns: columns.map((title, i) => {
+        const numeric = rows.some((row) => typeof row[i] === "number");
+        const operators = Object.entries(OPERATORS[numeric ? "number" : "text"]);
+        return {
+          title,
+          field: `c${i}`,
+          ...filtering(...operators[0], numeric),
+          headerMenu: operators.map(([label, func]) => ({
+            label, action: (event, column) => column.updateDefinition(filtering(label, func, numeric)),
+          })),
+          headerMenuIcon: '<span class="material-symbols-outlined md-18">filter_list</span>',
+          sorter: numeric ? "number" : "alphanum",
+          hozAlign: numeric ? "right" : "left",
+          // Text is set as text; only the number, formatted here, is written as markup.
+          formatter: numeric ? (cell) => format(cell.getValue()) : "plaintext",
+          tooltip: true,
+          // A long text -- a query, a description -- is cut at this and shown in full on
+          // hover, rather than widening the table past the page.
+          maxInitialWidth: 480,
+        };
+      }),
       layout: "fitDataStretch",
       maxHeight: "26rem",
       placeholder: "No rows",
     });
-    if (total > rows.length) {
-      const note = element.appendChild(document.createElement("p"));
-      note.className = "dashboards-note";
-      note.textContent = `The first ${rows.length} of ${total} rows. The download holds them all.`;
-    }
+    if (total > rows.length) note(element, `The first ${rows.length} of ${total} rows. The download holds them all.`);
   }
 
   function stat(element, { value, unit }) {
@@ -222,7 +168,9 @@ const Dashboards = (() => {
     note.textContent = message;
   }
 
-  const KINDS = { echarts: echart, table, stat, text, video, error: failed };
+  const empty = (element) => note(element, "No data");
+
+  const KINDS = { echarts: echart, table, stat, text, video, empty, error: failed };
 
   function draw(element, payload) {
     element.replaceChildren();

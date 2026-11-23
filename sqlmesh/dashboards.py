@@ -324,13 +324,18 @@ class Panel:
         return placeholders(catalog.queries[self.query]) if self.query in catalog.queries else []
 
     def frame(self, catalog, bindings: dict, read) -> pl.DataFrame:
-        """The query's data as this panel shows it, before the chart's own preparation."""
+        """The query's data as this panel shows it, before the chart's own preparation.
+
+        No rows are left as they are: an empty result has no column types to reshape by.
+        """
         frame = read(catalog.queries[self.query], bindings)
-        return self.transform(frame) if self.transform else frame
+        return self.transform(frame) if self.transform and not frame.is_empty() else frame
 
     def payload(self, catalog, bindings: dict, read, highlight: list[str] = ()) -> dict:
-        chart = catalog.charts[self.chart]
         frame = self.frame(catalog, bindings, read)
+        if frame.is_empty():
+            return {"kind": "empty"}
+        chart = catalog.charts[self.chart]
         return {**chart.payload(frame, highlight), "unit": self.unit, "click": self.click}
 
     def _repr_html_(self) -> str:

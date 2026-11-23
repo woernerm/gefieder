@@ -87,7 +87,15 @@ html.dark, [data-jp-theme-light="false"] {
     border-bottom-color: var(--dashboards-text) !important;
     border-top-color: var(--dashboards-text) !important;
 }
-.dashboards-panel .tabulator .tabulator-col.filtered .tabulator-header-popup-button { color: var(--dashboards-accent); }
+.dashboards-panel .tabulator .tabulator-header-filter input {
+    background: transparent;
+    border: 1px solid var(--dashboards-line);
+    border-radius: 4px;
+    color: inherit;
+    font-weight: normal;
+    padding: 0 .25rem;
+}
+.dashboards-panel .tabulator .tabulator-header-popup-button { color: var(--dashboards-muted); }
 .dashboards-panel .tabulator .tabulator-tableholder .tabulator-table,
 .dashboards-panel .tabulator .tabulator-row,
 .dashboards-panel .tabulator .tabulator-row.tabulator-row-even {
@@ -114,8 +122,7 @@ html.dark .dashboards-panel .tabulator, [data-jp-theme-light="false"] .dashboard
 .dashboards-time { position: relative; }
 
 /* Every control drawn alike: the filters, the picker's fields, a column's filter menu. */
-.dashboards-filters select, .dashboards-button, .dashboards-menu input, .dashboards-filter input,
-.dashboards-filter select, .dashboards-filter button {
+.dashboards-filters select, .dashboards-button, .dashboards-menu input {
     background: var(--dashboards-panel);
     border: 1px solid var(--dashboards-line);
     border-radius: 4px;
@@ -125,8 +132,9 @@ html.dark .dashboards-panel .tabulator, [data-jp-theme-light="false"] .dashboard
 .dashboards-button { cursor: pointer; display: inline-flex; gap: .25rem; }
 .dashboards-button select { border: 0; padding: 0; }
 
-/* Menus open over the page: the time picker's, and Tabulator's for a column's filter. The
-   latter lives at the end of the page rather than in the panel, so it is not prefixed. */
+/* Menus open over the page: the time picker's, and Tabulator's -- a column's operators and
+   the values to pick from. Tabulator's live at the end of the page rather than in the panel,
+   so they are not prefixed. */
 .dashboards-menu, html .tabulator-popup-container {
     background: var(--dashboards-raised);
     border: 1px solid var(--dashboards-line);
@@ -143,12 +151,13 @@ html.dark .dashboards-panel .tabulator, [data-jp-theme-light="false"] .dashboard
 .dashboards-picker { bottom: 0; height: 1px; opacity: 0; pointer-events: none; position: absolute; right: 0; width: 1px; }
 .dashboards-quick { border-left: 1px solid var(--dashboards-line); display: flex; flex-direction: column; padding-left: .75rem; }
 .dashboards-quick button { border-radius: 4px; padding: .25rem .5rem; text-align: left; white-space: nowrap; }
-.dashboards-quick button:hover, .dashboards-filter button:hover { background: var(--dashboards-hover); }
-.dashboards-filter { display: flex; flex-direction: column; font-size: .8125rem; gap: .5rem; min-width: 15rem; padding: .5rem; }
-.dashboards-filter > div { display: flex; gap: .5rem; }
-.dashboards-filter input:not([type]) { flex: 1; min-width: 0; }
-.dashboards-values { display: flex; flex-direction: column; max-height: 14rem; overflow: auto; }
-.dashboards-values label { align-items: center; display: flex; gap: .5rem; }
+.dashboards-quick button:hover { background: var(--dashboards-hover); }
+html .tabulator-menu .tabulator-menu-item, html .tabulator-edit-list .tabulator-edit-list-item { color: inherit; }
+html .tabulator-menu .tabulator-menu-item:hover, html .tabulator-edit-list .tabulator-edit-list-item.focused {
+    background: var(--dashboards-hover);
+    color: inherit;
+}
+html .tabulator-edit-list .tabulator-edit-list-item.active { background: var(--dashboards-accent); color: var(--dashboards-panel); }
 html.dark .dashboards-menu, html.dark .tabulator-popup-container, [data-jp-theme-light="false"] .tabulator-popup-container {
     color-scheme: dark;
 }

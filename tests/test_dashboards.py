@@ -103,6 +103,10 @@ class TestADashboard:
 
         assert {"project_a", "project_b", "project_c"} <= set(payload["option"]["dataset"]["dimensions"])
 
+    def test_a_panel_without_rows_shall_say_so(self, admin_session):
+        """project_c has no component history: nothing to sort into a pareto."""
+        assert panel(admin_session, "issues", 4, project="project_c")["kind"] == "empty"
+
     def test_a_table_shall_carry_its_rows(self, admin_session):
         payload = panel(admin_session, "issues", 6, state="open")
 
@@ -158,7 +162,7 @@ class TestServerMonitoring:
     def test_an_absolute_time_range_shall_be_read(self, admin_session):
         payload = panel(admin_session, "server", 5, **{"from": "2000-01-01 00:00", "to": "2000-01-02 00:00"})
 
-        assert column(payload, "Memory used") == []
+        assert payload["kind"] == "empty"
 
     def test_a_download_of_times_shall_open_in_excel(self, admin_session):
         """Excel knows no time zones, so the service writes the times in the server's."""
