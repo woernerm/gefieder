@@ -2,7 +2,8 @@
 ARG GHCR_IO_MIRROR=ghcr.io
 FROM ${GHCR_IO_MIRROR}/astral-sh/uv:python3.13-trixie-slim
 
-# The Python process is invoked once, so bytecode files earn nothing.
+# Nothing written at runtime would outlive the container; the dependencies are compiled at
+# build time instead.
 ENV PYTHONDONTWRITEBYTECODE=1
 
 # Write stdout/stderr immediately, so errors appear in the container log in real time.

@@ -28,9 +28,7 @@ EXAMPLE_PROJECTS = {"project_a", "project_b", "project_c"}
 def wait_for_backfill(grafana_db):
     """Block until the first SQLMesh plan has backfilled the tables asserted below.
 
-    wait_for_stack waits only for the sqlmesh *state* schema, created at the start of the
-    first plan, before bronze/silver/gold are backfilled. Both tables are waited for, being
-    unrelated branches of the DAG.
+    Both tables are waited for, being unrelated branches of the DAG.
     """
     tables = (f"{GOLD_SCHEMA}.issue_metrics", f"{SILVER_SCHEMA}.issue_risk_history")
 

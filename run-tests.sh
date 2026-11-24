@@ -130,9 +130,20 @@ mkdir -p "$CERT_DIR"
 # deployment runs: docker and podman keep separate image stores, so build.sh's docker build
 # would be invisible here. From the working tree, not pulled; build args in build-lib.sh.
 # In parallel, the images being independent; a log is shown only for a failed build.
+
+# A background job ignores Ctrl-C and outlives the script, so it is ended explicitly, with
+# the podman it runs. Asked of the process table, as a remembered pid may be reused by now.
+stop_jobs() {
+  for job in $(pgrep -P $$); do
+    kill "$job" $(pgrep -P "$job") 2>/dev/null || true
+  done
+}
+
 render_build_templates
 BUILD_DIR="$(make_tempdir)"
 builds=""
+trap 'stop_jobs; rm -rf "$BUILD_DIR"' EXIT
+trap 'exit 130' INT TERM
 for svc in $SERVICES; do
   build_image podman "$svc" >"$BUILD_DIR/$svc.log" 2>&1 &
   builds="$builds $svc:$!"
@@ -142,11 +153,11 @@ for build in $builds; do
   if ! wait "${build#*:}"; then
     cat "$BUILD_DIR/$svc.log" >&2
     echo "Building the $svc image failed." >&2
-    rm -rf "$BUILD_DIR"
     exit 1
   fi
   echo "  built $svc"
 done
+trap - EXIT INT TERM
 rm -rf "$BUILD_DIR"
 
 # The suite connects as each role to check its access boundary.
@@ -290,13 +301,17 @@ cleanup() {
   # trap's own last command is what the shell would otherwise report, which turned a failed
   # test run into a successful script.
   status=$?
+  # Once only: the exit below would run it again after a signal.
+  trap - EXIT INT TERM
+  # First, or a job could start a container after the removal below.
+  stop_jobs
   # On EXIT, after pytest's summary. Silenced, so it is announced: this is the pause
   # between the result and the prompt returning.
   echo "Tearing down the test stack ..."
   remove_deployment
   rm -rf "$CERT_DIR"
-  # Removing its containers also ends a unit test job still running in the background.
-  podman rm -f $UNIT_CONTAINERS >/dev/null 2>&1 || true
+  # With -v, as the database image declares a volume that would stay behind.
+  podman rm -f -v $UNIT_CONTAINERS >/dev/null 2>&1 || true
   # Unset until the unit tests start, so guard against rm -rf on an empty path.
   if [ -n "$UNIT_DIR" ]; then rm -rf "$UNIT_DIR"; fi
   exit "$status"
@@ -309,7 +324,7 @@ trap cleanup EXIT INT TERM
 # a database of its own: test_resilience restarts the stack's, and both runs create the
 # same test database and roles. Results are reported after the integration suite.
 UNIT_DIR="$(make_tempdir)"
-podman rm -f $UNIT_CONTAINERS >/dev/null 2>&1 || true
+podman rm -f -v $UNIT_CONTAINERS >/dev/null 2>&1 || true
 podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_PG_SUPERUSER_PASSWORD" \
   > "$UNIT_DIR/$SECRET_CRUDMAN_PASSWORD"
 
@@ -320,7 +335,7 @@ unit_db() {  # container name, host port
     -e POSTGRES_DB="$PG_DATABASE" -e POSTGRES_USER="$PG_SUPERUSER_ROLE" \
     --secret "$SECRET_PG_SUPERUSER_PASSWORD" --secret "$SECRET_CRUDMAN_PASSWORD" \
     --secret "$SECRET_SQLMESH_PASSWORD" --secret "$SECRET_GRAFANA_PASSWORD" \
-    "${REGISTRY}/postgresql:${IMAGE_TAG}" >/dev/null
+    "${REGISTRY}/postgresql:${IMAGE_TAG}" >/dev/null || return 1
   for _ in $(seq 60); do
     podman exec "$1" pg_isready -q -h 127.0.0.1 -U "$PG_SUPERUSER_ROLE" -d "$PG_DATABASE" \
       && return 0
@@ -334,13 +349,16 @@ unit_db() {  # container name, host port
 # needs the CREATEDB the crudman role lacks. collectstatic first: the tests render admin
 # pages, and the manifest storage resolves every asset through the manifest the entrypoint
 # builds at startup. UPLOADS_DIR and SFTP_DIR point into the container's own filesystem.
+# The password file is mounted with the shared :z, as both runs mount it at the same time
+# and SELinux would deny it to the first once the second relabelled it.
 crudman_unit_tests() {  # container name, database port, extra podman arguments
   name="$1"
   port="$2"
   shift 2
   unit_db "$name-db" "$port" || return 1
+  result=0
   podman run --rm --name "$name" --network host \
-    -v "$UNIT_DIR/$SECRET_CRUDMAN_PASSWORD:/run/secrets/$SECRET_CRUDMAN_PASSWORD:ro,Z" \
+    -v "$UNIT_DIR/$SECRET_CRUDMAN_PASSWORD:/run/secrets/$SECRET_CRUDMAN_PASSWORD:ro,z" \
     -e SECRET_CRUDMAN_PASSWORD="$SECRET_CRUDMAN_PASSWORD" \
     -e POSTGRES_HOST=localhost -e POSTGRES_PORT="$port" \
     -e POSTGRES_USER="$PG_SUPERUSER_ROLE" -e POSTGRES_DB="$PG_DATABASE" \
@@ -350,7 +368,10 @@ crudman_unit_tests() {  # container name, database port, extra podman arguments
     "$@" \
     --entrypoint sh "${REGISTRY}/crudman:${IMAGE_TAG}" -c \
     'uv run --project /crudman python manage.py collectstatic --noinput >/dev/null \
-     && uv run --project /crudman python manage.py test --noinput'
+     && uv run --project /crudman python manage.py test --noinput' || result=$?
+  # Not left to the teardown, so it does not compete with the integration suite.
+  podman rm -f -v "$name-db" >/dev/null 2>&1 || true
+  return "$result"
 }
 
 # The notebook translation, from the jupyter image: it is what stands between a model file
@@ -398,6 +419,16 @@ for u in $UNITS; do
   printf '  %-12s ' "$u"
   systemctl --user start "${u}.service"
   printf 'healthy (%ss)\n' "$(( $(date +%s) - stack_start ))"
+done
+# Queued at once, a unit that failed and came back by Restart=always before the loop reached
+# it looks healthy there. podman's own count stays 0, as systemd recreates the container.
+for u in $UNITS; do
+  restarts="$(systemctl --user show -p NRestarts --value "${u}.service")"
+  if [ "$restarts" != "0" ]; then
+    echo "$u failed and was restarted $restarts time(s) while the stack came up." >&2
+    journalctl --user -u "${u}.service" -n 50 --no-pager >&2 || true
+    exit 1
+  fi
 done
 
 # --- the stand-in identity provider ---------------------------------------------------

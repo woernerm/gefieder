@@ -455,10 +455,11 @@ def dropzone_uploads(db, dropzone_id):
 
 @pytest.fixture(scope="session", autouse=True)
 def wait_for_stack():
-    """Block until both apps respond and sqlmesh has created its schema.
+    """Block until both apps respond and the engine is done with its first plan.
 
-    The schema comes from the engine's first `sqlmesh plan` at runtime rather than from
-    database init, so the schema and access-control tests would otherwise race it.
+    The suite starts as soon as the stack is up, while that plan still creates schemas and
+    grants in the catalog the access-control tests change too. A failed plan counts as done:
+    the tests that need its tables name the failure better than this would.
     """
     deadline = time.time() + STARTUP_TIMEOUT
     with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS, trust_env=False,
@@ -468,10 +469,12 @@ def wait_for_stack():
                         deadline - time.time(), errors=(httpx.HTTPError,)):
                 pytest.fail(f"stack did not become ready: {target} unreachable")
 
-    def sqlmesh_schema():
+    def first_plan_done():
         with closing(connect_as(PG_SUPERUSER_ROLE)) as conn, conn.cursor() as cur:
-            cur.execute("SELECT 1 FROM pg_namespace WHERE nspname = 'sqlmesh'")
-            return cur.fetchone() is not None
+            cur.execute("SELECT status FROM crudman.system_deployment "
+                        "ORDER BY created_on DESC LIMIT 1")
+            row = cur.fetchone()
+            return row is not None and row[0] in ("succeeded", "failed")
 
-    if not poll(sqlmesh_schema, deadline - time.time(), errors=(psycopg2.Error,)):
-        pytest.fail("stack did not become ready: sqlmesh schema not created")
+    if not poll(first_plan_done, deadline - time.time(), errors=(psycopg2.Error,)):
+        pytest.fail("stack did not become ready: the first sqlmesh plan never finished")

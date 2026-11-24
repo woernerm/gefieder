@@ -14,12 +14,11 @@ HTTPS and nothing generates a certificate, so a missing one has to be reported b
 proxy itself rather than left in the log.
 """
 import subprocess
-import time
 import uuid
 
 import pytest
 
-from conftest import APP_NAME, CRUDMAN_PATH, GRAFANA_PATH, inspect_container
+from conftest import APP_NAME, CRUDMAN_PATH, GRAFANA_PATH, inspect_container, poll
 
 # The ports the two applications listen on inside the pod, which the proxy forwards to.
 CRUDMAN_PORT = 8000
@@ -354,16 +353,15 @@ def _serve_certs(certs, probe):
         capture_output=True, text=True, check=True,
     )
     try:
-        answer = None
-        for _ in range(40):
+        def served():
             result = subprocess.run(
                 ["podman", "exec", name, "sh", "-c", probe],
                 capture_output=True, text=True,
             )
-            if result.returncode == 0 and result.stdout.strip():
-                answer = result.stdout.strip()
-                break
-            time.sleep(0.25)
+            return result.stdout.strip() if result.returncode == 0 else None
+
+        # Long enough for a host busy with the unit tests.
+        answer = poll(served, 30, interval=0.25) or None
         logs = subprocess.run(
             ["podman", "logs", name], capture_output=True, text=True
         ).stderr
