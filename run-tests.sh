@@ -243,6 +243,14 @@ for f in quadlets/*; do
   envsubst "$QUADLET_VARS" < "$f" > "$QUADLET_DIR/$(basename "$f")"
 done
 
+# Without quadlet's wait for network-online.target, which a host may never reach when
+# nothing pulls that target in. The wait then fails after 90 s, and each "systemctl start"
+# below or in the suite begins it anew, a unit's failed Wants= being retried every time. A
+# deployment keeps it, as it starts at boot; here the network is already up.
+for f in "$QUADLET_DIR"/*.pod "$QUADLET_DIR"/*.container "$QUADLET_DIR"/*.volume; do
+  printf '\n[Quadlet]\nDefaultDependencies=false\n' >> "$f"
+done
+
 # The isolated ports arrive by the path a deployment's do: envsubst leaves the ${*_PORT}
 # tokens alone, quadlet copies them into the unit and systemd expands them from the
 # EnvironmentFile. Editing the file here would leave that untested.

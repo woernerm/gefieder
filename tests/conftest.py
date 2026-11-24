@@ -453,6 +453,21 @@ def dropzone_uploads(db, dropzone_id):
         return cur.fetchall()
 
 
+def stack_not_ready(reason, units):
+    """End the run, naming what is missing and what the units responsible logged.
+
+    An exit rather than a failure: pytest repeats a failed session fixture as the error of
+    every single test, which buries the one line that matters.
+    """
+    for unit in units:
+        log = subprocess.run(
+            ["journalctl", "--user", "-u", f"{unit}.service", "-n", "40", "--no-pager"],
+            capture_output=True, text=True,
+        ).stdout
+        reason += f"\n\n--- {unit} ---\n{log}"
+    pytest.exit(f"stack did not become ready: {reason}", returncode=1)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def wait_for_stack():
     """Block until both apps respond and the engine is done with its first plan.
@@ -462,19 +477,35 @@ def wait_for_stack():
     the tests that need its tables name the failure better than this would.
     """
     deadline = time.time() + STARTUP_TIMEOUT
+    seen = None
+
     with httpx.Client(base_url=BASE_URL, verify=VERIFY_TLS, trust_env=False,
                       follow_redirects=True, timeout=5) as client:
-        for target in [CRUDMAN_LOGIN, GRAFANA_PROBE]:
-            if not poll(lambda: client.get(target).status_code == 200,
-                        deadline - time.time(), errors=(httpx.HTTPError,)):
-                pytest.fail(f"stack did not become ready: {target} unreachable")
+        def answers(target):
+            nonlocal seen
+            try:
+                seen = client.get(target).status_code
+            except httpx.HTTPError as error:
+                seen = repr(error)
+            return seen == 200
+
+        for target, unit in [(CRUDMAN_LOGIN, "crudman"), (GRAFANA_PROBE, "grafana")]:
+            if not poll(lambda: answers(target), deadline - time.time()):
+                stack_not_ready(f"{BASE_URL}{target} last answered {seen}", [unit, "proxy"])
 
     def first_plan_done():
-        with closing(connect_as(PG_SUPERUSER_ROLE)) as conn, conn.cursor() as cur:
-            cur.execute("SELECT status FROM crudman.system_deployment "
-                        "ORDER BY created_on DESC LIMIT 1")
-            row = cur.fetchone()
-            return row is not None and row[0] in ("succeeded", "failed")
+        nonlocal seen
+        try:
+            with closing(connect_as(PG_SUPERUSER_ROLE)) as conn, conn.cursor() as cur:
+                cur.execute("SELECT status, message FROM crudman.system_deployment "
+                            "ORDER BY created_on DESC LIMIT 1")
+                seen = cur.fetchone()
+        except psycopg2.Error as error:
+            seen = repr(error)
+            return False
+        return seen is not None and seen[0] in ("succeeded", "failed")
 
-    if not poll(first_plan_done, deadline - time.time(), errors=(psycopg2.Error,)):
-        pytest.fail("stack did not become ready: the first sqlmesh plan never finished")
+    seen = None
+    if not poll(first_plan_done, deadline - time.time()):
+        stack_not_ready(f"the first sqlmesh plan never finished, last seen {seen}",
+                        ["crudman", "sqlmesh"])
