@@ -69,6 +69,11 @@ HealthInterval=30s
 HealthTimeout=5s
 HealthRetries=5
 HealthStartPeriod=60s
+# The same probe every second at startup, or Notify=healthy waits out a whole interval.
+# podman reverts after the first success.
+HealthStartupCmd=python3 -c 'import http.client,os; c=http.client.HTTPConnection("127.0.0.1",8888,timeout=5); c.request("GET","/"+os.environ["NOTEBOOK_PATH"]+"/hub/health"); raise SystemExit(0 if c.getresponse().status<500 else 1)'
+HealthStartupInterval=1s
+HealthStartupTimeout=5s
 
 [Service]
 Restart=always

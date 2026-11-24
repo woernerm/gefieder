@@ -42,14 +42,6 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-# node runs the shipped ECharts bundle in test_lineage_chart.py, which is what stands
-# between an unpinned library upgrade and a lineage that never draws.
-if ! command -v node >/dev/null 2>&1; then
-  echo "node is not installed; it renders the lineage chart in the test suite." >&2
-  echo "Install it with: sudo apt install nodejs   (RHEL: sudo dnf install nodejs)" >&2
-  exit 1
-fi
-
 # Rootless podman needs a usable subuid/subgid range, checked as install.sh checks it:
 # asking podman rather than grepping /etc/subuid, which misses realm-joined users whose
 # ranges come from SSSD/nss.
@@ -137,10 +129,25 @@ mkdir -p "$CERT_DIR"
 # Built with podman, the engine that runs the quadlets, so the suite exercises what a
 # deployment runs: docker and podman keep separate image stores, so build.sh's docker build
 # would be invisible here. From the working tree, not pulled; build args in build-lib.sh.
+# In parallel, the images being independent; a log is shown only for a failed build.
 render_build_templates
+BUILD_DIR="$(make_tempdir)"
+builds=""
 for svc in $SERVICES; do
-  build_image podman "$svc"
+  build_image podman "$svc" >"$BUILD_DIR/$svc.log" 2>&1 &
+  builds="$builds $svc:$!"
 done
+for build in $builds; do
+  svc="${build%%:*}"
+  if ! wait "${build#*:}"; then
+    cat "$BUILD_DIR/$svc.log" >&2
+    echo "Building the $svc image failed." >&2
+    rm -rf "$BUILD_DIR"
+    exit 1
+  fi
+  echo "  built $svc"
+done
+rm -rf "$BUILD_DIR"
 
 # The suite connects as each role to check its access boundary.
 GRAFANA_PASSWORD="$(podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_GRAFANA_PASSWORD")"
@@ -239,8 +246,10 @@ sed -i "/^\[Pod\]/a PublishPort=${OIDC_PORT}:${OIDC_PORT}" "$QUADLET_DIR/main.po
 sed -i "/^Environment=GF_SERVER_SERVE_FROM_SUB_PATH=/i Environment=GF_SERVER_ROOT_URL=${SCHEME}://localhost:${APP_PORT}/${GRAFANA_PATH}/" \
   "$QUADLET_DIR/grafana.container"
 
-# The password file the crudman unit tests mount, declared here for the cleanup trap.
-UNIT_SECRET_DIR=""
+# The unit tests' password file and logs, and their containers, declared here for the
+# cleanup trap.
+UNIT_DIR=""
+UNIT_CONTAINERS="${APP_NAME}-unit ${APP_NAME}-unit-db ${APP_NAME}-unit-sso ${APP_NAME}-unit-sso-db ${APP_NAME}-notebook-unit"
 
 # As the release installer does, so the suite exercises the real host-side sampler. The
 # suite triggers a sample itself rather than waiting for the timer.
@@ -286,12 +295,93 @@ cleanup() {
   echo "Tearing down the test stack ..."
   remove_deployment
   rm -rf "$CERT_DIR"
-  # The unit tests' password file, should they have failed before removing it. Unset
-  # until they run, so guard against rm -rf on an empty path.
-  if [ -n "$UNIT_SECRET_DIR" ]; then rm -rf "$UNIT_SECRET_DIR"; fi
+  # Removing its containers also ends a unit test job still running in the background.
+  podman rm -f $UNIT_CONTAINERS >/dev/null 2>&1 || true
+  # Unset until the unit tests start, so guard against rm -rf on an empty path.
+  if [ -n "$UNIT_DIR" ]; then rm -rf "$UNIT_DIR"; fi
   exit "$status"
 }
 trap cleanup EXIT INT TERM
+
+# --- unit tests -------------------------------------------------------------------------
+# In the background while the stack starts and the integration suite runs, as they need
+# nothing from the stack and took three minutes one after the other. Each crudman run gets
+# a database of its own: test_resilience restarts the stack's, and both runs create the
+# same test database and roles. Results are reported after the integration suite.
+UNIT_DIR="$(make_tempdir)"
+podman rm -f $UNIT_CONTAINERS >/dev/null 2>&1 || true
+podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_PG_SUPERUSER_PASSWORD" \
+  > "$UNIT_DIR/$SECRET_CRUDMAN_PASSWORD"
+
+# The project's image, as the migrations need the roles its init scripts create. Probed
+# over TCP: the init scripts run on a server listening only on its socket.
+unit_db() {  # container name, host port
+  podman run -d --rm --name "$1" -p "127.0.0.1:$2:5432" \
+    -e POSTGRES_DB="$PG_DATABASE" -e POSTGRES_USER="$PG_SUPERUSER_ROLE" \
+    --secret "$SECRET_PG_SUPERUSER_PASSWORD" --secret "$SECRET_CRUDMAN_PASSWORD" \
+    --secret "$SECRET_SQLMESH_PASSWORD" --secret "$SECRET_GRAFANA_PASSWORD" \
+    "${REGISTRY}/postgresql:${IMAGE_TAG}" >/dev/null
+  for _ in $(seq 60); do
+    podman exec "$1" pg_isready -q -h 127.0.0.1 -U "$PG_SUPERUSER_ROLE" -d "$PG_DATABASE" \
+      && return 0
+    sleep 1
+  done
+  echo "The unit test database $1 did not come up." >&2
+  return 1
+}
+
+# A throwaway container from the crudman image, as the superuser, as Django's test runner
+# needs the CREATEDB the crudman role lacks. collectstatic first: the tests render admin
+# pages, and the manifest storage resolves every asset through the manifest the entrypoint
+# builds at startup. UPLOADS_DIR and SFTP_DIR point into the container's own filesystem.
+crudman_unit_tests() {  # container name, database port, extra podman arguments
+  name="$1"
+  port="$2"
+  shift 2
+  unit_db "$name-db" "$port" || return 1
+  podman run --rm --name "$name" --network host \
+    -v "$UNIT_DIR/$SECRET_CRUDMAN_PASSWORD:/run/secrets/$SECRET_CRUDMAN_PASSWORD:ro,Z" \
+    -e SECRET_CRUDMAN_PASSWORD="$SECRET_CRUDMAN_PASSWORD" \
+    -e POSTGRES_HOST=localhost -e POSTGRES_PORT="$port" \
+    -e POSTGRES_USER="$PG_SUPERUSER_ROLE" -e POSTGRES_DB="$PG_DATABASE" \
+    -e DB_USER_PREFIX="$DB_USER_PREFIX" \
+    -e ROLE_PREFIX="$ROLE_PREFIX" \
+    -e UPLOADS_DIR=/tmp/uploads -e SFTP_DIR=/tmp/sftp \
+    "$@" \
+    --entrypoint sh "${REGISTRY}/crudman:${IMAGE_TAG}" -c \
+    'uv run --project /crudman python manage.py collectstatic --noinput >/dev/null \
+     && uv run --project /crudman python manage.py test --noinput'
+}
+
+# The notebook translation, from the jupyter image: it is what stands between a model file
+# and being rewritten the first time somebody opens it, and it runs against the models this
+# release ships.
+notebook_unit_tests() {
+  podman run --rm --name "${APP_NAME}-notebook-unit" \
+    -v "${CHECKOUT}/jupyter/tests:/jupyter/tests:ro,Z" \
+    -v "${CHECKOUT}/sqlmesh/models:/sqlmesh/models:ro,Z" \
+    -e TEST_MODELS_DIR=/sqlmesh/models \
+    --entrypoint sh "${REGISTRY}/jupyter:${IMAGE_TAG}" -c \
+    'python -m pytest /jupyter/tests -q -p no:cacheprovider'
+}
+
+unit_jobs=""
+unit_job() {  # label, command...
+  label="$1"
+  shift
+  "$@" >"$UNIT_DIR/$label.log" 2>&1 &
+  unit_jobs="$unit_jobs $label:$!"
+}
+echo "Starting the unit tests in the background ..."
+unit_job crudman crudman_unit_tests "${APP_NAME}-unit" 15433
+# Again with single sign-on configured, which changes the installed apps and the URLs, so
+# the settings module needs covering as its own configuration. The adapter cannot even be
+# imported without it, so its tests skip themselves in the run above.
+unit_job crudman-sso crudman_unit_tests "${APP_NAME}-unit-sso" 15434 \
+  -e OIDC_ENABLED=true \
+  -e OIDC_ISSUER="$OIDC_ISSUER" \
+  -e OIDC_CLIENT_ID="$OIDC_CLIENT_ID"
+unit_job notebook notebook_unit_tests
 
 systemctl --user daemon-reload
 # Starting the proxy pulls in the rest of the pod, but every unit is started explicitly so
@@ -299,6 +389,9 @@ systemctl --user daemon-reload
 # (Notify=healthy), which is the long, silent pause.
 echo "Starting the test stack and waiting for every service to become healthy ..."
 stack_start="$(date +%s)"
+# All queued at once, so units not ordered after one another start together; the loop's
+# start then waits for the queued job instead of adding one.
+systemctl --user start --no-block $(printf '%s.service ' $UNITS)
 for u in $UNITS; do
   # The label goes out unterminated so it shows while the start blocks, and the result
   # completes the line. No \r: it cannot shorten a printed line, leaving a tail behind.
@@ -370,54 +463,21 @@ export TEST_SQLMESH_PASSWORD="$SQLMESH_PASSWORD"
 export TEST_SERVER_STATS_SCHEMA="${SERVER_STATS_SCHEMA:-server_stats}"
 export TEST_COLLECTOR="$APP_CONFIG_DIR/serverstats/collect.sh"
 
-# The crudman unit tests, first, in a throwaway container from the crudman image, so a
-# broken pipeline fails here rather than as a puzzling HTTP result. As the superuser, as
-# Django's test runner needs the CREATEDB the crudman role lacks.
-echo "Running the crudman unit tests ..."
-UNIT_SECRET_DIR="$(make_tempdir)"
-podman secret inspect --showsecret -f '{{.SecretData}}' "$SECRET_PG_SUPERUSER_PASSWORD" \
-  > "$UNIT_SECRET_DIR/$SECRET_CRUDMAN_PASSWORD"
-# collectstatic first: the tests render admin pages, and the manifest storage resolves
-# every asset through the manifest the entrypoint builds at startup. UPLOADS_DIR and
-# SFTP_DIR point into the container's own filesystem, which dies with it.
-unit_tests() {  # extra podman arguments, e.g. the single sign-on settings
-  podman run --rm --network host \
-    -v "$UNIT_SECRET_DIR/$SECRET_CRUDMAN_PASSWORD:/run/secrets/$SECRET_CRUDMAN_PASSWORD:ro,Z" \
-    -e SECRET_CRUDMAN_PASSWORD="$SECRET_CRUDMAN_PASSWORD" \
-    -e POSTGRES_HOST=localhost -e POSTGRES_PORT="$PG_PORT" \
-    -e POSTGRES_USER="$PG_SUPERUSER_ROLE" -e POSTGRES_DB="$PG_DATABASE" \
-    -e DB_USER_PREFIX="$DB_USER_PREFIX" \
-    -e ROLE_PREFIX="$ROLE_PREFIX" \
-    -e UPLOADS_DIR=/tmp/uploads -e SFTP_DIR=/tmp/sftp \
-    "$@" \
-    --entrypoint sh "${REGISTRY}/crudman:${IMAGE_TAG}" -c \
-    'uv run --project /crudman python manage.py collectstatic --noinput >/dev/null \
-     && uv run --project /crudman python manage.py test --noinput'
-}
-
-unit_tests
-
-# Again with single sign-on configured, which changes the installed apps and the URLs, so
-# the settings module needs covering as its own configuration. The adapter cannot even be
-# imported without it, so its tests skip themselves in the run above.
-echo "Running the crudman unit tests with single sign-on configured ..."
-unit_tests \
-  -e OIDC_ENABLED=true \
-  -e OIDC_ISSUER="$OIDC_ISSUER" \
-  -e OIDC_CLIENT_ID="$OIDC_CLIENT_ID"
-rm -rf "$UNIT_SECRET_DIR"
-
-# The notebook translation, in a throwaway container from the jupyter image: it is what
-# stands between a model file and being rewritten the first time somebody opens it, and it
-# runs against the models this release ships.
-echo "Running the notebook unit tests ..."
-podman run --rm \
-  -v "${CHECKOUT}/jupyter/tests:/jupyter/tests:ro,Z" \
-  -v "${CHECKOUT}/sqlmesh/models:/sqlmesh/models:ro,Z" \
-  -e TEST_MODELS_DIR=/sqlmesh/models \
-  --entrypoint sh "${REGISTRY}/jupyter:${IMAGE_TAG}" -c \
-  'python -m pytest /jupyter/tests -q -p no:cacheprovider'
-
 # Run the suite. uv provides the test dependencies from tests/pyproject.toml.
 echo "Running the integration test suite ..."
-uv run --project tests pytest tests/ -v "$@"
+suite_status=0
+uv run --project tests pytest tests/ -v "$@" || suite_status=$?
+
+# The unit tests, long finished by now as a rule; a failure's whole log is shown.
+echo "Unit tests:"
+for job in $unit_jobs; do
+  label="${job%%:*}"
+  if wait "${job#*:}"; then
+    echo "  $label passed"
+  else
+    cat "$UNIT_DIR/$label.log"
+    echo "  $label FAILED"
+    suite_status=1
+  fi
+done
+exit "$suite_status"

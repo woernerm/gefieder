@@ -23,8 +23,9 @@ ARG PYTHON_INDEX
 # First, so the install below stays cached.
 COPY sqlmesh/pyproject.toml /sqlmesh/pyproject.toml
 
-# The dependencies from pyproject.toml.
-RUN UV_EXTRA_INDEX_URL=${PYTHON_INDEX} uv sync --project /sqlmesh --no-dev
+# The dependencies from pyproject.toml. Compiled here, as PYTHONDONTWRITEBYTECODE keeps the
+# processes from caching it: each would recompile what it imports, 2 s per sqlmesh call.
+RUN UV_EXTRA_INDEX_URL=${PYTHON_INDEX} uv sync --project /sqlmesh --no-dev --compile-bytecode
 
 # The extensions config.py's duckdb gateway loads. No default, as the list is kept in
 # DUCKDB_EXTENSIONS in buildtime.env.

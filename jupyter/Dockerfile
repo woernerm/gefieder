@@ -46,13 +46,15 @@ COPY jupyter/requirements.txt /opt/notebook-project/requirements.txt
 # version; Lab and its extensions from requirements.txt. jupyterhub too, pinned to the base
 # image's hub, as jupyterhub-singleuser imports JupyterLab and must run here. From the
 # project directory, as uv pip reads pyproject.toml's [tool.uv] overrides only there.
+# Compiled, as PYTHONDONTWRITEBYTECODE keeps a kernel from caching it; the last install
+# compiles the whole venv.
 RUN hub_version="$(jupyterhub --version)" \
     && UV_EXTRA_INDEX_URL=${PYTHON_INDEX} uv venv --python 3.13 ${NOTEBOOK_VENV} \
     && cd /opt/notebook-project \
     && UV_EXTRA_INDEX_URL=${PYTHON_INDEX} VIRTUAL_ENV=${NOTEBOOK_VENV} \
        uv pip install --requirement /opt/notebook-project/pyproject.toml \
     && UV_EXTRA_INDEX_URL=${PYTHON_INDEX} VIRTUAL_ENV=${NOTEBOOK_VENV} \
-       uv pip install --requirement /opt/notebook-project/requirements.txt \
+       uv pip install --compile-bytecode --requirement /opt/notebook-project/requirements.txt \
             "jupyterhub==${hub_version}"
 
 # The extensions an operator adds in buildtime.env, installed the way the Grafana plugins
@@ -61,7 +63,7 @@ RUN hub_version="$(jupyterhub --version)" \
 ARG JUPYTER_EXTENSIONS
 RUN if [ -n "${JUPYTER_EXTENSIONS}" ]; then \
       UV_EXTRA_INDEX_URL=${PYTHON_INDEX} VIRTUAL_ENV=${NOTEBOOK_VENV} \
-        uv pip install $(echo "${JUPYTER_EXTENSIONS}" | tr ',' ' ') || exit 1; \
+        uv pip install --compile-bytecode $(echo "${JUPYTER_EXTENSIONS}" | tr ',' ' ') || exit 1; \
     fi
 
 # The same list the engine image gets, so a query on config.py's DuckDB gateway reaches

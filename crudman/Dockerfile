@@ -48,8 +48,9 @@ RUN apt-get update \
 # First, so the install below stays cached.
 COPY crudman/pyproject.toml /crudman/pyproject.toml
 
-# The dependencies from pyproject.toml.
-RUN UV_EXTRA_INDEX_URL=${PYTHON_INDEX} uv sync --project /crudman --no-dev
+# The dependencies from pyproject.toml. Compiled here, as PYTHONDONTWRITEBYTECODE keeps the
+# processes from caching it: each would recompile what it imports, 2 s per manage.py call.
+RUN UV_EXTRA_INDEX_URL=${PYTHON_INDEX} uv sync --project /crudman --no-dev --compile-bytecode
 
 # Copy the Django application into the image.
 COPY crudman/app/ /crudman/app/

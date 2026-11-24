@@ -42,6 +42,11 @@ HealthInterval=30s
 HealthTimeout=5s
 HealthRetries=3
 HealthStartPeriod=90s
+# The same probe every second at startup, or Notify=healthy waits out a whole interval.
+# podman reverts after the first success.
+HealthStartupCmd=python -c 'import socket; socket.create_connection(("localhost",5432),3).close()'
+HealthStartupInterval=1s
+HealthStartupTimeout=5s
 
 [Service]
 Restart=always

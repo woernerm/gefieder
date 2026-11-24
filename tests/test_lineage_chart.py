@@ -5,11 +5,12 @@ asserts the *option* Python builds, so an ECharts release that renamed a sankey 
 would leave the documentation page blank with every test green.
 
 This renders for real: the bundle out of the image, the option out of the same lineage.py
-the page uses, drawn by node in ECharts' server-side mode. What comes back is asserted to
+the page uses, drawn by node (in a throwaway container) in ECharts' server-side mode. What comes back is asserted to
 be the graph and not an empty canvas -- a bar per model, a ribbon per dependency, and the
 labels the formatter shortens.
 """
 import json
+import os
 import re
 import subprocess
 
@@ -101,8 +102,12 @@ def rendered(tmp_path_factory):
 
     renderer = work / "render.js"
     renderer.write_text(RENDER % PAINT)
+    # A throwaway node container, so the host needs nothing beyond podman. No network:
+    # the renderer reads only the files mounted here.
     result = subprocess.run(
-        ["node", str(renderer), str(bundle), str(work / "option.json")],
+        ["podman", "run", "--rm", "--network", "none", "-v", f"{work}:/w:Z",
+         f"{os.environ.get('DOCKER_IO_MIRROR', 'docker.io')}/library/node:lts-alpine",
+         "node", "/w/render.js", "/w/echarts.min.js", "/w/option.json"],
         capture_output=True, text=True,
     )
     assert result.returncode == 0, (
