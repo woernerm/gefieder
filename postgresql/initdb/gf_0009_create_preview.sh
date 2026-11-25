@@ -43,17 +43,14 @@ SELECT format(
 WHERE NOT EXISTS (SELECT 1 FROM pg_foreign_server WHERE srvname = 'production')
 \gexec
 
--- password_required=false because the loopback is trusted in pg_hba, so the password
--- below is never asked for -- and postgres_fdw refuses a connection a non-superuser makes
--- without one being used. The password stays, so an installation that tightens pg_hba
--- keeps working. What bounds this is the remote role: read-only, and the same data both
--- roles that may connect here already read in production.
+-- Recreated on every start, as gf_0004 resets the role's password from the same secret and
+-- a mapping left behind would keep the previous one.
+DROP USER MAPPING IF EXISTS FOR PUBLIC SERVER production;
+
 SELECT format(
-    'CREATE USER MAPPING FOR PUBLIC SERVER production '
-    'OPTIONS (user %L, password %L, password_required ''false'')',
+    'CREATE USER MAPPING FOR PUBLIC SERVER production OPTIONS (user %L, password %L)',
     '${GRAFANA_DB_USER}', :'password'
 )
-WHERE NOT EXISTS (SELECT 1 FROM pg_user_mappings WHERE srvname = 'production')
 \gexec
 
 GRANT USAGE ON FOREIGN SERVER production TO ${GRAFANA_DB_USER}, ${SQLMESH_DB_USER};

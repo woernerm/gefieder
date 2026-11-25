@@ -14,18 +14,23 @@
 
 A representative table is seeded into each schema, independent of what the apps created.
 """
+import subprocess
+
 import psycopg2
 import pytest
 
 from conftest import (
     BRONZE_SCHEMA_PREFIX,
+    DB_PASSWORDS,
     GOLD_SCHEMA,
     GRAFANA_DB_USER,
+    PG_DATABASE,
     SILVER_SCHEMA,
     SILVER_STAGING_SCHEMA,
     SQLMESH_DB_USER,
     allowed,
     denied,
+    podman,
 )
 
 # Tables the seed fixture creates, addressed per schema.
@@ -46,8 +51,7 @@ def seed(crudman_db, sqlmesh_db):
     tables that owner creates.
     """
     with crudman_db.cursor() as cur:
-        # A crudman model table fires grant_grafana_read_crudman, which gives grafana
-        # SELECT; sqlmesh reads it through its default privileges.
+        # A crudman model table fires grant_crudman_read, which gives both roles SELECT.
         cur.execute("CREATE TABLE IF NOT EXISTS crudman.example_team (id int)")
     with sqlmesh_db.cursor() as cur:
         cur.execute(f"CREATE TABLE IF NOT EXISTS {SILVER_TABLE} (id int)")
@@ -58,6 +62,23 @@ def seed(crudman_db, sqlmesh_db):
     with sqlmesh_db.cursor() as cur:
         cur.execute(f"DROP TABLE IF EXISTS {SILVER_TABLE}")
         cur.execute(f"DROP TABLE IF EXISTS {GOLD_TABLE}")
+
+
+class TestLoopback:
+    """The whole pod shares the loopback, so being on it must not stand in for a password."""
+
+    @pytest.mark.parametrize("user", DB_PASSWORDS)
+    def test_no_role_shall_connect_without_a_password(self, user):
+        with pytest.raises(subprocess.CalledProcessError) as refusal:
+            podman("exec", "postgresql", "psql", "--no-password", "--host", "127.0.0.1",
+                   "--username", user, "--dbname", PG_DATABASE, "--command", "SELECT 1")
+        assert "no password supplied" in refusal.value.stderr
+
+    def test_no_network_rule_shall_trust(self, admin_db):
+        with admin_db.cursor() as cur:
+            cur.execute("SELECT line_number FROM pg_hba_file_rules "
+                        "WHERE type <> 'local' AND auth_method = 'trust'")
+            assert cur.fetchall() == []
 
 
 class TestCrudmanUser:
@@ -95,6 +116,30 @@ class TestSqlmeshUser:
 
     def test_sqlmesh_shall_not_write_the_crudman_schema(self, sqlmesh_db):
         denied(sqlmesh_db, f"INSERT INTO {CRUDMAN_MODEL} VALUES (1)")
+
+
+class TestPrivateTables:
+    """Whoever may ship a model or open a dashboard reads nothing that signs somebody in."""
+
+    @pytest.mark.parametrize("table", ["auth_user", "django_session", "dbusers_databaseuser",
+                                       "dropzones_dropzone"])
+    def test_they_shall_be_closed_to_the_analytics_roles(self, sqlmesh_db, grafana_db, table):
+        denied(sqlmesh_db, f"SELECT * FROM crudman.{table}")
+        denied(grafana_db, f"SELECT * FROM crudman.{table}")
+
+    def test_the_uploads_shall_stay_readable(self, sqlmesh_db, grafana_db):
+        for table in ("dropzones_upload", "dropzones_uploadfile"):
+            allowed(sqlmesh_db, f"SELECT * FROM crudman.{table}")
+            allowed(grafana_db, f"SELECT * FROM crudman.{table}")
+
+    def test_the_query_statistics_shall_hold_no_password(self, admin_db):
+        with admin_db.cursor() as cur:
+            cur.execute("CREATE ROLE itest_statistics LOGIN PASSWORD 'itest-in-plain-text'")
+            cur.execute("DROP ROLE itest_statistics")
+            cur.execute("SELECT count(*) FROM pg_stat_statements "
+                        "WHERE query LIKE '%%itest-in-plain' || '-text%%' OR query ~* %s",
+                        (r"^\s*(create|alter)\s+role\M.*\mpassword\M",))
+            assert cur.fetchone()[0] == 0
 
 
 class TestGrafanaUser:

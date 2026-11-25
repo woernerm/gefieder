@@ -19,6 +19,11 @@ set -e
 
 INITDB_DIR=/docker-entrypoint-initdb.d
 
+# The statements that set a password carry it in their text, which the collector stores for
+# dashboards to read. On the command line rather than in postgresql.conf, so it covers an
+# existing volume and the scripts below alike.
+UNTRACKED="-c pg_stat_statements.track_utility=off"
+
 # Only for the server itself: the base entrypoint re-executes this script for its own
 # purposes, when the server is not up yet.
 if [ "$1" != postgres ]; then
@@ -58,7 +63,7 @@ if [ -s "$PGDATA/PG_VERSION" ]; then
 
   echo "Re-applying the structural init scripts to the existing database ..."
   PGUSER="${PGUSER:-$POSTGRES_USER}" \
-    pg_ctl -D "$PGDATA" -o "-c listen_addresses='' -p 5432" -w start
+    pg_ctl -D "$PGDATA" -o "-c listen_addresses='' -p 5432 $UNTRACKED" -w start
 
   for script in "$INITDB_DIR"/*; do
     if [ -n "$stop_requested" ]; then
@@ -81,4 +86,4 @@ if [ -s "$PGDATA/PG_VERSION" ]; then
   echo "Structural init scripts applied."
 fi
 
-exec /usr/local/bin/docker-entrypoint.sh "$@"
+exec /usr/local/bin/docker-entrypoint.sh "$@" $UNTRACKED

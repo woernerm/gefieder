@@ -1,5 +1,6 @@
 import shutil
 import tempfile
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -7,6 +8,7 @@ import asyncssh
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from sso.testing import make_user
 
 from . import repo, ssh
@@ -643,6 +645,22 @@ class CloneAddressTest(TestCase):
             self.assertEqual(repo.clone_url(), "git@example.com:team/models.git")
 
 
+class ThemeTest(TestCase):
+    """Every page starts in DEFAULT_THEME and leaves the choice to the visitor."""
+
+    def page(self):
+        self.client.force_login(make_user("john", is_superuser=True, is_staff=True))
+        return self.client.get(reverse("admin:index")).content.decode()
+
+    def test_a_browser_without_a_choice_starts_in_the_default(self):
+        with patch.dict("os.environ", DEFAULT_THEME="light"):
+            self.assertIn('|| "light"', self.page())
+
+    def test_the_switcher_is_not_locked(self):
+        """Unfold locks it to any start value its component is given."""
+        self.assertIn('x-data="theme()"', self.page())
+
+
 class SSHKeyTest(TestCase):
     """Who a key lets in: decided when they connect, never stored with the key."""
 
@@ -685,6 +703,12 @@ class SSHKeyTest(TestCase):
         user.save()
 
         self.assertIsNone(ssh.key_owner(fingerprint))
+
+    def test_an_editor_who_stopped_signing_in_is_not(self):
+        """Nothing else says that somebody left the company."""
+        user = make_user("paul", "editor", last_login=timezone.now() - timedelta(days=31))
+
+        self.assertIsNone(ssh.key_owner(self._key(user)))
 
     def test_an_unknown_key_is_not(self):
         self.assertIsNone(ssh.key_owner("SHA256:unknown"))

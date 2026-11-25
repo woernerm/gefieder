@@ -12,7 +12,7 @@ import shlex
 
 import asyncssh
 
-from dbusers.utils import db_role_for_user
+from dbusers.utils import db_role_for_user, signed_in_recently
 from notebooks.utils import EDITOR_GROUPS
 
 from . import repo
@@ -60,11 +60,12 @@ def key_owner(fingerprint: str) -> str | None:
         fingerprint: The SHA256 fingerprint of the key the client authenticates with.
 
     Returns:
-        The owner's username when they are active and hold the editor rank upwards -- the
-        same line the notebooks draw, since pushing is deploying -- and None otherwise.
+        The owner's username when they are active, signed in recently and hold the editor
+        rank upwards -- the same line the notebooks draw, since pushing is deploying -- and
+        None otherwise.
     """
     key = SSHKey.objects.select_related("user").filter(fingerprint=fingerprint).first()
-    if key is None or not key.user.is_active:
+    if key is None or not key.user.is_active or not signed_in_recently(key.user):
         return None
     return key.user.username if db_role_for_user(key.user) in EDITOR_GROUPS else None
 

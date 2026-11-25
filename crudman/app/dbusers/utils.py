@@ -3,12 +3,14 @@
 Those functions are SECURITY DEFINER (``postgresql/initdb/gf_0003``) because creating a
 role needs CREATEROLE, which crudman does not have and should not be given.
 """
+import hashlib
 import os
 import re
 import secrets
 from datetime import datetime, timedelta
 
 from django.db import connection, transaction
+from django.utils import timezone
 from sso.roles import GROUP_FOR_RANK, RANKS
 
 from .backends import get_backend
@@ -198,6 +200,23 @@ def issue_password(user, valid_for: timedelta) -> tuple[str, str, datetime]:
         return record.role_name, password, cursor.fetchone()[0]
 
 
+SIGN_IN_WINDOW = timedelta(days=30)
+"""How long after their last sign-in a person's SSH keys and token are accepted.
+
+Their rank is read at sign-in, so for somebody who left it would otherwise never change.
+"""
+
+
+def signed_in_recently(user) -> bool:
+    """Whether what this system knows about a person's rank is recent enough to act on."""
+    return bool(user.last_login and timezone.now() - user.last_login < SIGN_IN_WINDOW)
+
+
+def hash_token(token: str) -> str:
+    """What is stored of a token. Unsalted, as a random token cannot be looked up."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 def issue_token(user) -> str:
     """Create or replace the token a person's checkout authenticates with.
 
@@ -219,9 +238,10 @@ def issue_token(user) -> str:
     if record is None:
         raise ValueError(f"{user.username} has no database account.")
 
-    record.token = secrets.token_urlsafe(32)
+    token = secrets.token_urlsafe(32)
+    record.token = hash_token(token)
     record.save(update_fields=["token", "provisioned_on"])
-    return record.token
+    return token
 
 
 def user_for_token(token: str):
@@ -232,15 +252,20 @@ def user_for_token(token: str):
 
     Returns:
         The Django user, or None. A disabled account matches nothing, so switching Database
-        access off revokes the token by the same click.
+        access off revokes the token by the same click, and neither does somebody who has
+        not signed in recently.
     """
     from .models import DatabaseUser
 
     if not token:
         return None
 
-    record = DatabaseUser.objects.filter(token=token, is_enabled=True).first()
-    return record.user if record and record.user.is_active else None
+    record = DatabaseUser.objects.filter(
+        token=hash_token(token), is_enabled=True
+    ).first()
+    if record is None or not record.user.is_active:
+        return None
+    return record.user if signed_in_recently(record.user) else None
 
 
 def disable(role_name: str) -> None:

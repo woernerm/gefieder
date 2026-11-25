@@ -11,11 +11,11 @@ Image=${REGISTRY}/grafana_mcp:${IMAGE_TAG}
 # The containers share one network namespace, so Grafana is on localhost. Its own address,
 # not the proxy's: the request is already inside the pod and needs no second TLS hop.
 Environment=GRAFANA_URL=http://localhost:3000/${GRAFANA_PATH}
-# Copies each caller's own credential (a service-account token or the grafana_session
-# cookie) onto every Grafana API request, so Grafana decides what the call may do, exactly
-# as in its user interface. Deliberately no GRAFANA_SERVICE_ACCOUNT_TOKEN: a shared account
+# Copies each caller's own service account token onto every Grafana API request, so Grafana
+# decides what the call may do, exactly as in its user interface. Not Cookie: Grafana's
+# session outlives signing out of the admin panel, which is not asked here. Deliberately no GRAFANA_SERVICE_ACCOUNT_TOKEN: a shared account
 # would answer callers presenting no credential at all.
-Environment=GRAFANA_FORWARD_HEADERS=Authorization,Cookie,X-Grafana-Org-Id
+Environment=GRAFANA_FORWARD_HEADERS=Authorization,X-Grafana-Org-Id
 # The image carries neither wget nor curl, so the probe is bash's own /dev/tcp. Reading the
 # status line rather than only opening the socket: a listener that accepts and then answers
 # 500 is not healthy. Direct to the container's port, the proxy not being what is under

@@ -18,7 +18,14 @@ import uuid
 
 import pytest
 
-from conftest import APP_NAME, CRUDMAN_PATH, GRAFANA_PATH, inspect_container, poll
+from conftest import (
+    APP_NAME,
+    CRUDMAN_PATH,
+    GRAFANA_PATH,
+    SECRETS,
+    inspect_container,
+    poll,
+)
 
 # The ports the two applications listen on inside the pod, which the proxy forwards to.
 CRUDMAN_PORT = 8000
@@ -43,6 +50,10 @@ REFUSAL = "TLS certificate missing"
 # podman copies the host's proxy variables into every container, and busybox wget honours
 # them, so requests to the container's own loopback would go to the company proxy.
 NO_PROXY_ENV = "--http-proxy=false"
+
+# What the entrypoint names Grafana's identity header after.
+IDENTITY_SECRET = ["--secret", SECRETS["grafana_identity"],
+                   "-e", f"SECRET_GRAFANA_IDENTITY={SECRETS['grafana_identity']}"]
 
 
 def _stub_upstreams():
@@ -99,7 +110,8 @@ def _run_entrypoint(debug, certs, hint=None, timeout=60):
     # container. --network none keeps it off the ports the running stack is using.
     name = f"certcheck-{uuid.uuid4().hex[:12]}"
     argv = ["podman", "run", "--rm", "--name", name, "--network", "none",
-            NO_PROXY_ENV, "-v", f"{certs}:{CERT_MOUNT}:ro,z", *env, _proxy_image()]
+            NO_PROXY_ENV, *IDENTITY_SECRET, "-v", f"{certs}:{CERT_MOUNT}:ro,z", *env,
+            _proxy_image()]
     try:
         return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -126,7 +138,8 @@ def _run_proxy(script, debug, fixtures):
         "mkdir -p /var/log/app /etc/nginx/conf.d",
         "cp /fixtures/upstreams.conf /etc/nginx/conf.d/upstreams.conf",
         f"export APP_NAME={APP_NAME} CRUDMAN_PATH={CRUDMAN_PATH}"
-        f" GRAFANA_PATH={GRAFANA_PATH} DEBUG={debug}",
+        f" GRAFANA_PATH={GRAFANA_PATH} DEBUG={debug}"
+        " GRAFANA_IDENTITY_HEADER=X-WEBAUTH-0123456789abcdef0123456789abcdef",
     ]
     if debug != "true":
         setup_steps += [
@@ -136,12 +149,12 @@ def _run_proxy(script, debug, fixtures):
             "reorder_fullchain",
         ]
     setup_steps.append(
-        "envsubst '${APP_NAME} ${CRUDMAN_PATH} ${GRAFANA_PATH}'"
+        "envsubst '${APP_NAME} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${GRAFANA_IDENTITY_HEADER}'"
         f" < /etc/nginx/proxy/{template}.conf.template > /etc/nginx/conf.d/default.conf"
     )
     # Both templates include the shared maps and locations fragments.
     setup_steps += [
-        "for f in maps locations; do envsubst '${APP_NAME} ${CRUDMAN_PATH} ${GRAFANA_PATH}'"
+        "for f in maps locations; do envsubst '${APP_NAME} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${GRAFANA_IDENTITY_HEADER}'"
         " < /etc/nginx/proxy/$f.conf.template > /etc/nginx/proxy/$f.conf; done"
     ]
     setup = "; ".join(setup_steps)
@@ -348,7 +361,7 @@ def _serve_certs(certs, probe):
     name = f"certorder-{uuid.uuid4().hex[:12]}"
     subprocess.run(
         ["podman", "run", "-d", "--rm", "--name", name, "--network", "none",
-         NO_PROXY_ENV, "-e", "DEBUG=false", "-v", f"{certs}:{CERT_MOUNT}:ro,z",
+         NO_PROXY_ENV, *IDENTITY_SECRET, "-e", "DEBUG=false", "-v", f"{certs}:{CERT_MOUNT}:ro,z",
          _proxy_image()],
         capture_output=True, text=True, check=True,
     )
@@ -615,6 +628,27 @@ class TestRoutingToUpstreams:
             "the redirect is absolute; it drops the port the client is talking to:\n"
             + result.stdout + result.stderr
         )
+
+
+class TestLoginAttempts:
+    """Guessing passwords is refused before it reaches the application."""
+
+    def _answers(self, data, fixtures):
+        script = (
+            "nginx; for i in $(seq 40); do wget -qS -O /dev/null "
+            f"{data} http://127.0.0.1/{CRUDMAN_PATH}/login/ 2>&1 | grep -m1 HTTP/; done"
+        )
+        return _run_proxy(script, "true", fixtures).stdout
+
+    def test_a_flood_of_passwords_shall_be_refused(self, fixtures):
+        answers = self._answers("--post-data=x", fixtures)
+
+        assert " 200" in answers and " 429" in answers
+
+    def test_viewing_the_form_shall_not_count(self, fixtures):
+        answers = self._answers("", fixtures)
+
+        assert " 200" in answers and " 429" not in answers
 
 
 class TestWebSockets:

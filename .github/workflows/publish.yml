@@ -109,6 +109,7 @@ jobs:
             echo "SECRET_DJANGO_KEY=${SECRET_DJANGO_KEY}"
             echo "SECRET_OIDC_CLIENT=${SECRET_OIDC_CLIENT}"
             echo "SECRET_JUPYTER=${SECRET_JUPYTER}"
+            echo "SECRET_GRAFANA_IDENTITY=${SECRET_GRAFANA_IDENTITY}"
           } > dist/manifest.env
 
           # The installer runs standalone from the release, so neither can come from

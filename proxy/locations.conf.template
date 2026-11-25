@@ -5,6 +5,10 @@
     # on inside the pod, which is not the one the browser used.
     absolute_redirect off;
 
+    # Room for the random name of Grafana's identity header, which the default of 64 holds
+    # only as long as it hashes away from every other.
+    proxy_headers_hash_bucket_size 128;
+
     # Django serves its URLs under /${CRUDMAN_PATH} itself, so the path is unchanged.
     location /${CRUDMAN_PATH}/ {
         # Page visits only, the map dropping assets and non-GET. nginx's own access log on
@@ -19,19 +23,26 @@
         proxy_set_header Host $http_host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+
+        # The burst is for a person mistyping; a program guessing passwords is refused. The
+        # second address is allauth's. Nested, so the headers above apply unchanged.
+        location ~ ^/${CRUDMAN_PATH}/(accounts/)?login/$ {
+            limit_req zone=login burst=20 nodelay;
+            limit_req_status 429;
+            proxy_pass http://127.0.0.1:8000;
+        }
     }
 
     # Grafana serves from /${GRAFANA_PATH} itself, so the path is unchanged.
     #
     # Grafana has no login of its own here: it trusts the X-WEBAUTH-* headers this location
     # sets from the admin panel's answer about the session cookie (auth_request below).
-    # That is safe, as Grafana accepts them only from the loopback, this is the only route
-    # in, and proxy_set_header always overwrites what a browser sends.
+    # That is safe, as the one naming the visitor has a name only the two of them know.
     location /${GRAFANA_PATH}/ {
         access_log /var/log/app/visits.log visit_json if=$visit_log;
         # A request carrying Authorization is an API client's, whose credential Grafana
-        # checks itself. auth_request cannot be made conditional, so the condition is in
-        # the subrequest's location.
+        # checks itself, and whose cookies are dropped (maps.conf.template). auth_request
+        # cannot be made conditional, so the condition is in the subrequest's location.
         auth_request /_grafana_auth;
         auth_request_set $webauth_user  $upstream_http_x_webauth_user;
         auth_request_set $webauth_name  $upstream_http_x_webauth_name;
@@ -54,7 +65,8 @@
         proxy_set_header Host $http_host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-WEBAUTH-USER  $webauth_user;
+        proxy_set_header Cookie $grafana_cookies;
+        proxy_set_header ${GRAFANA_IDENTITY_HEADER} $webauth_user;
         proxy_set_header X-WEBAUTH-NAME  $webauth_name;
         proxy_set_header X-WEBAUTH-EMAIL $webauth_email;
         proxy_set_header X-WEBAUTH-ROLE  $webauth_role;
@@ -92,7 +104,6 @@
     location /${GRAFANA_PATH}/public/ {
         proxy_pass http://127.0.0.1:3000;
         proxy_set_header Host $http_host;
-        proxy_set_header X-WEBAUTH-USER "";
     }
 
     # The subrequest itself, unreachable as a URL. It carries the visitor's cookies, and no
@@ -131,11 +142,8 @@
         proxy_buffering off;
         proxy_read_timeout 1h;
         proxy_pass http://127.0.0.1:8001/;
-        # Authorization and Cookie pass untouched, so the server acts as the caller towards
-        # Grafana. No auth_request, as an assistant has no browser session. The header
-        # Grafana trusts from the loopback, where the server calls from, is stripped so a
-        # forged one cannot ride through.
-        proxy_set_header X-WEBAUTH-USER "";
+        # Authorization passes untouched, so the server acts as the caller towards Grafana.
+        # No auth_request, as an assistant has no browser session.
         proxy_set_header Host $http_host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;

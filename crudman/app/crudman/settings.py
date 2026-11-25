@@ -48,6 +48,10 @@ CRUDMAN_PATH = os.environ.get("CRUDMAN_PATH", "crudman")
 GRAFANA_PATH = os.environ.get("GRAFANA_PATH", "grafana")
 NOTEBOOK_PATH = os.environ.get("NOTEBOOK_PATH", "jupyter")
 
+# Roles are read from the identity provider at sign-in alone, so this bounds how long one
+# taken away there lasts here. Twelve hours, as a notebook's database password.
+SESSION_COOKIE_AGE = 12 * 60 * 60
+
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", SERVER_NAME]
 
 CSRF_TRUSTED_ORIGINS = [f"http://{SERVER_NAME}", f"https://{SERVER_NAME}"]

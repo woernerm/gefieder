@@ -339,6 +339,7 @@ create_secret "$SECRET_CRUDMAN_PASSWORD" "$(openssl rand -hex 32)"
 create_secret "$SECRET_SQLMESH_PASSWORD" "$(openssl rand -hex 32)"
 create_secret "$SECRET_GRAFANA_PASSWORD" "$(openssl rand -hex 32)"
 create_secret "$SECRET_JUPYTER"          "$(openssl rand -hex 32)"
+create_secret "$SECRET_GRAFANA_IDENTITY" "$(openssl rand -hex 16)"
 create_secret "$SECRET_PG_SUPERUSER_PASSWORD" "$(openssl rand -hex 32)"
 
 # The one credential this script cannot produce, the identity provider issuing it. Created

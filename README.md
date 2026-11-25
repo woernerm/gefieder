@@ -244,12 +244,13 @@ take effect.
 | Secret | Used for |
 | --- | --- |
 | `django_secret_key` | Django's cryptographic signing key |
-| `superuser_password` | the PostgreSQL, Django and Grafana admin login |
+| `superuser_password` | the superuser's login to the admin panel |
 | `crudman_password` | the database user the Django app connects with |
 | `sqlmesh_password` | the database user the analytics engine connects with |
 | `grafana_password` | the read-only database user for the Grafana data source |
 | `oidc_client_secret` | the single sign-on client secret, if you use it (see below) |
 | `jupyter_secret` | encrypts the notebook sessions JupyterHub keeps |
+| `grafana_identity` | how Grafana recognizes who signed in; letters and digits only |
 | `postgres_password` | the PostgreSQL cluster superuser, generated at install |
 
 These are the names as shipped. If one of them collides with a podman secret your server
@@ -265,6 +266,9 @@ with Entra ID, Keycloak, Authentik, Okta and Google, and is off until you config
 There is one sign-in for the whole system, whether or not single sign-on is on: the admin
 panel's. Grafana and the notebooks recognise whoever is signed in there and never ask
 again.
+
+SSH keys and access tokens stop working 30 days after their owner last signed in, and work
+again after the next sign-in.
 
 Their access is decided by three roles, which you assign to people at the provider:
 

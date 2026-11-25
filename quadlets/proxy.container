@@ -30,6 +30,10 @@ Environment=NOTEBOOK_PATH=${NOTEBOOK_PATH}
 # is missing: inside the container only the mount point is visible. systemd resolves "%h".
 Environment=CERTIFICATE_HINT=${CERTIFICATE_PATH}
 Volume=${CERTIFICATE_PATH}:/etc/nginx/proxy/certs:ro,z
+# So the code reading a file back out of /run/secrets looks for the name podman put
+# there (see SECRET_* in buildtime.env).
+Environment=SECRET_GRAFANA_IDENTITY=${SECRET_GRAFANA_IDENTITY}
+Secret=${SECRET_GRAFANA_IDENTITY}
 # nginx writes visits.log here, one JSON line per page navigation, which the collector
 # drains by byte offset. Data, not a human log; those go to stdout. RHEL/Fedora SELinux
 # needs the relabel for a rootless mount.

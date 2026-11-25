@@ -27,11 +27,13 @@ Environment=GF_SERVER_SERVE_FROM_SUB_PATH=true
 Environment=GF_LOG_MODE=console
 # RHEL/Fedora SELinux needs a relabeled volume for rootless podman to mount it.
 Volume=grafana_data.volume:/var/lib/grafana:z
-# superuser_password for the admin login, grafana_password for the data source. No
+# superuser_password for the admin login, grafana_password for the data source,
+# grafana_identity for the header the proxy signs visitors in with. No
 # single sign-on secret: Grafana has no login of its own, the proxy signing visitors in
 # on the admin panel's say-so (custom.ini, [auth.proxy]).
 Secret=${SECRET_SUPERUSER_PASSWORD}
 Secret=${SECRET_GRAFANA_PASSWORD}
+Secret=${SECRET_GRAFANA_IDENTITY}
 HealthCmd=wget -qO /dev/null http://localhost:3000/${GRAFANA_PATH}/api/health
 HealthInterval=10s
 HealthTimeout=5s

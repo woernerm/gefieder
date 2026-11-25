@@ -25,7 +25,7 @@ here="$(dirname "$0")"
 # The only variables the templates reference. APP_NAME names the data source and its uid;
 # SERVER_STATS_SCHEMA, GRAFANA_DB_USER and PG_DATABASE are what the dashboard SQL reads and
 # what the data source connects as, the same settings postgresql/render.sh baked into the
-# init scripts. The two SECRET_* names are the files the passwords are read from at
+# init scripts. The SECRET_* names are the files the secrets are read from at
 # runtime; only the name is substituted, the $__file{} around it being Grafana's.
 # GRAFANA_PATH and MCP_PATH are the two paths the AI-assistant dashboard spells out.
 #
@@ -34,7 +34,7 @@ here="$(dirname "$0")"
 # upgrade cannot leave Grafana describing the last one.
 POSTGRES_VERSION="$(sed -n 's|^FROM .*/postgres:\([0-9][0-9]*\).*|\100|p' "$here/../postgresql/Dockerfile")"
 export POSTGRES_VERSION
-VARS='${APP_NAME} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${GRAFANA_DB_USER} ${SECRET_GRAFANA_PASSWORD} ${GRAFANA_PATH} ${MCP_PATH} ${CRUDMAN_PATH} ${POSTGRES_VERSION}'
+VARS='${APP_NAME} ${SERVER_STATS_SCHEMA} ${PG_DATABASE} ${GRAFANA_DB_USER} ${SECRET_GRAFANA_PASSWORD} ${SECRET_GRAFANA_IDENTITY} ${GRAFANA_PATH} ${MCP_PATH} ${CRUDMAN_PATH} ${POSTGRES_VERSION}'
 
 # The Readme.md explaining this folder is for the repository, not the image, and its prose
 # shows the ${...} syntax literally.

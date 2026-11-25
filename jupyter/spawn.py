@@ -38,6 +38,36 @@ class WorkspaceSpawner(LocalProcessSpawner):
     loads SQLMesh into the kernel; the other two are the system's colours and the
     stylesheet that applies them to Lab, which imports the palette from beside itself."""
 
+    INHERITED = ("PATH", "http_proxy", "https_proxy", "no_proxy", "SSL_CERT_FILE")
+    """What a command run as the person sees of the hub's environment, upper case included.
+    Nothing more, as they can read a process of their own, and the hub holds secrets."""
+
+    @classmethod
+    def _as_person(cls, account, command, **environment) -> None:
+        """Run a command with a person's own rights.
+
+        Never as the hub, which is root: what a person owns may hold a link to anywhere, and
+        root would write through it.
+
+        Args:
+            account: The Unix account record to run as.
+            command: The command and its arguments.
+            **environment: Variables to set beside the inherited ones.
+        """
+        names = {variant for name in cls.INHERITED for variant in (name, name.upper())}
+        subprocess.run(
+            command,
+            check=True,
+            cwd="/",
+            user=account.pw_uid,
+            group=account.pw_gid,
+            extra_groups=[],
+            umask=0o022,
+            env={name: os.environ[name] for name in names if name in os.environ}
+            | {"HOME": account.pw_dir}
+            | environment,
+        )
+
     def _clone(self, account) -> Path:
         """Make sure this person has a working tree, and return it.
 
@@ -55,16 +85,11 @@ class WorkspaceSpawner(LocalProcessSpawner):
         if (workspace / ".git").exists():
             return workspace
 
-        WORKSPACES.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            ["git", "clone", ORIGIN, str(workspace)],
-            check=True,
-            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        workspace.mkdir(parents=True, exist_ok=True)
+        os.chown(workspace, account.pw_uid, account.pw_gid)
+        self._as_person(
+            account, ["git", "clone", ORIGIN, str(workspace)], GIT_TERMINAL_PROMPT="0"
         )
-        # The hub clones as root, so the tree is handed to the person who works in it.
-        # Without this the git panel cannot write a single file.
-        for path in [workspace, *workspace.rglob("*")]:
-            os.chown(path, account.pw_uid, account.pw_gid)
         return workspace
 
     @staticmethod
@@ -80,19 +105,11 @@ class WorkspaceSpawner(LocalProcessSpawner):
         """
         for relative in WorkspaceSpawner.SKELETON_FILES:
             source = Path("/etc/skel", relative)
-            if not source.exists():
-                continue
-
-            target = Path(account.pw_dir, relative)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(source.read_text())
-            # Every directory the file was created under, up to the home itself, which the
-            # account already owns.
-            owned = [target]
-            while owned[-1].parent != Path(account.pw_dir):
-                owned.append(owned[-1].parent)
-            for path in owned:
-                os.chown(path, account.pw_uid, account.pw_gid)
+            if source.exists():
+                target = Path(account.pw_dir, relative)
+                WorkspaceSpawner._as_person(
+                    account, ["install", "-D", "-T", "-m", "644", str(source), str(target)]
+                )
 
     def start(self):
         """Prepare the workspace, then start the server in it.

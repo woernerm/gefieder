@@ -55,6 +55,9 @@ def key(tmp_path_factory):
     django(
         "from django.contrib.auth.models import User; from system import ssh; "
         "from system.models import SSHKey; "
+        "from django.utils import timezone; "
+        # A key is accepted only from somebody who signed in recently.
+        f"User.objects.filter(username='{SUPERUSER_NAME}').update(last_login=timezone.now()); "
         f"line, fingerprint, _ = ssh.parse_key('{public}'); "
         f"SSHKey.objects.create(user=User.objects.get(username='{SUPERUSER_NAME}'), "
         "title='ssh-suite', public_key=line, fingerprint=fingerprint)"

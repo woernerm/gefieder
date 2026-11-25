@@ -82,7 +82,9 @@ PostgreSQL bridge and the login-time reconciliation.
   `<CRUDMAN_PATH>/dbusers/password/`. It is worth exactly the database access it stands
   for and nothing else, which is why a laptop stores it rather than the sign-in that
   administers the system. Creating a new one invalidates the old, and switching Database
-  access off clears it -- revoking is the same click as removing the access.
+  access off clears it -- revoking is the same click as removing the access. Only its hash
+  is stored, and it is refused 30 days after its owner last signed in, as the rank is read
+  at sign-in and nothing else says that somebody left.
 
 ## What it deliberately does not do
 

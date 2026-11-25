@@ -7,11 +7,10 @@ GRANT ALL PRIVILEGES ON SCHEMA crudman TO ${CRUDMAN_DB_USER};
 ALTER DEFAULT PRIVILEGES IN SCHEMA crudman GRANT ALL ON TABLES TO ${CRUDMAN_DB_USER};
 ALTER DEFAULT PRIVILEGES IN SCHEMA crudman GRANT ALL ON SEQUENCES TO ${CRUDMAN_DB_USER};
 
--- Read, not write. The default privileges name the schema's owner in their FOR ROLE,
--- that being what creates the tables.
+-- Read, not write, and no table holding a credential or a session: whoever may ship a model
+-- may read what this role reads. Table by table below, hence no default privilege.
 GRANT USAGE ON SCHEMA crudman TO ${SQLMESH_DB_USER};
-GRANT SELECT ON ALL TABLES IN SCHEMA crudman TO ${SQLMESH_DB_USER};
-ALTER DEFAULT PRIVILEGES FOR ROLE ${CRUDMAN_DB_USER} IN SCHEMA crudman GRANT SELECT ON TABLES TO ${SQLMESH_DB_USER};
+ALTER DEFAULT PRIVILEGES FOR ROLE ${CRUDMAN_DB_USER} IN SCHEMA crudman REVOKE SELECT ON TABLES FROM ${SQLMESH_DB_USER};
 
 -- Grafana reads, never writes, the analytics data: the per-project bronze schemas, silver
 -- and gold. It must not see sqlmesh's internals -- the physical schemas behind the virtual
@@ -78,12 +77,45 @@ GRANT SELECT ON ALL TABLES IN SCHEMA ${SILVER_SCHEMA}, ${GOLD_SCHEMA} TO ${GRAFA
 ALTER DEFAULT PRIVILEGES FOR ROLE ${SQLMESH_DB_USER} IN SCHEMA ${SILVER_SCHEMA} GRANT SELECT ON TABLES TO ${GRAFANA_DB_USER};
 ALTER DEFAULT PRIVILEGES FOR ROLE ${SQLMESH_DB_USER} IN SCHEMA ${GOLD_SCHEMA} GRANT SELECT ON TABLES TO ${GRAFANA_DB_USER};
 
--- Grafana also reads the crudman model tables, but not Django's own auth_/django_ ones,
--- which hold credentials and framework state. The schema already exists, so USAGE is
--- granted here and an event trigger grants SELECT on every model table created later.
+-- Which crudman tables the analytics side must not read. Of the tables this system ships
+-- itself, all but the named ones, so one added later is private until somebody decides
+-- otherwise. A table of an app added to this system is readable, that being what it is for.
+CREATE OR REPLACE FUNCTION public.is_private_crudman_table(table_name text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+SET search_path = pg_catalog
+AS $$
+    SELECT table_name ~ '^(account|auth|dbusers|django|dropzones|shell|socialaccount|system)_'
+       AND table_name NOT IN ('dropzones_upload', 'dropzones_uploadfile', 'system_deployment');
+$$;
+
+-- What an earlier release granted, and sqlmesh's read access to what exists already.
+DO $$
+DECLARE
+    obj record;
+BEGIN
+    FOR obj IN
+        SELECT oid::regclass AS identity, relname
+        FROM pg_class
+        WHERE relnamespace = 'crudman'::regnamespace AND relkind IN ('r', 'p')
+    LOOP
+        IF public.is_private_crudman_table(obj.relname) THEN
+            EXECUTE format(
+                'REVOKE ALL ON %s FROM ${GRAFANA_DB_USER}, ${SQLMESH_DB_USER}', obj.identity
+            );
+        ELSE
+            EXECUTE format('GRANT SELECT ON %s TO ${SQLMESH_DB_USER}', obj.identity);
+        END IF;
+    END LOOP;
+END;
+$$;
+
+-- The schema already exists, so USAGE is granted here and an event trigger grants SELECT on
+-- every readable table created later.
 GRANT USAGE ON SCHEMA crudman TO ${GRAFANA_DB_USER};
 
-CREATE OR REPLACE FUNCTION grant_grafana_read_crudman()
+CREATE OR REPLACE FUNCTION grant_crudman_read()
 RETURNS event_trigger
 LANGUAGE plpgsql
 AS $$
@@ -91,26 +123,25 @@ DECLARE
     obj record;
 BEGIN
     FOR obj IN
-        SELECT objid, object_identity
-        FROM pg_event_trigger_ddl_commands()
-        WHERE command_tag = 'CREATE TABLE'
-          AND schema_name = 'crudman'
+        SELECT c.oid::regclass AS identity, c.relname
+        FROM pg_event_trigger_ddl_commands() ddl
+        JOIN pg_class c ON c.oid = ddl.objid
+        WHERE ddl.command_tag = 'CREATE TABLE'
+          AND ddl.schema_name = 'crudman'
     LOOP
-        -- Django's own tables, and the dropzone table for its upload-link tokens; the
-        -- upload and file tables the dashboards need stay readable.
-        IF obj.object_identity LIKE 'crudman.auth\_%'
-           OR obj.object_identity LIKE 'crudman.django\_%'
-           OR obj.object_identity = 'crudman.dropzones_dropzone' THEN
-            CONTINUE;
-        END IF;
+        CONTINUE WHEN public.is_private_crudman_table(obj.relname);
 
-        EXECUTE format('GRANT SELECT ON %s TO ${GRAFANA_DB_USER}', obj.object_identity);
+        EXECUTE format(
+            'GRANT SELECT ON %s TO ${GRAFANA_DB_USER}, ${SQLMESH_DB_USER}', obj.identity
+        );
     END LOOP;
 END;
 $$;
 
 DROP EVENT TRIGGER IF EXISTS grafana_read_on_create_crudman_table;
-CREATE EVENT TRIGGER grafana_read_on_create_crudman_table
+DROP FUNCTION IF EXISTS grant_grafana_read_crudman();
+DROP EVENT TRIGGER IF EXISTS read_on_create_crudman_table;
+CREATE EVENT TRIGGER read_on_create_crudman_table
     ON ddl_command_end
     WHEN TAG IN ('CREATE TABLE')
-    EXECUTE FUNCTION grant_grafana_read_crudman();
+    EXECUTE FUNCTION grant_crudman_read();

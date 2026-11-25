@@ -6,12 +6,15 @@ functions themselves are covered against the live stack in tests/test_db_users.p
 admin switch in sso/tests.py.
 """
 from datetime import datetime, timedelta, timezone
+from importlib import import_module
 from unittest.mock import patch
 
+from django.apps import apps
 from django.contrib.auth.models import Group, User
 from django.contrib.messages.storage.base import BaseStorage
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
+from django.utils import timezone as django_timezone
 from sso.roles import GROUP_FOR_RANK
 from sso.testing import make_user
 
@@ -383,6 +386,28 @@ class TokenTests(TestCase):
         self.assertIsNone(user_for_token(token))
 
 
+    def test_a_person_who_stopped_signing_in_holds_no_usable_token(self):
+        """Nothing else says that somebody left the company."""
+        token = issue_token(self.user)
+        for last_login in (None, django_timezone.now() - timedelta(days=31)):
+            self.user.last_login = last_login
+            self.user.save()
+
+            self.assertIsNone(user_for_token(token))
+
+    def test_the_token_itself_is_not_stored(self):
+        token = issue_token(self.user)
+
+        self.assertNotEqual(DatabaseUser.objects.get(user=self.user).token, token)
+
+    def test_a_token_from_before_they_were_hashed_still_works(self):
+        DatabaseUser.objects.filter(user=self.user).update(token="issued-earlier")
+
+        import_module("dbusers.migrations.0002_hash_tokens").hash_tokens(apps, None)
+
+        self.assertEqual(user_for_token("issued-earlier"), self.user)
+
+
 class PasswordEndpointTests(MockedConnectionMixin, TestCase):
     """What a checkout gets when it presents its token."""
 
@@ -476,8 +501,8 @@ class AccessTokenPageTests(TestCase):
         response = self.client.post(self.create_url)
         page = response.content.decode()
 
-        token = DatabaseUser.objects.get(user=self.user).token
-        self.assertTrue(token)
+        token = response.context["secret"]
+        self.assertEqual(user_for_token(token), self.user)
         self.assertIn(token, page)
 
         # Shown once: coming back to the page must not repeat it.

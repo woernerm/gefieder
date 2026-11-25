@@ -116,11 +116,17 @@ else
   reorder_fullchain
 fi
 
+# The header Grafana reads the visitor from; see grafana/custom.ini. Assigned before it is
+# exported, as a failing read would otherwise not stop the script.
+identity="$(cat "/run/secrets/${SECRET_GRAFANA_IDENTITY:-grafana_identity}")"
+export GRAFANA_IDENTITY_HEADER="X-WEBAUTH-${identity}"
+
 # Only our own variables, so nginx's ($host, $scheme, ...) survive. The fragments are
 # rendered beside the templates, where the include lines name them.
-envsubst '${APP_NAME} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${NOTEBOOK_PATH}' < "$template" > /etc/nginx/conf.d/default.conf
+variables='${APP_NAME} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${NOTEBOOK_PATH} ${GRAFANA_IDENTITY_HEADER}'
+envsubst "$variables" < "$template" > /etc/nginx/conf.d/default.conf
 for fragment in maps locations; do
-  envsubst '${APP_NAME} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${MCP_PATH} ${NOTEBOOK_PATH}' \
+  envsubst "$variables" \
     < "/etc/nginx/proxy/${fragment}.conf.template" > "/etc/nginx/proxy/${fragment}.conf"
 done
 

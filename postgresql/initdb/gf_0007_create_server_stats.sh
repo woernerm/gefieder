@@ -242,6 +242,23 @@ END;
 $$;
 
 --------------------------------------------------------------------------------
+-- Statements with a password in them, collected before entrypoint.sh stopped that.
+--------------------------------------------------------------------------------
+DELETE FROM :"schema".query_dim
+WHERE query ~* '\m(create|alter)\s+(role|user)\M.*\mpassword\M';
+
+-- The view cannot be read on a first install, the library being loaded only afterwards.
+DO $$
+BEGIN
+    IF current_setting('shared_preload_libraries') LIKE '%pg_stat_statements%' THEN
+        PERFORM pg_stat_statements_reset(userid, dbid, queryid)
+        FROM pg_stat_statements
+        WHERE query ~* '\m(create|alter)\s+(role|user)\M.*\mpassword\M';
+    END IF;
+END;
+$$;
+
+--------------------------------------------------------------------------------
 -- Read access for grafana so the display layer (added later) can chart the data.
 --------------------------------------------------------------------------------
 GRANT USAGE ON SCHEMA :"schema" TO ${GRAFANA_DB_USER};

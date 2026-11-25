@@ -144,6 +144,7 @@ SECRETS = {
     "django_key": os.environ["SECRET_DJANGO_KEY"],
     "oidc_client": os.environ["SECRET_OIDC_CLIENT"],
     "jupyter": os.environ["SECRET_JUPYTER"],
+    "grafana_identity": os.environ["SECRET_GRAFANA_IDENTITY"],
 }
 CRUDMAN_PATH = os.environ["CRUDMAN_PATH"]
 GRAFANA_PATH = os.environ["GRAFANA_PATH"]
@@ -360,11 +361,12 @@ def db(connect):
 
 @pytest.fixture(scope="module")
 def grafana_api():
-    """Grafana's API, authenticated as the admin: the superuser's credentials log in here."""
-    with httpx.Client(base_url=f"{BASE_URL}/{GRAFANA_PATH}", verify=VERIFY_TLS,
-                      auth=(SUPERUSER_NAME, SUPERUSER_PASSWORD),
-                      follow_redirects=True, timeout=30) as client:
-        yield client
+    """Grafana's API, as the superuser signed in to the admin panel."""
+    client = sign_in()
+    client.base_url = f"{BASE_URL}/{GRAFANA_PATH}"
+    client.timeout = 30
+    yield client
+    client.close()
 
 
 @pytest.fixture(scope="session")

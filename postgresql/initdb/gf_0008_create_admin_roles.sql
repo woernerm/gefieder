@@ -46,8 +46,7 @@ GRANT SELECT ON ALL TABLES IN SCHEMA ${SILVER_SCHEMA}, ${GOLD_SCHEMA} TO ${ROLE_
 ALTER DEFAULT PRIVILEGES FOR ROLE ${SQLMESH_DB_USER} IN SCHEMA ${SILVER_SCHEMA} GRANT SELECT ON TABLES TO ${ROLE_PREFIX}viewer;
 ALTER DEFAULT PRIVILEGES FOR ROLE ${SQLMESH_DB_USER} IN SCHEMA ${GOLD_SCHEMA} GRANT SELECT ON TABLES TO ${ROLE_PREFIX}viewer;
 
--- Minus the tables holding credentials or secret tokens, as for grafana: Django's own
--- auth_/django_ tables and the dropzone table with its upload-link tokens.
+-- Minus the private tables, as for grafana: is_private_crudman_table in gf_0005.
 GRANT USAGE ON SCHEMA crudman TO ${ROLE_PREFIX}viewer;
 
 -- Editors and admins are members of the viewer role rather than repeating its grants.

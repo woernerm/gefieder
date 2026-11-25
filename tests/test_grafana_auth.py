@@ -7,15 +7,24 @@ loopback. So one sign-in serves the admin panel, the notebooks and Grafana alike
 sign-on is the admin panel's alone to configure, and a person's rank decides what they may
 do in all three.
 
-Trusting a header is only safe while the header cannot be forged, which rests on two
-things: that the proxy sets it itself on every request, asserted below, and that the one
-other loopback caller of Grafana -- the MCP server, which forwards a caller's headers --
-never forwards this one, asserted beside that server's other tests in test_mcp.py.
+Trusting a header is only safe while the header cannot be forged. The whole pod shares the
+loopback, so the one naming the visitor has a name only the proxy and Grafana know.
 """
+
+import subprocess
 
 import pytest
 
-from conftest import BASE_URL, CRUDMAN_LOGIN, CRUDMAN_PATH, GRAFANA_PATH, SUPERUSER_NAME, sign_in
+from conftest import (
+    BASE_URL,
+    CRUDMAN_LOGIN,
+    CRUDMAN_PATH,
+    GRAFANA_PATH,
+    SUPERUSER_NAME,
+    SUPERUSER_PASSWORD,
+    podman,
+    sign_in,
+)
 
 
 @pytest.fixture(scope="module")
@@ -123,6 +132,19 @@ class TestSignedIn:
         assert resp.status_code == 302
         assert resp.headers["location"].startswith(CRUDMAN_LOGIN)
 
+    def test_an_authorization_header_shall_not_revive_it(self, own_browser):
+        """An API client's request skips the admin panel's check, so it brings no session."""
+        own_browser.get(f"/{GRAFANA_PATH}/login")
+        own_browser.post(f"/{CRUDMAN_PATH}/logout/",
+                         data={"csrfmiddlewaretoken": own_browser.cookies["csrftoken"]},
+                         headers={"Referer": f"{BASE_URL}/{CRUDMAN_PATH}/"})
+        assert own_browser.cookies.get("grafana_session")
+
+        resp = own_browser.get(f"/{GRAFANA_PATH}/api/user", follow_redirects=False,
+                               headers={"Authorization": "Anything at all"})
+
+        assert resp.status_code == 401
+
     def test_the_admin_panels_session_shall_open_grafana(self, signed_in):
         """The same cookie, never a second sign-in."""
         resp = signed_in.get(f"/{GRAFANA_PATH}/api/user")
@@ -144,6 +166,24 @@ class TestSignedIn:
         assert resp.status_code == 200
 
 
+class TestPasswords:
+    """The admin panel's login is the one place to guess a password, and it is limited."""
+
+    def test_grafana_shall_take_none_in_a_header(self, http):
+        resp = http.get(f"/{GRAFANA_PATH}/api/user",
+                        auth=(SUPERUSER_NAME, SUPERUSER_PASSWORD))
+
+        assert resp.status_code == 401
+
+    def test_grafana_shall_take_none_in_a_form(self, http):
+        """With a header that skips the admin panel's check, or it would not get that far."""
+        resp = http.post(f"/{GRAFANA_PATH}/login", headers={"Authorization": "Anything"},
+                         json={"user": SUPERUSER_NAME, "password": SUPERUSER_PASSWORD})
+
+        assert resp.status_code >= 400
+        assert "grafana_session" not in resp.cookies
+
+
 class TestForgery:
     """The header Grafana trusts is the proxy's to set, never a browser's."""
 
@@ -154,6 +194,18 @@ class TestForgery:
 
         assert resp.status_code == 302
         assert resp.headers["location"].startswith(CRUDMAN_LOGIN)
+
+    @pytest.mark.parametrize("container", ["sqlmesh", "jupyter"])
+    def test_a_container_of_the_pod_shall_not_sign_itself_in(self, container):
+        """Models and notebooks run other people's code beside Grafana."""
+        probe = (
+            "import urllib.request as r; r.build_opener(r.ProxyHandler({})).open(r.Request("
+            f"'http://127.0.0.1:3000/{GRAFANA_PATH}/api/user', "
+            f"headers={{'X-WEBAUTH-USER': '{SUPERUSER_NAME}'}}))"
+        )
+        with pytest.raises(subprocess.CalledProcessError) as refusal:
+            podman("exec", container, "python3", "-c", probe)
+        assert "HTTP Error 401" in refusal.value.stderr
 
 
 class TestEndpoint:

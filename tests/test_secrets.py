@@ -73,7 +73,8 @@ class TestSecretsNotInQuadlets:
     # oidc_client_secret holds only the installer's placeholder until an operator sets the
     # real one, but it must exist: the containers referencing it will not start otherwise.
     @pytest.mark.parametrize(
-        "name", list(SECRET_VALUES) + [SECRETS["django_key"], SECRETS["oidc_client"]]
+        "name", list(SECRET_VALUES) + [SECRETS["django_key"], SECRETS["oidc_client"],
+                                    SECRETS["grafana_identity"]]
     )
     def test_secrets_shall_exist_as_podman_secrets(self, name):
         # Credentials are podman secrets, not inline config.

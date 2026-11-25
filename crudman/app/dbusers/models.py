@@ -48,7 +48,7 @@ class DatabaseUser(models.Model):
 
     # What a developer's checkout uses to fetch a short-lived password, so a laptop never
     # stores the sign-in that administers the system. Cleared, i.e. revoked, when database
-    # access is switched off.
+    # access is switched off. Only its hash, so reading this table gives nobody access.
     token = models.CharField(
         "access token",
         max_length=64,

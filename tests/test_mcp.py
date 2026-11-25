@@ -1,8 +1,7 @@
 """The Grafana MCP server: reachable through the proxy, and bounded by the caller's role.
 
-The server holds no Grafana credential of its own. Every call carries the caller's own --
-a service-account token in Authorization, or the session cookie a signed-in browser holds
--- which the server copies onto the Grafana API requests it makes (GRAFANA_FORWARD_HEADERS
+The server holds no Grafana credential of its own. Every call carries the caller's own, a
+service-account token in Authorization, which the server copies onto the Grafana API requests it makes (GRAFANA_FORWARD_HEADERS
 in quadlets/grafana_mcp.container). So Grafana decides what a call may do, and an Admin,
 an Editor and a Viewer differ here exactly as they do in the user interface.
 
@@ -18,7 +17,7 @@ import uuid
 import httpx
 import pytest
 
-from conftest import BASE_URL, MCP_PATH, SUPERUSER_NAME, VERIFY_TLS
+from conftest import BASE_URL, GRAFANA_PATH, MCP_PATH, SUPERUSER_NAME, VERIFY_TLS, sign_in
 
 # The endpoint the streamable-http transport serves, below the prefix the proxy strips.
 MCP_URL = f"{BASE_URL}/{MCP_PATH}/mcp"
@@ -255,18 +254,25 @@ class TestPermissionsFollowTheCaller:
         assert "401" in text, f"expected Grafana's 401, got: {text[:300]}"
 
     def test_a_forged_identity_header_shall_be_refused_too(self):
-        """Grafana trusts X-WEBAUTH-USER from the loopback, where this server calls from.
-
-        Were the header forwarded, a call without a token would arrive as whoever it named.
-        """
+        """This server calls Grafana from the loopback, which must not vouch for a caller."""
         client = McpClient(headers={"X-WEBAUTH-USER": SUPERUSER_NAME})
         client.initialize()
         text, is_error = client.call("user_info")
         assert is_error, (
-            f"a forged identity header was honoured: {text[:300]} -- the proxy must strip "
-            "X-WEBAUTH-USER on the MCP location"
+            f"a forged identity header was honoured: {text[:300]}"
         )
         assert "401" in text, f"expected Grafana's 401, got: {text[:300]}"
+
+    def test_a_grafana_session_shall_be_refused(self):
+        """It outlives signing out of the admin panel, which is not asked on this route."""
+        browser = sign_in()
+        browser.get(f"/{GRAFANA_PATH}/login")
+        session = browser.cookies["grafana_session"]
+        browser.close()
+        client = McpClient(cookies={"grafana_session": session})
+        client.initialize()
+        text, is_error = client.call("user_info")
+        assert is_error and "401" in text, f"a browser session was honoured: {text[:300]}"
 
     def test_a_viewer_shall_be_refused_a_write(self, roles):
         """The refusal is Grafana's own, on the same rule that governs the web interface."""
