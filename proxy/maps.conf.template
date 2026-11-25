@@ -64,7 +64,7 @@ map "$request_method:$http_sec_fetch_dest" $notebook_port {
 # is the ordinary case, and the substitution is then the uid replaced by itself.
 map $preview_datasource $datasource_uid {
     default $preview_datasource;
-    ""      "${APP_NAME}-postgresql";
+    ""      "postgresql-production";
 }
 
 # --- login attempts ---------------------------------------------------------------------

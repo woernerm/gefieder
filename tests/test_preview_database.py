@@ -144,8 +144,8 @@ class TestOneSpelling:
     def test_grafana_declares_both_data_sources(self):
         declared = self.PROVISIONING.read_text()
 
-        assert "uid: ${APP_NAME}-postgresql" in declared
-        assert f"uid: ${{APP_NAME}}-{PREVIEW_ENV}" in declared
+        assert "uid: postgresql-production" in declared
+        assert f"uid: postgresql-{PREVIEW_ENV}" in declared
 
     def test_the_preview_data_source_reads_the_preview_database(self):
         assert f"database: ${{PG_DATABASE}}_{PREVIEW_ENV}" in self.PROVISIONING.read_text()
@@ -153,17 +153,17 @@ class TestOneSpelling:
     def test_the_proxy_substitutes_the_uid_a_dashboard_carries(self):
         """The browser echoes the uid, so a query names the dashboard's data source."""
         assert (
-            """sub_filter '"${APP_NAME}-postgresql"' '"$datasource_uid"';"""
+            """sub_filter '"postgresql-production"' '"$datasource_uid"';"""
             in self.LOCATIONS.read_text()
         )
 
     def test_a_visitor_with_no_review_gets_the_production_uid_back(self):
         """For everybody but a reviewer, the substitution maps the uid onto itself."""
-        assert '"${APP_NAME}-postgresql"' in self.MAPS.read_text()
+        assert '"postgresql-production"' in self.MAPS.read_text()
 
     def test_crudman_names_the_data_source_after_the_environment(self):
         """Which is what makes a second review a second data source and no new rule."""
         assert (
-            'PREVIEW_DATASOURCE = f"{settings.APP_NAME}-{Deployment.PREVIEW}"'
+            'PREVIEW_DATASOURCE = f"postgresql-{Deployment.PREVIEW}"'
             in self.CRUDMAN.read_text()
         )

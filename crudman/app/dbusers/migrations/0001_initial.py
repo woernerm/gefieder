@@ -19,7 +19,7 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('role_name', models.CharField(editable=False, help_text='The PostgreSQL login role, derived from the username.', max_length=63, unique=True, verbose_name='database role')),
-                ('group_role', models.CharField(editable=False, help_text="The gf_* group role carrying this user's privileges.", max_length=32, verbose_name='rank')),
+                ('group_role', models.CharField(editable=False, help_text="The group role carrying this user's privileges.", max_length=32, verbose_name='rank')),
                 ('is_enabled', models.BooleanField(default=True, editable=False, help_text='Disabled roles keep everything they own but cannot connect.', verbose_name='enabled')),
                 ('token', models.CharField(blank=True, default='', editable=False, help_text="Authenticates a developer's checkout when it fetches a password.", max_length=64, verbose_name='access token')),
                 ('provisioned_on', models.DateTimeField(auto_now=True, verbose_name='provisioned')),

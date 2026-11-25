@@ -7,7 +7,7 @@ per-user permission survives each login -- reconciling rather than overwriting, 
 """
 import os
 
-ROLE_PREFIX = os.environ.get("ROLE_PREFIX", "gf_")
+ROLE_PREFIX = os.environ.get("ROLE_PREFIX", "role_")
 """Prefix on the rank names, from ROLE_PREFIX in buildtime.env.
 
 It names both these groups and the database group roles gf_0008 creates, so the two agree

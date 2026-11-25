@@ -4,11 +4,13 @@
 apiVersion: 1
 
 datasources:
-  # Name and uid come from APP_NAME, the login role from GRAFANA_DB_USER, so both track
-  # buildtime.env -- the same file the init scripts created that role from.
+  # The name comes from APP_NAME, the login role from GRAFANA_DB_USER, so both track
+  # buildtime.env -- the same file the init scripts created that role from. The uid is
+  # fixed, so a dashboard is portable between installations, and distinctive, because the
+  # proxy replaces it wherever it stands quoted in an answer, data values included.
   - name: ${APP_NAME}
     type: postgres
-    uid: ${APP_NAME}-postgresql
+    uid: postgresql-production
     access: proxy
     url: postgresql:5432
     user: ${GRAFANA_DB_USER}
@@ -30,7 +32,7 @@ datasources:
   # (proxy/locations.conf.template).
   - name: ${APP_NAME} (preview)
     type: postgres
-    uid: ${APP_NAME}-preview
+    uid: postgresql-preview
     access: proxy
     url: postgresql:5432
     user: ${GRAFANA_DB_USER}

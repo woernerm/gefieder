@@ -22,7 +22,7 @@ here="$(dirname "$0")"
 
 . "$here/../build-lib.sh"
 
-# The only variables the templates reference. APP_NAME names the data source and its uid;
+# The only variables the templates reference. APP_NAME names the data source;
 # SERVER_STATS_SCHEMA, GRAFANA_DB_USER and PG_DATABASE are what the dashboard SQL reads and
 # what the data source connects as, the same settings postgresql/render.sh baked into the
 # init scripts. The SECRET_* names are the files the secrets are read from at

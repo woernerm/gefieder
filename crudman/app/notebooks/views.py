@@ -7,7 +7,6 @@ asks ``whoami`` itself; for Grafana, nginx's auth_request asks ``grafana``.
 Both are served under ``/<CRUDMAN_PATH>/``, so they answer only requests that did not
 come through the proxy.
 """
-from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
@@ -23,7 +22,7 @@ from .utils import issue_notebook_credential, may_use_notebooks, refusal
 GRAFANA_ROLE = {GROUP_FOR_RANK[rank]: rank.capitalize() for rank in GROUP_FOR_RANK}
 """Grafana's organisation role for each rank's group: Viewer, Editor, Admin."""
 
-PREVIEW_DATASOURCE = f"{settings.APP_NAME}-{Deployment.PREVIEW}"
+PREVIEW_DATASOURCE = f"postgresql-{Deployment.PREVIEW}"
 """The Grafana data source that reads a version under review.
 
 Named after the environment, so a second review is a second data source and no new rule.

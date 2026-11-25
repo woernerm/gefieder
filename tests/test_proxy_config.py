@@ -19,7 +19,6 @@ import uuid
 import pytest
 
 from conftest import (
-    APP_NAME,
     CRUDMAN_PATH,
     GRAFANA_PATH,
     SECRETS,
@@ -137,7 +136,7 @@ def _run_proxy(script, debug, fixtures):
         "set -e",
         "mkdir -p /var/log/app /etc/nginx/conf.d",
         "cp /fixtures/upstreams.conf /etc/nginx/conf.d/upstreams.conf",
-        f"export APP_NAME={APP_NAME} CRUDMAN_PATH={CRUDMAN_PATH}"
+        f"export CRUDMAN_PATH={CRUDMAN_PATH}"
         f" GRAFANA_PATH={GRAFANA_PATH} DEBUG={debug}"
         " GRAFANA_IDENTITY_HEADER=X-WEBAUTH-0123456789abcdef0123456789abcdef",
     ]
@@ -149,12 +148,12 @@ def _run_proxy(script, debug, fixtures):
             "reorder_fullchain",
         ]
     setup_steps.append(
-        "envsubst '${APP_NAME} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${GRAFANA_IDENTITY_HEADER}'"
+        "envsubst '${CRUDMAN_PATH} ${GRAFANA_PATH} ${GRAFANA_IDENTITY_HEADER}'"
         f" < /etc/nginx/proxy/{template}.conf.template > /etc/nginx/conf.d/default.conf"
     )
     # Both templates include the shared maps and locations fragments.
     setup_steps += [
-        "for f in maps locations; do envsubst '${APP_NAME} ${CRUDMAN_PATH} ${GRAFANA_PATH} ${GRAFANA_IDENTITY_HEADER}'"
+        "for f in maps locations; do envsubst '${CRUDMAN_PATH} ${GRAFANA_PATH} ${GRAFANA_IDENTITY_HEADER}'"
         " < /etc/nginx/proxy/$f.conf.template > /etc/nginx/proxy/$f.conf; done"
     ]
     setup = "; ".join(setup_steps)

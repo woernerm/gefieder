@@ -183,7 +183,7 @@ signing in, with nothing to choose. Everything underneath is already plural, so 
 is additive rather than a rewrite: `environment` is a field, `tree_of()` derives the
 checkout and marker from it, `apply()` in `sqlmesh/entrypoint.sh` takes it as an argument,
 the preview database is named after it, `refresh_preview()` takes it as an argument, and
-the data source uid is `<APP_NAME>-<environment>`. A second review is a second environment,
+the data source uid is `postgresql-<environment>`. A second review is a second environment,
 a second database and a second data source — that last one created through Grafana's API
 rather than provisioning, which is where the first attempt at this failed: provisioning
 runs before Grafana serves, so a data source in an organisation that does not exist yet

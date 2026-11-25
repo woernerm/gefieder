@@ -81,7 +81,7 @@
         gzip_proxied any;
         sub_filter_types application/json;
         sub_filter_once off;
-        sub_filter '"${APP_NAME}-postgresql"' '"$datasource_uid"';
+        sub_filter '"postgresql-production"' '"$datasource_uid"';
 
         # A rotation Grafana refuses (an expired or orphaned token) would be a 401, on which
         # its frontend reloads forever. Sent through the login route instead, the one place

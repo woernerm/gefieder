@@ -34,7 +34,7 @@ class DatabaseUser(models.Model):
         "rank",
         max_length=32,
         editable=False,
-        help_text="The gf_* group role carrying this user's privileges.",
+        help_text="The group role carrying this user's privileges.",
     )
 
     # delete_db_user clears this rather than dropping the role, so what the person
